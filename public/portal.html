@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client Login | My Heritage</title>
+<meta name="description" content="Sign in to the My Heritage client portal to view your stand, payment history, documents and project progress.">
+<link rel="canonical" href="https://heritagehousing.co.zw/portal.html">
+<link rel="icon" href="/assets/img/logo-mark.png?v=1790919368521">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/styles.css?v=1791049868153">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<header class="site-header">
+  <a href="/" class="brand">
+    <img class="brand-logo" src="/assets/img/logo.png" alt="Heritage Housing Projects (Pvt) Ltd">
+  </a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mainNav" aria-label="Toggle navigation">&#9776;</button>
+  <nav id="mainNav" aria-label="Primary">
+    <a href="/index.html">Home</a>
+    <a href="/about.html">About</a>
+    <a href="/services.html">Services</a>
+    <a href="/projects.html">Projects</a>
+    <a href="/properties.html">Properties</a>
+    <a href="/news.html">News</a>
+    <a href="/contact.html">Contact</a>
+    <a class="portal-btn" href="/portal.html">Client Login</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <section class="portal-shell">
+    <div class="portal-panel narrow">
+      <div class="portal-brand">
+        <img class="brand-logo" src="/assets/img/logo.png" alt="Heritage Housing Projects (Pvt) Ltd">
+      </div>
+      <p class="brand-tag">CLIENT PORTAL</p>
+
+      <h1 style="font-size:30px">Client Login</h1>
+      <p class="muted">Access your stand, payment and project information.</p>
+
+      <p class="notice" id="loginStatus" role="status" aria-live="polite"></p>
+
+      <form id="loginForm" method="post" action="/api/auth/login" class="login-form">
+        <label for="clientNumber">Client number</label>
+        <input id="clientNumber" name="clientNumber" type="text" autocomplete="username" placeholder="e.g. HP-10245" required>
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+        <button class="btn primary full" type="submit">Sign in</button>
+      </form>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container footer-grid">
+    <div>
+      <div class="brand">
+        <img class="brand-logo" src="/assets/img/logo-light.png" alt="Heritage Housing Projects (Pvt) Ltd">
+      </div>
+      <p>Building communities. Creating opportunities.</p>
+    </div>
+    <div>
+      <h4>Explore</h4>
+      <a href="/projects.html">Projects</a>
+      <a href="/properties.html">Properties</a>
+      <a href="/services.html">Services</a>
+      <a href="/news.html">News</a>
+    </div>
+    <div>
+      <h4>Clients</h4>
+      <a href="/portal.html">Client Login</a>
+      <a href="/contact.html">Support</a>
+    </div>
+    <div>
+      <h4>Contact</h4>
+      <p>NetOne Building, Office PD30, Gweru, Zimbabwe</p>
+      <p><a href="tel:+26354222697">+263 542 22697</a></p>
+      <p><a href="mailto:heritagehousingp@gmail.com">heritagehousingp@gmail.com</a></p>
+      <p><a href="https://wa.me/message/3NT2K5FBKFQI1" target="_blank" rel="noopener noreferrer">WhatsApp us</a></p>
+    </div>
+  </div>
+  <div class="container copyright">
+    &copy; <span data-year>2026</span> Heritage Housing Projects (Pvt) Ltd. All rights reserved.
+  </div>
+</footer>
+
+<script src="/assets/js/site.js" defer></script>
+</body>
+</html>

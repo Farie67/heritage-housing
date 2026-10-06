@@ -1,0 +1,26 @@
+{
+  "name": "heritage-housing-projects",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Heritage Housing Projects (Pvt) Ltd — corporate website and secure client portal.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node scripts/seed.js",
+    "build:pages": "node tools/build-pages.js",
+    "check": "node scripts/check.js",
+    "coverage": "node tools/content-coverage.js"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "comments": {
+    "zero-dependencies": "This project intentionally has no runtime dependencies. It uses only Node's standard library: node:http, node:sqlite, node:crypto, node:fs. There is no install step and no lockfile to audit.",
+    "node-version": "node:sqlite requires Node 22.5 or newer. Developed and tested on Node 24.",
+    "npm": "npm is not required. 'node server/index.js' is the whole build and run story."
+  }
+}

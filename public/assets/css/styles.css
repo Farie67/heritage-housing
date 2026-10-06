@@ -1,0 +1,1476 @@
+/* ==========================================================================
+   Heritage Housing Projects — stylesheet
+   Palette and typography preserved from the original prototype.
+   Rebuilt as readable, un-minified CSS so it can be maintained.
+
+   Fixes applied vs. the original styles.css (see AUDIT.md):
+     - global :focus-visible ring (was: none anywhere)
+     - prefers-reduced-motion support
+     - no text below 11px (was: 8px / 9px / 10px)
+     - .page { display:none } removed — pages are real files now
+     - image fallbacks so a blocked CDN still looks intentional
+   ========================================================================== */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+:root {
+  /* Blue and red sampled directly from the supplied logo. */
+  --navy:   #283090;   /* brand blue — buttons, cards, links */
+  --navy-2: #1f2678;   /* darker blue, for image placeholders */
+  --navy-3: #171c56;   /* footer and other darkest surfaces */
+  --red:    #e81820;   /* the exact logo red, for solid fills */
+  --gold:   #c81218;   /* brand red, darkened so small text passes contrast on white */
+  --gold-2: #ff5a60;   /* brand red lightened, for use on the dark hero */
+  --cream:  #f4f6fb;   /* cool off-white, replacing the old warm cream */
+  --ink:    #14172b;
+  --body:   #4b5163;
+  --muted:  #6b7280;
+  --line:   #e3e6ef;
+  --green:  #1f7a4d;   /* semantic only: available, confirmed, done */
+  --shadow: 0 18px 50px rgba(40, 48, 144, .16);
+  --radius: 18px;
+  --radius-pill: 999px;
+  --header-h: 78px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: #fff;
+}
+
+h1, h2, h3, h4 {
+  font-family: Manrope, system-ui, sans-serif;
+  line-height: 1.15;
+  margin: 0 0 16px;
+}
+h1 { font-size: clamp(38px, 6vw, 76px); letter-spacing: -2px; }
+h2 { font-size: clamp(28px, 4vw, 48px); letter-spacing: -1px; }
+h3 { font-size: 21px; }
+p  { margin: 0 0 18px; color: var(--body); }
+img { max-width: 100%; display: block; }
+ul { margin: 0 0 18px; padding-left: 20px; }
+
+a { color: inherit; }
+
+/* ── Accessibility helpers ──────────────────────────────────────────────── */
+/* A visible focus ring on every interactive element. The original had none. */
+:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 200;
+  background: var(--navy);
+  color: #fff;
+  padding: 12px 20px;
+  font-weight: 700;
+  border-radius: 0 0 10px 0;
+}
+.skip-link:focus { left: 0; }
+
+.noscript-bar {
+  background: #fdf3d7;
+  border-bottom: 1px solid var(--gold);
+  color: #6b4c12;
+  padding: 12px 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.container { width: min(1160px, 92%); margin-inline: auto; }
+
+.section { padding: 95px 0; }
+.section.soft { background: var(--cream); }
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 30px;
+  align-items: flex-end;
+  margin-bottom: 42px;
+}
+.section-head h2 { max-width: 650px; }
+.lead { max-width: 650px; font-size: 17px; }
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: center;
+}
+.cards { display: grid; gap: 20px; }
+.cards.four  { grid-template-columns: repeat(4, 1fr); }
+.cards.three { grid-template-columns: repeat(3, 1fr); }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.site-header {
+  min-height: var(--header-h);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, .96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0, 0, 0, .06);
+  display: flex;
+  align-items: center;
+  padding: 0 max(4%, calc((100% - 1160px) / 2));
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--navy);
+  text-decoration: none;
+}
+/* The brand mark is a wide wordmark, so it is sized by height and allowed to
+   take whatever width it needs. The three files live in public/assets/img/:
+   logo.png (light backgrounds), logo-light.png (dark ones) and
+   logo-mark.png (the square mark used as the tab icon). */
+.brand-logo {
+  height: 46px;
+  width: auto;
+  display: block;
+  flex: 0 0 auto;
+}
+
+/* "ADMIN", "CLIENT PORTAL" — says which area you are in, next to the logo. */
+.brand-tag {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+/* The wordmark image carries the name, so there is no text brand in the
+   header any more — .brand-tag carries the "ADMIN" / "CLIENT PORTAL" label. */
+
+.site-header nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 23px;
+}
+.site-header nav a {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  text-decoration: none;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+}
+.site-header nav a:hover { color: var(--gold); }
+.site-header nav a[aria-current="page"] {
+  color: var(--navy);
+  border-bottom-color: var(--gold);
+}
+
+.menu-toggle {
+  display: none;
+  margin-left: auto;
+  background: none;
+  border: 0;
+  font-size: 24px;
+  line-height: 1;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--navy);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn, .portal-btn {
+  display: inline-block;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font: 600 14px 'DM Sans', system-ui, sans-serif;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  transition: background-color .2s, transform .2s, color .2s, border-color .2s;
+}
+.btn.primary, .portal-btn { background: var(--navy); color: #fff; }
+.btn.primary:hover, .portal-btn:hover { background: #0b2033; transform: translateY(-1px); }
+.btn.light { background: #fff; color: var(--navy); }
+.btn.light:hover { background: var(--cream); }
+.btn.outline { border: 1px solid var(--navy); background: #fff; color: var(--navy); }
+.btn.outline:hover { background: var(--navy); color: #fff; }
+.btn.full { width: 100%; }
+.btn[disabled] { opacity: .55; cursor: not-allowed; transform: none; }
+
+/* A button carrying an inline icon. Kept separate from .btn rather than
+   changing its display, so existing buttons are untouched. */
+.btn-with-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.icon-inline {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  flex: 0 0 auto;
+}
+
+/* A row of buttons inside a card. */
+.card-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ── Sales analytics ─────────────────────────────────────────────────────
+   KPI tiles and CSS bar charts. Bars rather than a charting library: no
+   dependency is available, and divs reflow on small screens and print
+   correctly without any extra work. */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin: 0 0 26px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(23, 28, 86, .05);
+}
+
+.kpi-label {
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.kpi-value {
+  font-size: 1.5rem;
+  line-height: 1.15;
+  color: var(--navy);
+}
+.kpi-value.good { color: #16794a; }
+.kpi-value.warn { color: #a35a00; }
+.kpi-value.neg  { color: var(--gold); }
+
+.kpi-hint { font-size: .78rem; color: var(--muted); }
+
+.section-title {
+  font-size: 1.15rem;
+  margin: 34px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Horizontal bars */
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 190px) 1fr minmax(110px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  font-size: .9rem;
+}
+.bar-label { color: var(--navy); font-weight: 600; }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-value small { color: var(--muted); }
+
+.bar-track {
+  position: relative;
+  display: block;
+  height: 14px;
+  background: var(--cream);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--navy);
+  border-radius: var(--radius-pill);
+}
+.bar-fill.secondary { background: var(--navy-2); }
+.bar-fill.good      { background: #16794a; }
+.bar-fill.warn      { background: #c47a00; }
+.bar-fill.neg       { background: var(--gold); }
+
+/* Two bars in one track: contracted against collected. */
+.bar-row-dual .bar-track { height: 18px; }
+.bar-row-dual .bar-fill { position: absolute; top: 0; left: 0; }
+.bar-row-dual .bar-fill.secondary { top: 9px; height: 8px; opacity: .85; }
+
+/* Transaction type tags */
+.tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  background: var(--cream);
+  color: var(--navy);
+  white-space: nowrap;
+}
+.tag-deposit      { background: #dcefe4; color: #14603c; }
+.tag-installment  { background: #dfe4f7; color: var(--navy); }
+.tag-final_payment{ background: #d8e8ff; color: #123f7a; }
+.tag-refund       { background: #fbe0e2; color: var(--gold); }
+
+td.neg, .neg { color: var(--gold); }
+tr.voided td { opacity: .5; text-decoration: line-through; }
+
+/* Analytics filter bar: wider than the standard filters row. */
+.analytics-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+.analytics-filters .btn { align-self: end; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: .9rem;
+  color: var(--muted);
+}
+
+/* Chart legend and the multi-series month bars. */
+.chart-key {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: .82rem;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.chart-key .key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.key-sales     { background: var(--navy); }
+.key-collected { background: var(--navy-2); }
+.key-net       { background: #16794a; }
+.key-refunds   { background: var(--gold); }
+
+/* All four series share one track, offset vertically so they stay readable. */
+.month-track { height: 22px; }
+.month-row .bar-fill { position: absolute; left: 0; height: 5px; border-radius: 2px; }
+.month-row .bar-fill:nth-child(1) { top: 0; }
+.month-row .bar-fill:nth-child(2) { top: 6px; }
+.month-row .bar-fill:nth-child(3) { top: 12px; }
+.month-row .bar-fill:nth-child(4) { top: 18px; }
+
+/* A form that sits inside a table cell, so Void reads as a link not a button. */
+.inline-form { display: inline; margin: 0; padding: 0; }
+.check-inline { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--body); }
+
+/* Export controls. */
+.export-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+}
+.export-label {
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.export-panel { display: flex; flex-direction: column; gap: 2px; }
+.export-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: .92rem;
+}
+.export-row:last-child { border-bottom: 0; }
+.export-links { display: flex; gap: 14px; }
+.export-links a { font-weight: 600; font-size: .88rem; }
+
+.table-scroll, .ledger-table { width: 100%; }
+.ledger-table { min-width: 940px; }
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.mini-grid small { display: block; color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; }
+.mini-grid strong { color: var(--navy); }
+
+/* Tables and filter grids must not force the page wide on a phone. */
+.client-card { overflow-x: auto; }
+
+@media (max-width: 700px) {
+  .bar-row { grid-template-columns: 1fr; gap: 4px; }
+  .bar-value { text-align: left; }
+  .kpi-value { font-size: 1.3rem; }
+  .analytics-filters { grid-template-columns: 1fr; }
+}
+
+/* On the dark contact card an .btn.outline is white-on-navy like .btn.light,
+   so the two were indistinguishable. Make the outline variant actually an
+   outline there. */
+.contact-card .btn.outline {
+  background: transparent;
+  border-color: rgba(255, 255, 255, .55);
+  color: #fff;
+}
+.contact-card .btn.outline:hover {
+  background: rgba(255, 255, 255, .14);
+  border-color: #fff;
+  color: #fff;
+}
+
+.text-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--navy);
+  font: 800 15px 'DM Sans', system-ui, sans-serif;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+.hero {
+  min-height: 670px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: #fff;
+  /* Gradient is the base layer: if the photo is blocked, this still reads
+     as an intentional dark banner rather than a broken image.
+
+     The photograph itself arrives as --hero-image from the rendered page, so
+     its address carries the file's modification time and a replaced banner
+     appears at once instead of being hidden by the browser cache. The url()
+     below is the fallback for the static export. */
+  background-color: var(--navy);
+  background-image:
+    linear-gradient(100deg, rgba(23, 28, 86, .94), rgba(23, 28, 86, .58)),
+    var(--hero-image, url('/images/hero-home.jpg'));
+  background-size: cover, cover;
+  background-position: center, center;
+}
+.hero-content { position: relative; z-index: 1; padding: 100px 0; }
+.hero h1 { max-width: 850px; }
+.hero h1 span { color: var(--gold-2); }
+.hero p { color: #edf2f7; max-width: 680px; font-size: 18px; }
+.hero-actions { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
+
+.eyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--gold-2);
+  margin-bottom: 14px;
+}
+.eyebrow.dark { color: var(--gold); }
+
+/* ── Trust strip ────────────────────────────────────────────────────────── */
+.trust-strip { background: var(--navy); color: #fff; }
+.trust-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+.trust-grid > div { padding: 28px 22px; border-right: 1px solid rgba(255, 255, 255, .12); }
+.trust-grid > div:last-child { border-right: 0; }
+.trust-grid strong, .trust-grid span { display: block; }
+.trust-grid strong { font-size: 15px; }
+.trust-grid span { font-size: 13px; color: #b8c5d1; margin-top: 4px; }
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.feature-card, .service-card, .news-card {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+.feature-card { min-height: 230px; }
+.feature-card p, .service-card li, .news-card p { font-size: 14px; }
+
+.icon {
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  background: #f4ead6;
+  color: var(--navy);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  margin-bottom: 20px;
+}
+
+.service-card h2 { font-size: 25px; }
+.service-card li { margin: 8px 0; }
+
+/* A service card carries a full-bleed photograph, so the padding moves from
+   the card to the body. `overflow: hidden` lets the image follow the card's
+   rounded corners. */
+.service-card {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.service-body {
+  padding: 26px 28px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.service-image {
+  display: block;
+  width: 100%;
+  height: 190px;
+  /* Fills the frame whatever shape the photograph is. */
+  object-fit: cover;
+  /* Shows the brand navy if the file has not been uploaded yet, rather than
+     a broken-image icon on white. */
+  background-color: var(--navy-2);
+}
+
+/* ── Featured project ───────────────────────────────────────────────────── */
+.project-feature {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: #fff;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.project-image {
+  min-height: 470px;
+  background-color: var(--navy-2);
+  background-size: cover;
+  background-position: center;
+  position: relative;
+}
+.heritage-image {
+  background-image:
+    linear-gradient(0deg, rgba(23, 28, 86, .6), transparent),
+    url('/images/featured-development.jpg');
+}
+.image-label {
+  position: absolute;
+  left: 30px; bottom: 25px;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+.project-info { padding: 55px; }
+
+.status {
+  display: inline-block;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 30px 0;
+}
+.mini-grid small, .mini-grid strong { display: block; }
+.mini-grid small { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.mini-grid strong { font-size: 14px; }
+
+.portal-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+}
+
+/* ── Inner pages ────────────────────────────────────────────────────────── */
+.inner-page { padding-top: 80px; padding-bottom: 100px; }
+.page-hero { padding: 30px 0 65px; max-width: 850px; }
+.page-hero h1 { font-size: clamp(36px, 5vw, 64px); }
+.page-hero p { font-size: 18px; max-width: 760px; }
+
+.mission-card {
+  background: var(--navy);
+  color: #fff;
+  padding: 40px;
+  border-radius: 20px;
+}
+.mission-card span { font-size: 12px; letter-spacing: 2px; color: var(--gold-2); font-weight: 800; }
+.mission-card h3 { font-size: 25px; }
+.mission-card p { color: #c9d3dc; }
+
+.values {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin-top: 70px;
+}
+.values > div { padding-top: 22px; border-top: 2px solid var(--navy); }
+.values b { color: var(--gold); }
+
+/* ── Projects & properties ──────────────────────────────────────────────── */
+.project-card, .property-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.project-thumb, .property-img {
+  height: 210px;
+  background-color: var(--navy-2);
+  background-size: cover;
+  background-position: center;
+}
+.property-img { height: 185px; }
+.project-card-body { padding: 25px; display: flex; flex-direction: column; flex: 1; }
+
+/* ── Sold out ────────────────────────────────────────────────────────────
+   A stamp over the photograph, in the brand red rather than a stock graphic,
+   so it sits with the rest of the palette instead of fighting it. */
+.project-thumb { position: relative; }
+
+.sold-out-stamp {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-11deg);
+  padding: 9px 20px;
+  border: 3px solid #fff;
+  border-radius: 10px;
+  background: var(--red);
+  color: #fff;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(20, 23, 43, .38);
+}
+
+/* A sold-out development keeps its photograph, but desaturated, so the stamp
+   is the thing the eye lands on. */
+.project-card.is-sold-out .project-thumb { filter: grayscale(.5); }
+.sold-out-body { color: var(--muted); }
+/* Sat below the property grid, so the space it needs is above it. */
+.sold-out-note-page { margin: 28px 0 0; }
+
+@media (max-width: 480px) {
+  .sold-out-stamp { font-size: .82rem; padding: 7px 13px; letter-spacing: .06em; }
+}
+
+/* ── About page polish ───────────────────────────────────────────────────
+   Every selector is scoped to .about-page. The hero, the values grid and the
+   section rhythm are shared with the other inner pages, so nothing here may
+   leak out of the About page. */
+.about-page .page-hero {
+  /* A soft wash so the heading sits on something rather than flat white. */
+  max-width: none;
+  padding: 52px 48px 58px;
+  margin-bottom: 80px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #f4f6fb 0%, #ffffff 100%);
+}
+
+/* Roomier paragraphs. */
+.about-page p { line-height: 1.7; }
+
+/* A steady 80px between the major blocks. */
+.about-page .values { margin-top: 80px; }
+.about-page .ceo-block { margin-top: 80px; }
+
+/* The trust strip. */
+.about-page .trust-strip {
+  margin: 80px 0;
+  padding: 18px 22px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f4f6fb;
+  color: var(--navy);
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1.5;
+}
+
+/* One inline icon above each value. */
+.about-page .value-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 14px;
+  border-radius: 11px;
+  background: rgba(40, 48, 144, .08);
+  color: var(--navy);
+}
+.about-page .value-icon svg { display: block; width: 21px; height: 21px; }
+
+@media (max-width: 700px) {
+  .about-page .page-hero { padding: 36px 24px 40px; margin-bottom: 56px; }
+  .about-page .values { margin-top: 56px; }
+  .about-page .ceo-block { margin-top: 56px; }
+  .about-page .trust-strip { margin: 56px 0; padding: 15px 16px; letter-spacing: 1.4px; }
+}
+
+/* Clients grouped by development on the admin dashboard. */
+.dev-group { margin-top: 18px; }
+.dev-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 1rem;
+  color: var(--navy);
+}
+.dev-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--cream);
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 700;
+  text-align: center;
+}
+.dev-clients { margin: 0; padding: 0; list-style: none; }
+.dev-clients li { padding: 5px 0; font-size: .92rem; }
+.dev-clients a { color: var(--navy); font-weight: 600; text-decoration: none; }
+.dev-clients a:hover { color: var(--gold); text-decoration: underline; }
+
+/* ── Chief Executive ───────────────────────────────────────────────────── */
+
+.ceo-block {
+  display: grid;
+  grid-template-columns: minmax(0, 330px) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+  margin-top: 56px;
+  padding: 34px;
+  background: var(--cream);
+  border-radius: var(--radius);
+}
+
+.ceo-photo img {
+  display: block;
+  width: 100%;
+  /* Square, so a portrait of any shape crops consistently. */
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  /* The subject sits centre-right in most portraits, so bias the crop up and
+     slightly toward the face rather than cutting it off at the chin. */
+  object-position: 50% 30%;
+  border-radius: 16px;
+  border: 4px solid #fff;
+  box-shadow: var(--shadow);
+}
+
+.ceo-message { min-width: 0; }
+.ceo-message .eyebrow { display: block; margin-bottom: 14px; }
+
+.ceo-message blockquote {
+  margin: 0 0 22px;
+  padding-left: 20px;
+  border-left: 4px solid var(--red);
+  font-family: Manrope, system-ui, sans-serif;
+  font-size: clamp(18px, 1.9vw, 24px);
+  line-height: 1.45;
+  color: var(--navy);
+}
+
+.ceo-name { margin: 0; }
+.ceo-name strong { display: block; color: var(--navy); font-size: 1.05rem; }
+.ceo-name span { color: var(--muted); font-size: .9rem; }
+
+@media (max-width: 820px) {
+  .ceo-block { grid-template-columns: 1fr; gap: 24px; padding: 24px; margin-top: 40px; }
+  .ceo-photo { max-width: 260px; }
+}
+
+/* ── Detail pages: one property, one development ───────────────────────── */
+
+.detail-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.detail-image {
+  height: 320px;
+  border-radius: var(--radius);
+  background-color: var(--navy-2);
+  background-size: cover;
+  background-position: center;
+}
+
+.detail-summary .status { display: inline-block; margin-bottom: 8px; }
+.detail-summary h1 { margin: 0 0 4px; }
+.dev-name { color: var(--muted); margin: 0 0 12px; }
+
+.detail-price {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0 0 18px;
+}
+
+.detail-list { margin: 0 0 22px; padding: 0; display: grid; gap: 10px; }
+.detail-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 40%) 1fr;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.detail-list dt { color: var(--muted); font-size: .86rem; }
+.detail-list dd { margin: 0; font-weight: 600; color: var(--navy); }
+
+/* A card's heading links through to the full record. */
+.property-card h3 a,
+.project-card-body h3 a { color: inherit; text-decoration: none; }
+.property-card h3 a:hover,
+.project-card-body h3 a:hover { color: var(--navy); text-decoration: underline; }
+
+/* ── Development page: features and the published price list ───────────── */
+
+.feature-list { margin: 0; padding: 0; list-style: none; }
+.feature-list li {
+  position: relative;
+  padding: 10px 0 10px 26px;
+  border-bottom: 1px solid var(--line);
+  font-size: .95rem;
+}
+.feature-list li:last-child { border-bottom: 0; }
+.feature-list li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 18px;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  background: var(--red);
+}
+.feature-list strong { color: var(--navy); }
+
+/* The price list is the thing a buyer scans, so give it room and align the
+   figures so they can be compared down a column. */
+.price-table td, .price-table th { white-space: nowrap; }
+.price-table td:not(:first-child),
+.price-table th:not(:first-child) { text-align: right; }
+.price-table tbody tr:nth-child(even) { background: var(--cream); }
+
+/* On a phone a four-column price table is unreadable however it is squeezed,
+   and a sideways-scrolling one is easy to miss entirely. Each row becomes its
+   own block instead: the stand size as a heading, then the three prices
+   labelled. The labels come from the cells' own data-label attributes, so the
+   table and its mobile form cannot drift apart. */
+@media (max-width: 600px) {
+  .price-table thead { display: none; }
+  .price-table, .price-table tbody, .price-table tr, .price-table td { display: block; width: 100%; }
+
+  .price-table { white-space: normal; }
+  .price-table tr {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: #fff;
+  }
+  .price-table tbody tr:nth-child(even) { background: #fff; }
+
+  .price-table td {
+    white-space: normal;
+    text-align: left;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .price-table td:last-child { border-bottom: 0; }
+
+  .price-table td::before {
+    content: attr(data-label);
+    float: left;
+    margin-right: 12px;
+    color: var(--muted);
+    font-size: .82rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  /* The stand size is the row's heading, so it gets no label. */
+  .price-table td:first-child { padding-bottom: 10px; }
+  .price-table td:first-child::before { content: none; }
+  .price-table td:first-child strong { font-size: 1.05rem; color: var(--navy); }
+}
+
+/* Admin: the per-development property breakdown, and row actions. */
+.breakdown { font-size: .86rem; color: var(--muted); white-space: nowrap; }
+td.actions { white-space: nowrap; }
+
+@media (max-width: 820px) {
+  .detail-hero { grid-template-columns: 1fr; }
+  .detail-image { height: 220px; }
+}
+.project-card-body .status { display: block; margin-bottom: 10px; }
+.property-body { padding: 23px; display: flex; flex-direction: column; flex: 1; }
+.property-body h3 { margin-bottom: 7px; }
+
+.property-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+.property-meta small, .property-meta strong { display: block; }
+.property-meta small { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.property-meta strong { font-size: 14px; }
+
+.price {
+  font-family: Manrope, sans-serif;
+  font-size: 22px;
+  color: var(--navy);
+  font-weight: 800;
+  margin-top: auto;
+}
+.property-card .btn, .project-card .btn { margin-top: 15px; width: 100%; }
+
+/* ── Filters ────────────────────────────────────────────────────────────── */
+.filters {
+  display: flex;
+  gap: 12px;
+  padding: 18px;
+  background: var(--cream);
+  border-radius: 15px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.filters .field { display: flex; flex-direction: column; gap: 6px; }
+.filters label { font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 1px; }
+.filters select {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  min-width: 180px;
+  font: 500 14px 'DM Sans', system-ui, sans-serif;
+}
+.filter-status { flex-basis: 100%; margin: 0; font-size: 14px; color: var(--muted); }
+
+/* JS hides non-matching cards. With JS off, every card stays visible. */
+.property-card[hidden] { display: none; }
+
+/* ── News ───────────────────────────────────────────────────────────────── */
+.news-card span { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; color: var(--gold); }
+
+/* ── Contact ────────────────────────────────────────────────────────────── */
+.contact-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; align-items: start; }
+.contact-card, .contact-form {
+  padding: 35px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.contact-card { background: var(--navy); color: #fff; }
+.contact-card p { color: #c9d3dc; }
+.contact-card a { color: #fff; }
+.contact-actions { display: flex; gap: 10px; margin-top: 25px; flex-wrap: wrap; }
+
+.contact-form label, .login-form label {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.contact-form input, .contact-form textarea, .contact-form select,
+.login-form input {
+  display: block;
+  width: 100%;
+  padding: 13px 14px;
+  margin-top: 7px;
+  border: 1px solid #cbd5df;
+  border-radius: 9px;
+  font: 14px 'DM Sans', system-ui, sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+.contact-form input:focus, .contact-form textarea:focus, .contact-form select:focus,
+.login-form input:focus { border-color: var(--navy); }
+/* Replaced outline:none with outline:0 only on :focus, because
+   :focus-visible above still paints a gold ring for keyboard users. */
+
+.field-error { color: #b42318; font-size: 13px; margin: 6px 0 0; min-height: 1em; }
+.field-hint  { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
+.footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px; }
+.footer-grid h4 { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 14px; }
+.footer-grid p, .footer-grid a { color: #aab8c5; font-size: 14px; }
+.footer-grid a { display: block; margin: 8px 0; text-decoration: none; }
+.footer-grid a:hover { color: var(--gold-2); }
+.copyright {
+  border-top: 1px solid rgba(255, 255, 255, .1);
+  margin-top: 35px;
+  padding-top: 18px;
+  color: #8b9aa8;
+  font-size: 13px;
+}
+
+/* ── Portal: login + dashboard ──────────────────────────────────────────── */
+.portal-shell {
+  min-height: calc(100vh - var(--header-h));
+  display: grid;
+  place-items: center;
+  padding: 60px 0;
+  background: var(--cream);
+}
+.portal-panel {
+  width: min(960px, 92%);
+  background: #fff;
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 35px;
+}
+.portal-panel.narrow { width: min(480px, 92%); }
+.portal-brand { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; }
+.portal-brand .brand-logo { height: 52px; }
+.login-form { max-width: 440px; margin: 25px auto 0; }
+.demo-note { text-align: center; color: var(--muted); font-size: 13px; margin-top: 20px; }
+
+.notice {
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+.notice.error   { background: #fef3f2; border: 1px solid #fda29b; color: #912018; }
+.notice.success { background: #ecfdf3; border: 1px solid #a6f4c5; color: #05603a; }
+.notice.info    { background: #eff8ff; border: 1px solid #b2ddff; color: #194185; }
+
+.dashboard-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 25px;
+  margin-bottom: 25px;
+  flex-wrap: wrap;
+}
+.dashboard-top h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -1px; }
+
+.portal-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+.portal-stat { background: #f7f8fa; padding: 18px; border-radius: 12px; }
+.portal-stat small, .portal-stat strong { display: block; }
+.portal-stat small { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.portal-stat strong { font-size: 20px; margin-top: 5px; }
+
+.client-grid { display: grid; grid-template-columns: 1.4fr .8fr; gap: 20px; }
+.client-grid + .client-grid { margin-top: 20px; }
+.client-card { border: 1px solid var(--line); border-radius: 16px; padding: 23px; }
+.client-card.dark { background: var(--navy); color: #fff; }
+.client-card.dark p { color: #bdcad5; }
+.client-card h2, .client-card h3 { margin-bottom: 12px; }
+
+.balance { font-size: 40px; font-family: Manrope, sans-serif; font-weight: 800; margin: 10px 0; }
+.progress { height: 10px; background: #e8edf1; border-radius: 10px; overflow: hidden; }
+.progress span { display: block; height: 100%; background: var(--red); }
+
+.portal-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.portal-table caption { text-align: left; font-size: 12px; color: var(--muted); padding-bottom: 8px; }
+.portal-table th, .portal-table td { text-align: left; padding: 12px; border-bottom: 1px solid var(--line); }
+.portal-table th { font-size: 12px; text-transform: uppercase; color: var(--muted); }
+
+.document-list { display: grid; gap: 10px; }
+.document {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+.document a, .document button {
+  border: 0;
+  background: none;
+  color: var(--navy);
+  font: 800 14px 'DM Sans', system-ui, sans-serif;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 6px 0;
+}
+
+.timeline { display: grid; gap: 14px; }
+.timeline-item { display: flex; gap: 12px; align-items: flex-start; }
+.dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #cbd5df;
+  margin-top: 5px;
+  flex: 0 0 auto;
+}
+.dot.done    { background: var(--green); }
+.dot.current { background: var(--red); }
+.timeline-item p { margin: 0; font-size: 14px; }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  right: 20px; bottom: 20px;
+  background: var(--navy);
+  color: #fff;
+  padding: 13px 18px;
+  border-radius: 10px;
+  z-index: 200;
+  transform: translateY(120px);
+  opacity: 0;
+  transition: transform .25s, opacity .25s;
+  box-shadow: var(--shadow);
+  max-width: min(420px, calc(100% - 40px));
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+
+/* ── Admin ──────────────────────────────────────────────────────────────── */
+.admin-header nav { gap: 18px; }
+.admin-header nav a { padding: 6px 2px; }
+
+/* A form that sits inline in a nav or a card — a sign-out or action button. */
+.inline-form { display: inline; margin: 0; }
+
+.enquiry { margin-bottom: 16px; }
+.enquiry.handled { opacity: .65; }
+.enquiry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.enquiry-head h3 { margin: 6px 0 0; }
+.enquiry .mini-grid { margin: 16px 0; }
+/* Preserve the line breaks the sender typed. */
+.enquiry-message { white-space: pre-wrap; margin-bottom: 16px; }
+
+/* Open enquiries need to stand out from handled ones. */
+.status.open { color: #b54708; }
+
+/* ── Admin forms ────────────────────────────────────────────────────────── */
+
+/* Inputs inside an admin card. The public form styles are scoped to
+   .contact-form / .login-form, so these would otherwise be unstyled. */
+.client-card label {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.client-card input[type="text"],
+.client-card input[type="email"],
+.client-card input[type="date"],
+.client-card input[type="password"],
+.client-card input[type="search"],
+.client-card select,
+.client-card textarea,
+.filters input {
+  display: block;
+  width: 100%;
+  padding: 13px 14px;
+  margin-top: 7px;
+  border: 1px solid #cbd5df;
+  border-radius: 9px;
+  font: 14px 'DM Sans', system-ui, sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+.client-card input:focus,
+.client-card select:focus,
+.filters input:focus { border-color: var(--navy); }
+
+/* A column of action buttons on the client page. */
+.stack { display: grid; gap: 10px; margin-bottom: 12px; }
+.stack .btn { width: 100%; }
+
+/* Recording a payment: fields flow into however many columns fit. */
+.payment-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+.payment-form .field { display: flex; flex-direction: column; }
+.payment-form label { margin-bottom: 0; }
+.payment-form .btn { width: 100%; margin-top: 7px; }
+
+/* A field that spans the whole form row, for a long description. */
+.field-wide { grid-column: 1 / -1; }
+.field-wide textarea { min-height: 90px; resize: vertical; }
+
+/* Destructive action rendered as a link so it does not invite a mis-click. */
+.link-danger {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #b42318;
+  font: 700 14px 'DM Sans', system-ui, sans-serif;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-danger:hover { color: #7a1a12; }
+
+/* Several actions inside one table cell. */
+.row-actions { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+
+/* A neutral action rendered as a link, to sit beside .link-danger. */
+.link-action {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--navy);
+  font: 700 14px 'DM Sans', system-ui, sans-serif;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-action:hover { color: var(--gold); }
+
+/* A generated password, shown once. */
+.pw {
+  display: inline-block;
+  margin: 8px 0;
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 17px;
+  letter-spacing: 1px;
+  background: #fff;
+  border: 1px dashed var(--navy);
+  border-radius: 8px;
+  user-select: all;
+}
+
+/* Uploading a document. */
+.upload-form {
+  display: grid;
+  grid-template-columns: 2fr 2fr auto;
+  gap: 16px;
+  align-items: end;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.upload-form .field { display: flex; flex-direction: column; }
+.upload-form label { margin-bottom: 0; }
+.upload-form .btn { margin-top: 7px; }
+
+/* Download and delete controls in a document row. */
+.document-actions { display: flex; gap: 14px; align-items: center; }
+.document-actions form { margin: 0; }
+
+/* Editing one progress step. The edit form and the delete form are siblings,
+   because a form cannot be nested inside another form. */
+.progress-edit {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.progress-edit:last-child { border-bottom: 0; }
+.progress-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex: 1 1 320px;
+  margin: 0;
+}
+.progress-row input[type="text"] { margin-top: 0; flex: 1 1 auto; }
+.progress-row select { margin-top: 0; width: auto; min-width: 150px; }
+.progress-row .btn { white-space: nowrap; }
+
+/* The add-a-step form on the project page. */
+.client-card > .progress-row { margin-top: 8px; }
+
+@media (max-width: 700px) {
+  .upload-form { grid-template-columns: 1fr; }
+  .progress-row { flex-wrap: wrap; }
+  .progress-row select { width: 100%; }
+}
+
+/* ── Site content editor ────────────────────────────────────────────────── */
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+.content-grid .client-card h2 { margin-bottom: 6px; }
+.content-grid .client-card h2 a { text-decoration: none; }
+.content-grid .client-card h2 a:hover { color: var(--gold); }
+
+/* Page switcher across the top of the content editor. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.tabs a {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  text-decoration: none;
+}
+.tabs a:hover { border-color: var(--navy); color: var(--navy); }
+.tabs a[aria-current="page"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+/* One row inside a repeating section. */
+.content-item {
+  margin: 0 0 16px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.content-item legend {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.content-item textarea { min-height: 70px; }
+
+.logo-preview {
+  display: block;
+  height: 64px;
+  width: auto;
+  margin: 12px 0 20px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--cream);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .site-header nav { display: none; }
+  .site-header nav.open {
+    display: flex;
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    background: #fff;
+    padding: 20px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow);
+  }
+  .site-header nav.open a { padding: 12px 4px; border-bottom: 1px solid var(--line); }
+  .site-header nav.open .portal-btn { margin-top: 12px; }
+  .menu-toggle { display: block; }
+
+  .cards.four, .values { grid-template-columns: 1fr 1fr; }
+  .project-feature, .two-col, .contact-layout, .client-grid { grid-template-columns: 1fr; }
+  .property-grid, .cards.three { grid-template-columns: 1fr 1fr; }
+  .trust-grid, .footer-grid { grid-template-columns: 1fr 1fr; }
+  .trust-grid > div:nth-child(2) { border-right: 0; }
+  .project-image { min-height: 320px; }
+  .portal-stat-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  h1 { letter-spacing: -1px; }
+  .hero { min-height: 620px; }
+  .hero-actions, .section-head, .portal-callout { flex-direction: column; align-items: flex-start; }
+  .cards.four, .cards.three, .property-grid, .values,
+  .trust-grid, .footer-grid { grid-template-columns: 1fr; }
+  .trust-grid > div { border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, .12); }
+  .filters { flex-direction: column; }
+  .filters select, .filters .field { width: 100%; }
+  .project-info { padding: 30px; }
+  .portal-panel { padding: 25px 18px; }
+  .mini-grid { grid-template-columns: 1fr 1fr; }
+  .site-header { padding: 0 4%; }
+  .contact-card, .contact-form { padding: 25px; }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  .btn.primary:hover, .portal-btn:hover { transform: none; }
+}
+
+/* ── Print ──────────────────────────────────────────────────────────────── */
+@media print {
+  .site-header, .menu-toggle, .hero-actions, .filters, .toast, .skip-link { display: none !important; }
+  body { color: #000; }
+  .hero { min-height: auto; background: none; color: #000; }
+  .hero h1 span, .hero p { color: #000; }
+}

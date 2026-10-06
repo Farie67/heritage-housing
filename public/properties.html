@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Available Properties | Heritage Housing Projects</title>
+<meta name="description" content="Browse available residential stands and property opportunities by project, type and size.">
+<link rel="canonical" href="https://heritagehousing.co.zw/properties.html">
+<link rel="icon" href="/assets/img/logo-mark.png?v=1790919368521">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/styles.css?v=1791049868153">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<header class="site-header">
+  <a href="/" class="brand">
+    <img class="brand-logo" src="/assets/img/logo.png" alt="Heritage Housing Projects (Pvt) Ltd">
+  </a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mainNav" aria-label="Toggle navigation">&#9776;</button>
+  <nav id="mainNav" aria-label="Primary">
+    <a href="/index.html">Home</a>
+    <a href="/about.html">About</a>
+    <a href="/services.html">Services</a>
+    <a href="/projects.html">Projects</a>
+    <a href="/properties.html" aria-current="page">Properties</a>
+    <a href="/news.html">News</a>
+    <a href="/contact.html">Contact</a>
+    <a class="portal-btn" href="/portal.html">Client Login</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <section class="container inner-page">
+    <div class="page-hero">
+      <span class="eyebrow dark">AVAILABLE PROPERTIES</span>
+      <h1>Find your next property opportunity.</h1>
+      <p>Filter available stands and property opportunities by project, type and size.</p>
+    </div>
+
+    <!-- Hidden until JavaScript reveals it: with JS off the filters would do
+         nothing, so every property is simply listed in full instead. -->
+    <div class="filters" id="filterBar" hidden>
+      <div class="field">
+        <label for="projectFilter">Project</label>
+        <select id="projectFilter">
+          <option value="all">All projects</option>
+        <option value="Emganini">Emganini</option>
+        <option value="Goshen Park">Goshen Park</option>
+        <option value="Heritage Park">Heritage Park</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="typeFilter">Property type</label>
+        <select id="typeFilter">
+          <option value="all">All property types</option>
+          <option value="Residential">Residential</option>
+          <option value="Commercial">Commercial</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="sizeFilter">Size</label>
+        <select id="sizeFilter">
+          <option value="all">All sizes</option>
+          <option value="200">200m&sup2;</option>
+          <option value="600">600m&sup2;</option>
+          <option value="1250">1250m&sup2;</option>
+        </select>
+      </div>
+      <p class="filter-status" id="filterStatus" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="property-grid cards three" id="propertyGrid">
+    <article class="property-card" data-project="Emganini" data-type="Residential" data-size="600">
+      <div class="property-img" role="img" aria-label="Residential stand EM-0245 at Emganini" style="background-image:url('/images/stand-em-0245.jpg?v=1790967737693')"></div>
+      <div class="property-body">
+        <span class="status">&#9679; AVAILABLE</span>
+        <h3><a href="/property/EM-0245">Stand EM-0245</a></h3>
+        <p class="dev-name">in <a href="/development/emganini">Emganini</a></p>
+        <div class="property-meta">
+          <div><small>Size</small><strong>600m&sup2;</strong></div>
+          <div><small>Type</small><strong>Residential</strong></div>
+        </div>
+        <div class="price">US$18,000</div>
+        <a class="btn primary" href="/property/EM-0245">View this property</a>
+        <a class="text-btn" href="/contact.html" data-enquire="Emganini, stand EM-0245">Enquire about this stand</a>
+      </div>
+    </article>
+    <article class="property-card" data-project="Goshen Park" data-type="Residential" data-size="1250">
+      <div class="property-img" role="img" aria-label="Residential stand GP-0102 at Goshen Park" style="background-image:url('/images/stand-gp-0102.jpg?v=1790967737665')"></div>
+      <div class="property-body">
+        <span class="status">&#9679; AVAILABLE</span>
+        <h3><a href="/property/GP-0102">Stand GP-0102</a></h3>
+        <p class="dev-name">in <a href="/development/goshen-park">Goshen Park</a></p>
+        <div class="property-meta">
+          <div><small>Size</small><strong>1250m&sup2;</strong></div>
+          <div><small>Type</small><strong>Residential</strong></div>
+        </div>
+        <div class="price">US$25,000</div>
+        <a class="btn primary" href="/property/GP-0102">View this property</a>
+        <a class="text-btn" href="/contact.html" data-enquire="Goshen Park, stand GP-0102">Enquire about this stand</a>
+      </div>
+    </article>
+    <article class="property-card" data-project="Heritage Park" data-type="Residential" data-size="200">
+      <div class="property-img" role="img" aria-label="Residential stand HP-0245 at Heritage Park" style="background-image:url('/images/stand-hp-0245.jpg?v=1790967737646')"></div>
+      <div class="property-body">
+        <span class="status">&#9679; AVAILABLE</span>
+        <h3><a href="/property/HP-0245">Stand HP-0245</a></h3>
+        <p class="dev-name">in <a href="/development/heritage-park">Heritage Park</a></p>
+        <div class="property-meta">
+          <div><small>Size</small><strong>200m&sup2;</strong></div>
+          <div><small>Type</small><strong>Residential</strong></div>
+        </div>
+        <div class="price">US$5,500</div>
+        <a class="btn primary" href="/property/HP-0245">View this property</a>
+        <a class="text-btn" href="/contact.html" data-enquire="Heritage Park, stand HP-0245">Enquire about this stand</a>
+      </div>
+    </article>
+    </div>
+
+    <div class="notice info sold-out-note-page">
+      <strong>Sorry &mdash; sold out:</strong>
+      Raylands Estate.
+      Every stand there has been sold.
+      <a href="/contact.html">Contact us</a> about our other developments.
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container footer-grid">
+    <div>
+      <div class="brand">
+        <img class="brand-logo" src="/assets/img/logo-light.png" alt="Heritage Housing Projects (Pvt) Ltd">
+      </div>
+      <p>Building communities. Creating opportunities.</p>
+    </div>
+    <div>
+      <h4>Explore</h4>
+      <a href="/projects.html">Projects</a>
+      <a href="/properties.html">Properties</a>
+      <a href="/services.html">Services</a>
+      <a href="/news.html">News</a>
+    </div>
+    <div>
+      <h4>Clients</h4>
+      <a href="/portal.html">Client Login</a>
+      <a href="/contact.html">Support</a>
+    </div>
+    <div>
+      <h4>Contact</h4>
+      <p>NetOne Building, Office PD30, Gweru, Zimbabwe</p>
+      <p><a href="tel:+26354222697">+263 542 22697</a></p>
+      <p><a href="mailto:heritagehousingp@gmail.com">heritagehousingp@gmail.com</a></p>
+      <p><a href="https://wa.me/message/3NT2K5FBKFQI1" target="_blank" rel="noopener noreferrer">WhatsApp us</a></p>
+    </div>
+  </div>
+  <div class="container copyright">
+    &copy; <span data-year>2026</span> Heritage Housing Projects (Pvt) Ltd. All rights reserved.
+  </div>
+</footer>
+
+<script src="/assets/js/site.js" defer></script>
+</body>
+</html>

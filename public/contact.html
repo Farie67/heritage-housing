@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact Us | Heritage Housing Projects</title>
+<meta name="description" content="Talk to the Heritage team about a property, project, partnership or site visit. Gweru, Zimbabwe.">
+<link rel="canonical" href="https://heritagehousing.co.zw/contact.html">
+<link rel="icon" href="/assets/img/logo-mark.png?v=1790919368521">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/styles.css?v=1791049868153">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<header class="site-header">
+  <a href="/" class="brand">
+    <img class="brand-logo" src="/assets/img/logo.png" alt="Heritage Housing Projects (Pvt) Ltd">
+  </a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mainNav" aria-label="Toggle navigation">&#9776;</button>
+  <nav id="mainNav" aria-label="Primary">
+    <a href="/index.html">Home</a>
+    <a href="/about.html">About</a>
+    <a href="/services.html">Services</a>
+    <a href="/projects.html">Projects</a>
+    <a href="/properties.html">Properties</a>
+    <a href="/news.html">News</a>
+    <a href="/contact.html" aria-current="page">Contact</a>
+    <a class="portal-btn" href="/portal.html">Client Login</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <section class="container inner-page">
+    <div class="page-hero">
+      <span class="eyebrow dark">CONTACT US</span>
+      <h1>Let&#39;s discuss your property opportunity.</h1>
+      <p>Talk to the Heritage team about a property, project, partnership or site visit.</p>
+    </div>
+    <div class="contact-layout">
+      <div class="contact-card">
+        <h2>Heritage Housing Projects (Pvt) Ltd</h2>
+        <p><b>Office:</b> NetOne Building, Office PD30, First Floor, opposite CBZ Bank, Gweru, Zimbabwe</p>
+        <p><b>Phone:</b> <a href="tel:+26354222697">+263 542 22697</a></p>
+        <p><b>Email:</b> <a href="mailto:heritagehousingp@gmail.com">heritagehousingp@gmail.com</a></p>
+        <div class="contact-actions">
+          <a class="btn light btn-with-icon" href="https://wa.me/message/3NT2K5FBKFQI1" target="_blank" rel="noopener noreferrer"><svg class="icon-inline" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.16-.17.2-.35.22-.64.08-.3-.15-1.26-.47-2.4-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.6.13-.14.3-.35.45-.53.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51-.17-.01-.37-.01-.57-.01-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.07c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.62.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.42-.07-.12-.27-.2-.57-.35M12.05 21.8a9.87 9.87 0 0 1-5.03-1.38l-.36-.21-3.74.98 1-3.65-.24-.37a9.86 9.86 0 0 1-1.51-5.26c0-5.45 4.44-9.88 9.89-9.88 2.64 0 5.12 1.03 6.99 2.9a9.83 9.83 0 0 1 2.89 6.99c0 5.45-4.44 9.88-9.89 9.88m8.41-18.3A11.8 11.8 0 0 0 12.05 0C5.5 0 .16 5.34.16 11.89c0 2.1.55 4.14 1.59 5.95L.06 24l6.3-1.65a11.88 11.88 0 0 0 5.69 1.45c6.55 0 11.89-5.34 11.89-11.89 0-3.18-1.24-6.17-3.48-8.41"/></svg>WhatsApp us</a>
+          <a class="btn outline" href="tel:+26354222697">Call us</a>
+          <a class="btn outline" href="mailto:heritagehousingp@gmail.com">Email us</a>
+        </div>
+      </div>
+
+      <form class="contact-form" id="enquiryForm" method="post" action="/api/enquiries" novalidate>
+        <h2>Send an enquiry</h2>
+        <p class="notice" id="formStatus" role="status" aria-live="polite"></p>
+
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" autocomplete="name" required>
+        <p class="field-error" data-error-for="name"></p>
+
+        <label for="phone">Phone / WhatsApp</label>
+        <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+        <p class="field-error" data-error-for="phone"></p>
+
+        <label for="interest">Interested in</label>
+        <select id="interest" name="interest">
+          <option>Property</option>
+          <option>Project</option>
+          <option>Site visit</option>
+          <option>Partnership</option>
+          <option>General enquiry</option>
+        </select>
+
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="5" required></textarea>
+        <p class="field-error" data-error-for="message"></p>
+
+        <button class="btn primary" type="submit">Send enquiry</button>
+      </form>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container footer-grid">
+    <div>
+      <div class="brand">
+        <img class="brand-logo" src="/assets/img/logo-light.png" alt="Heritage Housing Projects (Pvt) Ltd">
+      </div>
+      <p>Building communities. Creating opportunities.</p>
+    </div>
+    <div>
+      <h4>Explore</h4>
+      <a href="/projects.html">Projects</a>
+      <a href="/properties.html">Properties</a>
+      <a href="/services.html">Services</a>
+      <a href="/news.html">News</a>
+    </div>
+    <div>
+      <h4>Clients</h4>
+      <a href="/portal.html">Client Login</a>
+      <a href="/contact.html">Support</a>
+    </div>
+    <div>
+      <h4>Contact</h4>
+      <p>NetOne Building, Office PD30, Gweru, Zimbabwe</p>
+      <p><a href="tel:+26354222697">+263 542 22697</a></p>
+      <p><a href="mailto:heritagehousingp@gmail.com">heritagehousingp@gmail.com</a></p>
+      <p><a href="https://wa.me/message/3NT2K5FBKFQI1" target="_blank" rel="noopener noreferrer">WhatsApp us</a></p>
+    </div>
+  </div>
+  <div class="container copyright">
+    &copy; <span data-year>2026</span> Heritage Housing Projects (Pvt) Ltd. All rights reserved.
+  </div>
+</footer>
+
+<script src="/assets/js/site.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Heritage Housing Projects — Zimbabwean property and land development company." />
+  <title>Heritage Housing Projects | Building Communities. Creating Opportunities.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <header class="site-header">
+    <a href="#home" class="brand" onclick="showPage('home')">
+      <span class="brand-mark">H</span>
+      <span><strong>HERITAGE</strong><small>HOUSING PROJECTS</small></span>
+    </a>
+    <button class="menu-toggle" onclick="toggleMenu()" aria-label="Toggle navigation">☰</button>
+    <nav id="mainNav">
+      <a href="#home" onclick="showPage('home')">Home</a>
+      <a href="#about" onclick="showPage('about')">About</a>
+      <a href="#services" onclick="showPage('services')">Services</a>
+      <a href="#projects" onclick="showPage('projects')">Projects</a>
+      <a href="#properties" onclick="showPage('properties')">Properties</a>
+      <a href="#news" onclick="showPage('news')">News</a>
+      <a href="#contact" onclick="showPage('contact')">Contact</a>
+      <button class="portal-btn" onclick="openPortal()">🔐 Client Login</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section id="home" class="page active">
+      <div class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content container">
+          <span class="eyebrow">PROPERTY DEVELOPMENT • ZIMBABWE</span>
+          <h1>Building Communities.<br><span>Creating Opportunities.</span></h1>
+          <p>We develop residential, commercial and mixed-use property opportunities designed to create lasting value for families, investors and communities.</p>
+          <div class="hero-actions">
+            <button class="btn primary" onclick="showPage('projects')">Explore Projects</button>
+            <button class="btn light" onclick="showPage('properties')">Available Properties</button>
+          </div>
+        </div>
+      </div>
+
+      <section class="trust-strip">
+        <div class="container trust-grid">
+          <div><strong>Land Development</strong><span>From raw land to communities</span></div>
+          <div><strong>Property Sales</strong><span>Residential & commercial opportunities</span></div>
+          <div><strong>Infrastructure</strong><span>Roads, water, sewer & site works</span></div>
+          <div><strong>Client Portal</strong><span>Track your property & payments</span></div>
+        </div>
+      </section>
+
+      <section class="section container">
+        <div class="section-head"><div><span class="eyebrow dark">WHAT WE DO</span><h2>Property development with purpose.</h2></div><button class="text-btn" onclick="showPage('about')">About Heritage →</button></div>
+        <div class="cards four">
+          <article class="feature-card"><div class="icon">⌂</div><h3>Land & Property Development</h3><p>Residential, commercial and other development opportunities across Zimbabwe.</p></article>
+          <article class="feature-card"><div class="icon">▦</div><h3>Infrastructure Development</h3><p>Site preparation, roads, water, sewer and related development works.</p></article>
+          <article class="feature-card"><div class="icon">◆</div><h3>Property Sales</h3><p>Structured opportunities for buyers looking to secure land and property.</p></article>
+          <article class="feature-card"><div class="icon">⚙</div><h3>Construction & Works</h3><p>Building, earthworks, renovations and project support.</p></article>
+        </div>
+      </section>
+
+      <section class="section soft">
+        <div class="container">
+          <div class="section-head"><div><span class="eyebrow dark">FEATURED DEVELOPMENT</span><h2>Heritage Park — Gweru</h2><p class="lead">Residential stands in a developing community, with servicing and infrastructure progressing toward build readiness.</p></div><button class="btn primary" onclick="showPage('projects')">View Project</button></div>
+          <div class="project-feature">
+            <div class="project-image heritage-image"><div class="image-label">HERITAGE PARK</div></div>
+            <div class="project-info"><span class="status">● DEVELOPMENT IN PROGRESS</span><h3>200m² Residential Stands</h3><p>Explore stand availability, pricing, development updates and client support through the Heritage platform.</p><div class="mini-grid"><div><small>Location</small><strong>Gweru, Zimbabwe</strong></div><div><small>Property</small><strong>Residential</strong></div><div><small>Typical size</small><strong>200m²</strong></div><div><small>Client access</small><strong>Portal enabled</strong></div></div><button class="btn primary" onclick="showPage('properties')">View Available Stands</button></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section container portal-callout">
+        <div><span class="eyebrow dark">MY HERITAGE</span><h2>Everything about your property, in one place.</h2><p>Clients can view their stand details, payment history, outstanding balance, documents, project progress and support requests from a secure client area.</p></div>
+        <button class="btn primary" onclick="openPortal()">Open Client Portal</button>
+      </section>
+    </section>
+
+    <!-- ABOUT -->
+    <section id="about" class="page container inner-page">
+      <div class="page-hero"><span class="eyebrow dark">ABOUT HERITAGE</span><h1>Developing places people can call home.</h1><p>Heritage Housing Projects (Pvt) Ltd is a Zimbabwean property development company focused on land development, residential and commercial property opportunities, infrastructure and project delivery.</p></div>
+      <div class="two-col"><div><h2>Who we are</h2><p>Our approach combines property development, project coordination and client service to turn development opportunities into communities with practical long-term value.</p><p>We aim to communicate clearly with clients throughout the property journey — from enquiry and purchase through payments, documentation, development progress and build readiness.</p></div><div class="mission-card"><span>OUR MISSION</span><h3>To develop quality land and property projects while delivering value, transparency and long-term opportunities to our clients and development partners.</h3></div></div>
+      <div class="values"><div><b>01</b><h3>Integrity</h3><p>Clear information, responsible processes and professional conduct.</p></div><div><b>02</b><h3>Development</h3><p>Practical infrastructure and sustainable community development.</p></div><div><b>03</b><h3>Client Focus</h3><p>Better communication before, during and after a property purchase.</p></div><div><b>04</b><h3>Value Creation</h3><p>Property opportunities designed around long-term usefulness and value.</p></div></div>
+    </section>
+
+    <!-- SERVICES -->
+    <section id="services" class="page container inner-page"><div class="page-hero"><span class="eyebrow dark">OUR SERVICES</span><h1>From land to opportunity.</h1><p>Our services cover the development and delivery work required to create property opportunities and support clients through the process.</p></div><div class="cards three"><article class="service-card"><div class="icon">⌂</div><h2>Land & Property Development</h2><ul><li>Residential developments</li><li>Commercial developments</li><li>Industrial opportunities</li><li>Land subdivision & servicing</li><li>Community development</li></ul></article><article class="service-card"><div class="icon">▦</div><h2>Civil & Infrastructure Works</h2><ul><li>Site preparation</li><li>Earthworks & grading</li><li>Road development</li><li>Water & sewer infrastructure</li><li>Drainage and related works</li></ul></article><article class="service-card"><div class="icon">⚒</div><h2>Construction & Property</h2><ul><li>Residential buildings</li><li>Commercial buildings</li><li>Renovations</li><li>Building maintenance</li><li>Property sales support</li></ul></article></div></section>
+
+    <!-- PROJECTS -->
+    <section id="projects" class="page container inner-page"><div class="page-hero"><span class="eyebrow dark">OUR PROJECTS</span><h1>Developments across Zimbabwe.</h1><p>Explore selected developments and follow project progress from land development to build readiness.</p></div><div id="projectGrid" class="cards three"></div></section>
+
+    <!-- PROPERTIES -->
+    <section id="properties" class="page container inner-page"><div class="page-hero"><span class="eyebrow dark">AVAILABLE PROPERTIES</span><h1>Find your next property opportunity.</h1><p>Filter available stands and property opportunities by project, type and price.</p></div><div class="filters"><select id="projectFilter" onchange="renderProperties()"><option value="all">All projects</option></select><select id="typeFilter" onchange="renderProperties()"><option value="all">All property types</option><option>Residential</option><option>Commercial</option></select><select id="sizeFilter" onchange="renderProperties()"><option value="all">All sizes</option><option value="200">200m²</option><option value="300">300m²</option></select></div><div id="propertyGrid" class="property-grid"></div></section>
+
+    <!-- NEWS -->
+    <section id="news" class="page container inner-page"><div class="page-hero"><span class="eyebrow dark">NEWS & UPDATES</span><h1>What is happening at Heritage.</h1><p>Project announcements, development updates and company news.</p></div><div class="cards three"><article class="news-card"><span>PROJECT UPDATE</span><h2>Heritage Park development progress</h2><p>Follow servicing, infrastructure and project milestones through the website and client portal.</p><button class="text-btn">Read update →</button></article><article class="news-card"><span>CLIENT SERVICES</span><h2>Introducing My Heritage</h2><p>Clients can access their property information, balances, payments and documents online.</p><button class="text-btn" onclick="openPortal()">Open portal →</button></article><article class="news-card"><span>COMPANY</span><h2>Building stronger communities</h2><p>Our focus remains on creating practical property opportunities with better client communication.</p><button class="text-btn">Read more →</button></article></div></section>
+
+    <!-- CONTACT -->
+    <section id="contact" class="page container inner-page"><div class="page-hero"><span class="eyebrow dark">CONTACT US</span><h1>Let's discuss your property opportunity.</h1><p>Talk to the Heritage team about a property, project, partnership or site visit.</p></div><div class="contact-layout"><div class="contact-card"><h2>Heritage Housing Projects (Pvt) Ltd</h2><p><b>Office:</b> NetOne Building, Office PD30, First Floor, opposite CBZ Bank, Gweru, Zimbabwe</p><p><b>Phone:</b> +263 542 22697</p><p><b>Email:</b> heritagehousingp@gmail.com</p><div class="contact-actions"><a class="btn primary" href="tel:+26354222697">Call us</a><a class="btn outline" href="mailto:heritagehousingp@gmail.com">Email us</a></div></div><form class="contact-form" onsubmit="submitContact(event)"><h2>Send an enquiry</h2><label>Name<input required name="name" /></label><label>Phone / WhatsApp<input required name="phone" /></label><label>Interested in<select name="interest"><option>Property</option><option>Project</option><option>Site visit</option><option>Partnership</option><option>General enquiry</option></select></label><label>Message<textarea required name="message" rows="5"></textarea></label><button class="btn primary" type="submit">Send enquiry</button></form></div></section>
+  </main>
+
+  <!-- PORTAL MODAL -->
+  <div id="portalModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="portalTitle">
+    <div class="modal-backdrop" onclick="closePortal()"></div>
+    <div class="modal-panel">
+      <button class="modal-close" onclick="closePortal()">×</button>
+      <div id="loginView">
+        <div class="portal-brand"><span class="brand-mark">H</span><div><b>MY HERITAGE</b><small>CLIENT PORTAL</small></div></div>
+        <h2 id="portalTitle">Client Login</h2><p class="muted">Access your stand, payment and project information.</p>
+        <form onsubmit="login(event)" class="login-form"><label>Client number<input id="clientNumber" placeholder="e.g. HP-10245" required /></label><label>Password<input id="clientPassword" type="password" placeholder="••••••••" required /></label><button class="btn primary full" type="submit">Sign in securely</button></form>
+        <p class="demo-note">Demo access: <b>HP-10245</b> / <b>demo123</b></p>
+      </div>
+      <div id="dashboardView" class="hidden"></div>
+    </div>
+  </div>
+
+  <footer><div class="container footer-grid"><div><div class="brand"><span class="brand-mark">H</span><span><strong>HERITAGE</strong><small>HOUSING PROJECTS</small></span></div><p>Building communities. Creating opportunities.</p></div><div><h4>Explore</h4><a onclick="showPage('projects')">Projects</a><a onclick="showPage('properties')">Properties</a><a onclick="showPage('services')">Services</a></div><div><h4>Clients</h4><a onclick="openPortal()">Client Login</a><a onclick="openPortal()">My Heritage</a></div><div><h4>Contact</h4><p>Gweru, Zimbabwe</p><p>+263 542 22697</p></div></div><div class="container copyright">© 2026 Heritage Housing Projects (Pvt) Ltd. All rights reserved.</div></footer>
+  <script src="app.js"></script>
+</body>
+</html>
