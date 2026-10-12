@@ -35,7 +35,7 @@ let written = 0;
 let totalBytes = 0;
 
 for (const file of publicSite.allFiles()) {
-  const html = publicSite.renderFile(file);
+  const html = await publicSite.renderFile(file);
 
   if (html === null) {
     console.error(`  ! no renderer for ${file}`);
@@ -48,9 +48,9 @@ for (const file of publicSite.allFiles()) {
   totalBytes += html.length;
 }
 
-const portal = publicSite.renderPortalPage();
+const portal = await publicSite.renderPortalPage();
 fs.writeFileSync(path.join(OUT, 'portal.html'), portal, 'utf8');
-console.log(`  wrote public/portal.html  (${portal.length.toLocaleString()} bytes)`);
+console.log(`  wrote public/await portal.html  (${portal.length.toLocaleString()} bytes)`);
 written++;
 totalBytes += portal.length;
 
