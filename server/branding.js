@@ -24,8 +24,8 @@ const FALLBACK = {
   favicon: 'assets/img/logo-mark.png'
 };
 
-function settingValue(key, fallback) {
-  const raw = content.settings()[key];
+async function settingValue(key, fallback) {
+  const raw = await content.settings()[key];
   return (raw && String(raw).trim()) || fallback;
 }
 
@@ -36,26 +36,26 @@ function absolute(raw) {
 }
 
 /** The wordmark, as stored (relative). */
-const logoPath = () => settingValue('logo_url', FALLBACK.logo);
+const logoPath = async () => await settingValue('logo_url', FALLBACK.logo);
 /** The wordmark for dark backgrounds, as stored (relative). */
-const logoLightPath = () => settingValue('logo_light_url', FALLBACK.light);
+const logoLightPath = async () => await settingValue('logo_light_url', FALLBACK.light);
 /** The square mark, as stored (relative). */
-const faviconPath = () => settingValue('favicon_url', FALLBACK.favicon);
+const faviconPath = async () => await settingValue('favicon_url', FALLBACK.favicon);
 
 /** Absolute forms, for pages served from a nested route. */
-const logoAbsolute = () => absolute(logoPath());
-const logoLightAbsolute = () => absolute(logoLightPath());
-const faviconAbsolute = () => absolute(faviconPath());
+const logoAbsolute = async () => absolute(await logoPath());
+const logoLightAbsolute = async () => absolute(await logoLightPath());
+const faviconAbsolute = async () => absolute(await faviconPath());
 
 /** True when the wordmark is the bundled file rather than an upload. */
-const isDefaultLogo = () => !/logo-custom\./.test(logoPath());
+const isDefaultLogo = async () => !/logo-custom\./.test(await logoPath());
 
 /**
  * The registered company name. The wordmark image already shows the name, so
  * this is what its alt text should say — the logo is the only place the site
  * name appears in the header.
  */
-const brandName = () => settingValue('company_legal', 'Heritage Housing Projects (Pvt) Ltd');
+const brandName = async () => await settingValue('company_legal', 'Heritage Housing Projects (Pvt) Ltd');
 
 module.exports = {
   logoPath, logoLightPath, faviconPath,

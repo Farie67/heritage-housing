@@ -58,11 +58,11 @@ const hashToken = (token) => crypto.createHash('sha256').update(token).digest('h
  * SHA-256 digest is persisted, so the stored row is useless to an attacker
  * who reads the database.
  */
-function createSession(userId, { ip, userAgent }) {
+async function createSession(userId, { ip, userAgent }) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + config.SESSION_TTL_MS).toISOString();
 
-  sessions.create({
+  await sessions.create({
     tokenHash: hashToken(token),
     userId,
     expiresAt,
@@ -74,17 +74,17 @@ function createSession(userId, { ip, userAgent }) {
 }
 
 /** Returns the session's user, or null. Expired rows are refused and purged. */
-function sessionUser(token) {
+async function sessionUser(token) {
   if (!token) return null;
-  const row = sessions.find(hashToken(token));
+  const row = await sessions.find(hashToken(token));
   if (!row) return null;
 
   if (new Date(row.expires_at).getTime() <= Date.now()) {
-    sessions.destroy(row.token_hash);
+    await sessions.destroy(row.token_hash);
     return null;
   }
   if (row.disabled) {
-    sessions.destroy(row.token_hash);
+    await sessions.destroy(row.token_hash);
     return null;
   }
   return {
@@ -95,8 +95,8 @@ function sessionUser(token) {
   };
 }
 
-function destroySession(token) {
-  if (token) sessions.destroy(hashToken(token));
+async function destroySession(token) {
+  if (token) await sessions.destroy(hashToken(token));
 }
 
 /* ── Sign-in ────────────────────────────────────────────────────────────── */
@@ -104,9 +104,9 @@ function destroySession(token) {
 /* A dummy hash, verified when the client number does not exist. Without this
    the response time would reveal whether an account exists. */
 let dummyHashPromise = null;
-function dummyHash() {
+async function dummyHash() {
   if (!dummyHashPromise) {
-    dummyHashPromise = hashPassword(crypto.randomBytes(24).toString('hex'));
+    dummyHashPromise = await hashPassword(crypto.randomBytes(24).toString('hex'));
   }
   return dummyHashPromise;
 }
@@ -121,52 +121,52 @@ function dummyHash() {
  * handles the per-account lockout.
  */
 async function signIn(clientNumber, password, { ip, userAgent }) {
-  const user = users.byClientNumber(clientNumber);
+  const user = await users.byClientNumber(clientNumber);
 
   if (!user) {
     // Spend comparable time so a missing account is not distinguishable.
     await verifyPassword(password, await dummyHash());
-    audit('login', 'failure', { clientNumber, detail: 'unknown client number', ip });
+    await audit('login', 'failure', { clientNumber, detail: 'unknown client number', ip });
     return { ok: false, reason: 'invalid' };
   }
 
   if (user.disabled) {
-    audit('login', 'failure', { userId: user.id, clientNumber, detail: 'account disabled', ip });
+    await audit('login', 'failure', { userId: user.id, clientNumber, detail: 'account disabled', ip });
     return { ok: false, reason: 'disabled' };
   }
 
   if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
     const retryAfterMs = new Date(user.locked_until).getTime() - Date.now();
-    audit('login', 'failure', { userId: user.id, clientNumber, detail: 'account locked', ip });
+    await audit('login', 'failure', { userId: user.id, clientNumber, detail: 'account locked', ip });
     return { ok: false, reason: 'locked', retryAfterMs };
   }
 
   const valid = await verifyPassword(password, user.password_hash);
 
   if (!valid) {
-    users.bumpFailed(user.id);
+    await users.bumpFailed(user.id);
     const attempts = user.failed_attempts + 1;
 
     if (attempts >= config.LOGIN_MAX_ATTEMPTS) {
       const until = new Date(Date.now() + config.ACCOUNT_LOCK_MS).toISOString();
-      users.lock(user.id, until);
-      audit('login', 'locked', {
+      await users.lock(user.id, until);
+      await audit('login', 'locked', {
         userId: user.id, clientNumber,
         detail: `locked after ${attempts} failed attempts`, ip
       });
       return { ok: false, reason: 'locked', retryAfterMs: config.ACCOUNT_LOCK_MS };
     }
 
-    audit('login', 'failure', {
+    await audit('login', 'failure', {
       userId: user.id, clientNumber, detail: `bad password (${attempts})`, ip
     });
     return { ok: false, reason: 'invalid' };
   }
 
-  users.resetFailed(user.id);
-  const session = createSession(user.id, { ip, userAgent });
+  await users.resetFailed(user.id);
+  const session = await createSession(user.id, { ip, userAgent });
 
-  audit('login', 'success', { userId: user.id, clientNumber, ip });
+  await audit('login', 'success', { userId: user.id, clientNumber, ip });
 
   return {
     ok: true,

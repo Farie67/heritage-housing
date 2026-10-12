@@ -175,21 +175,21 @@ function decorateSale(row) {
 }
 
 /** Every sale matching the filters, each with its balances worked out. */
-function sales(f = {}) {
+async function sales(f = {}) {
   const w = saleWhere(f);
-  return db.prepare(`${SALE_SELECT} WHERE ${w.sql} ORDER BY o.sale_date DESC, o.id DESC`)
-    .all(...w.args)
+  return (await db.prepare(`${SALE_SELECT} WHERE ${w.sql} ORDER BY o.sale_date DESC, o.id DESC`)
+    .all(...w.args))
     .map(decorateSale);
 }
 
-function saleById(id) {
-  const row = db.prepare(`${SALE_SELECT} WHERE o.id = ?`).get(id);
+async function saleById(id) {
+  const row = await db.prepare(`${SALE_SELECT} WHERE o.id = ?`).get(id);
   return row ? decorateSale(row) : null;
 }
 
 /** The transactions on one sale, oldest first. */
-function saleTransactions(saleId) {
-  return db.prepare(`
+async function saleTransactions(saleId) {
+  return await db.prepare(`
     SELECT p.*, u.client_number, u.full_name, r.client_number AS recorded_by_number
       FROM payments p
       LEFT JOIN users u ON u.id = p.user_id
@@ -200,9 +200,9 @@ function saleTransactions(saleId) {
 
 /* ── Aggregates ─────────────────────────────────────────────────────────── */
 
-function sumTransactions(f) {
+async function sumTransactions(f) {
   const w = transactionWhere(f);
-  const row = db.prepare(`
+  const row = await db.prepare(`
     SELECT
       COALESCE(SUM(CASE WHEN p.type = 'DEPOSIT'       THEN p.amount_cents ELSE 0 END), 0) AS deposits,
       COALESCE(SUM(CASE WHEN p.type = 'INSTALLMENT'   THEN p.amount_cents ELSE 0 END), 0) AS installments,
@@ -226,9 +226,9 @@ function sumTransactions(f) {
   };
 }
 
-function sumSales(f) {
+async function sumSales(f) {
   const w = saleWhere(f);
-  const rows = db.prepare(`${SALE_SELECT} WHERE ${w.sql}`).all(...w.args).map(decorateSale);
+  const rows = (await db.prepare(`${SALE_SELECT} WHERE ${w.sql}`).all(...w.args)).map(decorateSale);
 
   return {
     count: rows.length,
@@ -251,9 +251,9 @@ function sumSales(f) {
  * the unfiltered dashboard — and diverge only when a date filter splits a sale
  * from its payments. Both are returned rather than one being hidden.
  */
-function kpis(f = {}) {
-  const t = sumTransactions(f);
-  const s = sumSales(f);
+async function kpis(f = {}) {
+  const t = await sumTransactions(f);
+  const s = await sumSales(f);
 
   return {
     totalNewSales: s.count,
@@ -274,27 +274,27 @@ function kpis(f = {}) {
 }
 
 /** Collection rate and averages. */
-function collectionAnalysis(f = {}) {
-  const t = sumTransactions(f);
-  const s = sumSales(f);
+async function collectionAnalysis(f = {}) {
+  const t = await sumTransactions(f);
+  const s = await sumSales(f);
 
   const rate = s.contractCents > 0 ? (t.netCents / s.contractCents) * 100 : 0;
   const refundRate = t.grossCents > 0 ? (t.refunds / t.grossCents) * 100 : 0;
 
-  const countOf = (type) => {
+  const countOf = async (type) => {
     const w = transactionWhere(f);
-    return db.prepare(`
+    return (await db.prepare(`
       SELECT COUNT(*) AS c FROM payments p
       LEFT JOIN ownerships o ON o.id = p.ownership_id
       LEFT JOIN stands st    ON st.id = COALESCE(p.stand_id, o.stand_id)
-      WHERE ${w.sql} AND p.status = 'Confirmed' AND p.type = ?`).get(...w.args, type).c;
+      WHERE ${w.sql} AND p.status = 'Confirmed' AND p.type = ?`).get(...w.args, type)).c;
   };
 
   const avg = (total, n) => (n > 0 ? Math.round(total / n) : 0);
 
-  const depositCount = countOf('DEPOSIT');
-  const installmentCount = countOf('INSTALLMENT');
-  const finalCount = countOf('FINAL_PAYMENT');
+  const depositCount = await countOf('DEPOSIT');
+  const installmentCount = await countOf('INSTALLMENT');
+  const finalCount = await countOf('FINAL_PAYMENT');
 
   return {
     dueCents: s.contractCents,
@@ -314,8 +314,8 @@ function collectionAnalysis(f = {}) {
 }
 
 /** Sales grouped by project. */
-function byProject(f = {}) {
-  const rows = sales(f);
+async function byProject(f = {}) {
+  const rows = await sales(f);
   const map = new Map();
 
   for (const r of rows) {
@@ -344,8 +344,8 @@ function byProject(f = {}) {
 }
 
 /** Sales grouped by agent. Sales with no agent are grouped as "Unassigned". */
-function byAgent(f = {}) {
-  const rows = sales(f);
+async function byAgent(f = {}) {
+  const rows = await sales(f);
   const map = new Map();
 
   for (const r of rows) {
@@ -372,9 +372,9 @@ function byAgent(f = {}) {
 }
 
 /** Totals per transaction type, for the breakdown chart. */
-function byType(f = {}) {
+async function byType(f = {}) {
   const w = transactionWhere(f);
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT p.type, COUNT(*) AS count, COALESCE(SUM(p.amount_cents), 0) AS cents
       FROM payments p
       LEFT JOIN ownerships o ON o.id = p.ownership_id
@@ -396,10 +396,10 @@ function byType(f = {}) {
  * Daily figures between two dates, inclusive, with every day present even
  * when nothing happened — a chart with gaps misleads.
  */
-function dailySeries(from, to, f = {}) {
+async function dailySeries(from, to, f = {}) {
   const scoped = { ...f, from, to };
 
-  const txns = db.prepare(`
+  const txns = await db.prepare(`
     SELECT p.paid_on AS day,
            COALESCE(SUM(CASE WHEN p.type = 'DEPOSIT'       THEN p.amount_cents ELSE 0 END), 0) AS deposits,
            COALESCE(SUM(CASE WHEN p.type = 'INSTALLMENT'   THEN p.amount_cents ELSE 0 END), 0) AS installments,
@@ -411,7 +411,7 @@ function dailySeries(from, to, f = {}) {
      WHERE ${transactionWhere(scoped).sql} AND p.status = 'Confirmed'
      GROUP BY p.paid_on`).all(...transactionWhere(scoped).args);
 
-  const sold = db.prepare(`
+  const sold = await db.prepare(`
     SELECT o.sale_date AS day, COUNT(*) AS count, COALESCE(SUM(o.sale_price_cents), 0) AS cents
       FROM ownerships o
       JOIN stands st ON st.id = o.stand_id
@@ -449,13 +449,13 @@ function dailySeries(from, to, f = {}) {
 }
 
 /** Twelve months of a year, with empty months present. */
-function monthlySeries(year, f = {}) {
+async function monthlySeries(year, f = {}) {
   const out = [];
   for (let m = 1; m <= 12; m++) {
     const month = `${year}-${String(m).padStart(2, '0')}`;
     const scoped = { ...f, year: null, month, from: null, to: null };
-    const t = sumTransactions(scoped);
-    const s = sumSales(scoped);
+    const t = await sumTransactions(scoped);
+    const s = await sumSales(scoped);
 
     out.push({
       month,
@@ -489,7 +489,7 @@ const LEDGER_SORTS = {
  * The transaction ledger, filtered, sorted and paged.
  * `total` is returned so the caller can paginate without a second query.
  */
-function ledger(f = {}, { page = 1, perPage = 25, sort = 'date', dir = 'desc' } = {}) {
+async function ledger(f = {}, { page = 1, perPage = 25, sort = 'date', dir = 'desc' } = {}) {
   const w = transactionWhere(f);
   const order = LEDGER_SORTS[sort] || LEDGER_SORTS.date;
   const direction = String(dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -504,14 +504,14 @@ function ledger(f = {}, { page = 1, perPage = 25, sort = 'date', dir = 'desc' } 
     LEFT JOIN users rb     ON rb.id = p.recorded_by
     WHERE ${w.sql}`;
 
-  const total = db.prepare(`SELECT COUNT(*) AS c ${from}`).get(...w.args).c;
+  const total = (await db.prepare(`SELECT COUNT(*) AS c ${from}`).get(...w.args)).c;
 
   const limit = Math.min(Math.max(Number(perPage) || 25, 5), 200);
   const pages = Math.max(Math.ceil(total / limit), 1);
   const current = Math.min(Math.max(Number(page) || 1, 1), pages);
   const offset = (current - 1) * limit;
 
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT p.id, p.paid_on, p.type, p.amount_cents, p.status, p.method, p.reference,
            p.notes, p.voided_at, p.ownership_id,
            u.client_number, u.full_name AS client_name,
@@ -534,12 +534,12 @@ function ledger(f = {}, { page = 1, perPage = 25, sort = 'date', dir = 'desc' } 
  * derived every time money moves. Cancelled sales are left alone — a
  * deliberate cancellation should not be undone by a later payment.
  */
-function recomputeSale(saleId, actorId = null) {
-  const before = db.prepare(
+async function recomputeSale(saleId, actorId = null) {
+  const before = await db.prepare(
     'SELECT id, sale_status, closed_at, sale_price_cents FROM ownerships WHERE id = ?').get(saleId);
   if (!before) return null;
 
-  const totals = db.prepare(`
+  const totals = await db.prepare(`
     SELECT
       COALESCE(SUM(CASE WHEN type IN ${COLLECTION_SQL} THEN amount_cents ELSE 0 END), 0) AS collected,
       COALESCE(SUM(CASE WHEN type = 'REFUND' THEN amount_cents ELSE 0 END), 0) AS refunds
@@ -564,11 +564,11 @@ function recomputeSale(saleId, actorId = null) {
   }
 
   if (status !== before.sale_status || closedAt !== before.closed_at) {
-    db.prepare('UPDATE ownerships SET sale_status = ?, closed_at = ? WHERE id = ?')
+    await db.prepare('UPDATE ownerships SET sale_status = ?, closed_at = ? WHERE id = ?')
       .run(status, closedAt, saleId);
 
     if (actorId !== null || before.sale_status !== status) {
-      financeAudit({
+      await financeAudit({
         actorUserId: actorId,
         action: 'sale_status_changed',
         entity: 'sale',
@@ -585,16 +585,17 @@ function recomputeSale(saleId, actorId = null) {
 }
 
 /** Recomputes every sale — used after an import or a bulk correction. */
-function recomputeAllSales(actorId = null) {
-  const ids = db.prepare('SELECT id FROM ownerships').all().map((r) => r.id);
-  return ids.map((id) => recomputeSale(id, actorId));
+async function recomputeAllSales(actorId = null) {
+  const ids = (await db.prepare('SELECT id FROM ownerships').all()).map((r) => r.id);
+  /* An async map would return an array of Promises; the callers want results. */
+  return Promise.all(ids.map((id) => recomputeSale(id, actorId)));
 }
 
 /* ── Financial audit trail ──────────────────────────────────────────────── */
 
-function financeAudit({ actorUserId = null, action, entity, entityId = null,
+async function financeAudit({ actorUserId = null, action, entity, entityId = null,
   reference = null, oldValue = null, newValue = null, reason = null }) {
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO finance_audit
       (at, actor_user_id, action, entity, entity_id, reference, old_value, new_value, reason)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -604,8 +605,8 @@ function financeAudit({ actorUserId = null, action, entity, entityId = null,
     reason);
 }
 
-function financeAuditLog({ limit = 100 } = {}) {
-  return db.prepare(`
+async function financeAuditLog({ limit = 100 } = {}) {
+  return await db.prepare(`
     SELECT f.*, u.client_number AS actor_number, u.full_name AS actor_name
       FROM finance_audit f
       LEFT JOIN users u ON u.id = f.actor_user_id
@@ -614,16 +615,16 @@ function financeAuditLog({ limit = 100 } = {}) {
 
 /* ── Reference data for the filter controls ─────────────────────────────── */
 
-function filterOptions() {
+async function filterOptions() {
   return {
-    projects: db.prepare('SELECT id, name FROM projects ORDER BY name').all(),
-    agents: db.prepare('SELECT id, name FROM agents WHERE active = 1 ORDER BY name').all(),
-    clients: db.prepare(
+    projects: await db.prepare('SELECT id, name FROM projects ORDER BY name').all(),
+    agents: await db.prepare('SELECT id, name FROM agents WHERE active = 1 ORDER BY name').all(),
+    clients: await db.prepare(
       "SELECT id, client_number, full_name FROM users WHERE role = 'client' ORDER BY full_name").all(),
-    stands: db.prepare('SELECT id, stand_number FROM stands ORDER BY stand_number').all(),
-    methods: db.prepare(
+    stands: await db.prepare('SELECT id, stand_number FROM stands ORDER BY stand_number').all(),
+    methods: (await db.prepare(
       "SELECT DISTINCT method FROM payments WHERE method IS NOT NULL AND method <> '' ORDER BY method")
-      .all().map((r) => r.method)
+      .all()).map((r) => r.method)
   };
 }
 
@@ -645,12 +646,12 @@ const VALID_METHODS = PAYMENT_METHODS;
  *   9  every transaction has a date and a positive amount
  *  11  no duplicate transaction id (the primary key guarantees this)
  */
-function recordTransaction({
+async function recordTransaction({
   ownershipId, type, amountCents, paidOn, method = null, reference,
   notes = null, recordedBy = null, approvedBy = null,
   originalTransactionId = null, allowOverpayment = false
 } = {}) {
-  const sale = ownershipId ? db.prepare(
+  const sale = ownershipId ? await db.prepare(
     'SELECT id, sale_price_cents, sale_status FROM ownerships WHERE id = ?').get(ownershipId) : null;
 
   if (!sale) return { ok: false, error: 'A transaction must belong to an existing sale.' };
@@ -667,7 +668,7 @@ function recordTransaction({
   if (!reference) return { ok: false, error: 'A transaction needs a reference.' };
   if (method && !VALID_METHODS.includes(method)) return { ok: false, error: 'Unknown payment method.' };
 
-  const balance = outstandingFor(ownershipId);
+  const balance = await outstandingFor(ownershipId);
 
   /* Rule 3: you cannot take a final payment for more than is owed. */
   if (type === 'FINAL_PAYMENT' && !allowOverpayment && amountCents > balance.outstanding) {
@@ -687,19 +688,19 @@ function recordTransaction({
     };
   }
 
-  const info = db.prepare(`
+  const info = await db.prepare(`
     INSERT INTO payments
       (user_id, stand_id, ownership_id, type, paid_on, amount_cents, status, method,
        reference, notes, recorded_by, approved_by, original_transaction_id)
     VALUES (?, ?, ?, ?, ?, ?, 'Confirmed', ?, ?, ?, ?, ?, ?)`).run(
-    db.prepare('SELECT user_id, stand_id FROM ownerships WHERE id = ?').get(ownershipId).user_id,
-    db.prepare('SELECT stand_id FROM ownerships WHERE id = ?').get(ownershipId).stand_id,
+    (await db.prepare('SELECT user_id, stand_id FROM ownerships WHERE id = ?').get(ownershipId)).user_id,
+    (await db.prepare('SELECT stand_id FROM ownerships WHERE id = ?').get(ownershipId)).stand_id,
     ownershipId, type, paidOn, amountCents, method, reference, notes,
     recordedBy, approvedBy, originalTransactionId);
 
   const id = Number(info.lastInsertRowid);
 
-  financeAudit({
+  await financeAudit({
     actorUserId: recordedBy,
     action: `${type.toLowerCase()}_created`,
     entity: 'payment',
@@ -709,13 +710,13 @@ function recordTransaction({
     reason: notes
   });
 
-  const sale2 = recomputeSale(ownershipId, recordedBy);
+  const sale2 = await recomputeSale(ownershipId, recordedBy);
   return { ok: true, id, sale: sale2 };
 }
 
 /** The balance figures for one sale, or null when it does not exist. */
-function outstandingFor(saleId) {
-  const s = saleById(saleId);
+async function outstandingFor(saleId) {
+  const s = await saleById(saleId);
   if (!s) return null;
   return { outstanding: s.outstanding_cents, net: s.net_cents, price: s.sale_price_cents };
 }
@@ -727,16 +728,16 @@ function outstandingFor(saleId) {
  * 8 says edits must keep an audit trail. Deleting the row would satisfy the
  * first and destroy the second, so the row is kept and excluded.
  */
-function voidTransaction(id, { actorId = null, reason = null } = {}) {
-  const before = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
+async function voidTransaction(id, { actorId = null, reason = null } = {}) {
+  const before = await db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
   if (!before) return { ok: false, error: 'Transaction not found.' };
   if (before.voided_at) return { ok: false, error: 'That transaction is already void.' };
 
   const voidedAt = new Date().toISOString();
-  db.prepare('UPDATE payments SET voided_at = ?, voided_by = ?, void_reason = ? WHERE id = ?')
+  await db.prepare('UPDATE payments SET voided_at = ?, voided_by = ?, void_reason = ? WHERE id = ?')
     .run(voidedAt, actorId, reason, id);
 
-  financeAudit({
+  await financeAudit({
     actorUserId: actorId,
     action: 'payment_voided',
     entity: 'payment',
@@ -747,7 +748,7 @@ function voidTransaction(id, { actorId = null, reason = null } = {}) {
     reason
   });
 
-  if (before.ownership_id) recomputeSale(before.ownership_id, actorId);
+  if (before.ownership_id) await recomputeSale(before.ownership_id, actorId);
   return { ok: true };
 }
 
@@ -759,16 +760,16 @@ function voidTransaction(id, { actorId = null, reason = null } = {}) {
  * balance has to be recomputed — confirming the payment that clears a balance
  * is exactly the moment a sale becomes Completed.
  */
-function setTransactionStatus(id, status, { actorId = null, reason = null } = {}) {
-  const before = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
+async function setTransactionStatus(id, status, { actorId = null, reason = null } = {}) {
+  const before = await db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
   if (!before) return { ok: false, error: 'Transaction not found.' };
   if (!PAYMENT_STATUSES.includes(status)) return { ok: false, error: 'Unknown status.' };
   if (before.voided_at) return { ok: false, error: 'That transaction is void, so its status cannot change.' };
   if (before.status === status) return { ok: true, unchanged: true };
 
-  db.prepare('UPDATE payments SET status = ? WHERE id = ?').run(status, id);
+  await db.prepare('UPDATE payments SET status = ? WHERE id = ?').run(status, id);
 
-  financeAudit({
+  await financeAudit({
     actorUserId: actorId,
     action: 'payment_status_changed',
     entity: 'payment',
@@ -779,20 +780,20 @@ function setTransactionStatus(id, status, { actorId = null, reason = null } = {}
     reason
   });
 
-  if (before.ownership_id) recomputeSale(before.ownership_id, actorId);
+  if (before.ownership_id) await recomputeSale(before.ownership_id, actorId);
   return { ok: true };
 }
 
 /** Restores a voided transaction, with the reversal recorded. */
-function unvoidTransaction(id, { actorId = null, reason = null } = {}) {
-  const before = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
+async function unvoidTransaction(id, { actorId = null, reason = null } = {}) {
+  const before = await db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
   if (!before) return { ok: false, error: 'Transaction not found.' };
   if (!before.voided_at) return { ok: false, error: 'That transaction is not void.' };
 
-  db.prepare('UPDATE payments SET voided_at = NULL, voided_by = NULL, void_reason = NULL WHERE id = ?')
+  await db.prepare('UPDATE payments SET voided_at = NULL, voided_by = NULL, void_reason = NULL WHERE id = ?')
     .run(id);
 
-  financeAudit({
+  await financeAudit({
     actorUserId: actorId,
     action: 'payment_restored',
     entity: 'payment',
@@ -803,13 +804,13 @@ function unvoidTransaction(id, { actorId = null, reason = null } = {}) {
     reason
   });
 
-  if (before.ownership_id) recomputeSale(before.ownership_id, actorId);
+  if (before.ownership_id) await recomputeSale(before.ownership_id, actorId);
   return { ok: true };
 }
 
 /** Edits an existing transaction, recording both the old and new values. */
-function updateTransaction(id, { paidOn, amountCents, method, status, notes, actorId, reason }) {
-  const before = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
+async function updateTransaction(id, { paidOn, amountCents, method, status, notes, actorId, reason }) {
+  const before = await db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
   if (!before) return { ok: false, error: 'Transaction not found.' };
   if (before.voided_at) return { ok: false, error: 'That transaction is void and cannot be edited.' };
 
@@ -822,10 +823,10 @@ function updateTransaction(id, { paidOn, amountCents, method, status, notes, act
   if (!PAYMENT_STATUSES.includes(status)) return { ok: false, error: 'Unknown status.' };
   if (method && !VALID_METHODS.includes(method)) return { ok: false, error: 'Unknown payment method.' };
 
-  db.prepare(`UPDATE payments SET paid_on = ?, amount_cents = ?, method = ?, status = ?, notes = ?
+  await db.prepare(`UPDATE payments SET paid_on = ?, amount_cents = ?, method = ?, status = ?, notes = ?
                WHERE id = ?`).run(paidOn, amountCents, method, status, notes, id);
 
-  financeAudit({
+  await financeAudit({
     actorUserId: actorId,
     action: 'payment_edited',
     entity: 'payment',
@@ -836,7 +837,7 @@ function updateTransaction(id, { paidOn, amountCents, method, status, notes, act
     reason
   });
 
-  if (before.ownership_id) recomputeSale(before.ownership_id, actorId);
+  if (before.ownership_id) await recomputeSale(before.ownership_id, actorId);
   return { ok: true };
 }
 
