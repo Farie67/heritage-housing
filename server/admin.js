@@ -3,7 +3,7 @@
 /* ==========================================================================
    Admin area.
 
-   Mounted from index.js as a single entry point: handleAdmin() returns true
+   Mounted from index.js as a single entry point: await handleAdmin() returns true
    when it dealt with the request, false to let the normal router continue.
 
    Authorisation is role-based and enforced here, server-side, on every
@@ -26,7 +26,7 @@ const viewsAnalytics = require('./views-analytics');
 const analytics = require('./analytics');
 const reportExports = require('./exports');
 const { RateLimiter } = require('./security');
-const { generatePassword } = require('./passwords');
+const { generatePassword, generatePasswordWithSymbol } = require('./passwords');
 const { validateUpload, validateLogoUpload } = require('./multipart');
 const { logoPath, logoAbsolute, FALLBACK } = require('./branding');
 const invoice = require('./invoice');
@@ -82,9 +82,9 @@ async function removeCustomLogos(dir) {
 }
 
 /** Renders the edit page for one payment, or a 404 when it is not this client's. */
-function sendPaymentEdit(res, h, clientId, paymentId, opts) {
-  const client = admin.clientById(clientId);
-  const payment = admin.paymentById(paymentId);
+async function sendPaymentEdit(res, h, clientId, paymentId, opts) {
+  const client = await admin.clientById(clientId);
+  const payment = await admin.paymentById(paymentId);
 
   if (!client || !payment || payment.user_id !== clientId) {
     h.sendHtml(res, 404, views.adminLayout({
@@ -111,9 +111,9 @@ function sendPaymentEdit(res, h, clientId, paymentId, opts) {
 }
 
 /** The view model for one page's editable content. */
-function contentSections(pageKey) {
+async function contentSections(pageKey) {
   const schema = contentSchema.page(pageKey);
-  const resolved = content.resolve(pageKey);
+  const resolved = await content.resolve(pageKey);
 
   return schema.sections.map((section) => {
     if (section.repeat) {
@@ -146,7 +146,7 @@ function contentPageList() {
   }));
 }
 
-function sendContentPage(res, h, pageKey, opts) {
+async function sendContentPage(res, h, pageKey, opts) {
   const schema = contentSchema.page(pageKey);
 
   if (!schema) {
@@ -164,7 +164,7 @@ function sendContentPage(res, h, pageKey, opts) {
     csrf: opts.csrf,
     body: views.renderContentPage({
       page: { key: schema.key, label: schema.label },
-      sections: contentSections(pageKey),
+      sections: await contentSections(pageKey),
       pages: contentPageList(),
       user: opts.user,
       csrf: opts.csrf,
@@ -174,7 +174,7 @@ function sendContentPage(res, h, pageKey, opts) {
   }));
 }
 
-function sendSettingsPage(res, h, opts) {
+async function sendSettingsPage(res, h, opts) {
   h.sendHtml(res, 200, views.adminLayout({
     title: 'Site settings',
     active: '/admin/settings',
@@ -182,8 +182,8 @@ function sendSettingsPage(res, h, opts) {
     csrf: opts.csrf,
     body: views.renderSettings({
       schema: contentSchema.SETTINGS,
-      values: content.settings(),
-      logo: { absolute: logoAbsolute(), custom: /logo-custom\./.test(logoPath()) },
+      values: await content.settings(),
+      logo: { absolute: await logoAbsolute(), custom: /logo-custom\./.test(await logoPath()) },
       user: opts.user,
       csrf: opts.csrf,
       notice: opts.notice || '',
@@ -217,20 +217,20 @@ function isIsoDate(value) {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
-function loadClient(id) {
-  const client = admin.clientById(id);
+async function loadClient(id) {
+  const client = await admin.clientById(id);
   if (!client) return null;
   return {
     client,
-    payments: admin.paymentsFor(id),
-    stands: admin.stands(),
-    documents: admin.documentsFor(id)
+    payments: await admin.paymentsFor(id),
+    stands: await admin.stands(),
+    documents: await admin.documentsFor(id)
   };
 }
 
 /** Renders one client's page, or a 404 when the id does not exist. */
-function sendClientPage(res, h, id, opts) {
-  const data = loadClient(id);
+async function sendClientPage(res, h, id, opts) {
+  const data = await loadClient(id);
 
   if (!data) {
     h.sendHtml(res, 404, views.adminLayout({
@@ -373,7 +373,7 @@ async function handleAdmin(req, res, ctx) {
     const limit = adminLoginLimiter.check(ip);
     if (!limit.allowed) {
       const mins = Math.ceil(limit.retryAfterMs / 60000);
-      audit('admin_login', 'rate_limited', { detail: 'per-IP limit', ip });
+      await audit('admin_login', 'rate_limited', { detail: 'per-IP limit', ip });
       h.sendHtml(res, 429, views.renderLogin({
         csrf,
         error: `Too many sign-in attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
@@ -407,8 +407,8 @@ async function handleAdmin(req, res, ctx) {
        session down before the cookie is ever issued, so a client can never
        hold an admin-capable session token. */
     if (result.user.role !== 'admin') {
-      auth.destroySession(result.token);
-      audit('admin_login', 'denied', {
+      await auth.destroySession(result.token);
+      await audit('admin_login', 'denied', {
         userId: result.user.id, clientNumber, detail: 'not an admin account', ip
       });
       h.sendHtml(res, 403, views.renderLogin({
@@ -418,7 +418,7 @@ async function handleAdmin(req, res, ctx) {
     }
 
     adminLoginLimiter.reset(ip);
-    audit('admin_login', 'success', { userId: result.user.id, clientNumber, ip });
+    await audit('admin_login', 'success', { userId: result.user.id, clientNumber, ip });
 
     h.sendHtml(res, 302, '', {
       Location: '/admin',
@@ -430,7 +430,7 @@ async function handleAdmin(req, res, ctx) {
   /* ── Everything below requires an admin session ── */
   if (!isAdmin(user)) {
     if (!PUBLIC_ADMIN_PATHS.has(pathname)) {
-      audit('admin_access', 'denied', {
+      await audit('admin_access', 'denied', {
         userId: user ? user.id : null,
         detail: `${method} ${pathname}${user ? ' (client role)' : ' (no session)'}`,
         ip
@@ -442,8 +442,8 @@ async function handleAdmin(req, res, ctx) {
 
   if (pathname === '/admin/logout') {
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
-    auth.destroySession(ctx.cookies[config.SESSION_COOKIE]);
-    audit('admin_logout', 'success', { userId: user.id, ip });
+    await auth.destroySession(ctx.cookies[config.SESSION_COOKIE]);
+    await audit('admin_logout', 'success', { userId: user.id, ip });
     h.sendHtml(res, 302, '', {
       Location: '/admin/login',
       'Set-Cookie': auth.clearSessionCookie()
@@ -459,13 +459,13 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const filters = analytics.filtersFrom(Object.fromEntries(url.searchParams));
-    const options = analytics.filterOptions();
+    const filters = await analytics.filtersFrom(Object.fromEntries(url.searchParams));
+    const options = await analytics.filterOptions();
     const isLedger = pathname.endsWith('/ledger');
 
-    audit('analytics_view', 'success', { userId: user.id, detail: isLedger ? 'ledger' : 'overview', ip });
+    await audit('analytics_view', 'success', { userId: user.id, detail: isLedger ? 'ledger' : 'overview', ip });
 
-    const ledger = analytics.ledger(filters, {
+    const ledger = await analytics.ledger(filters, {
       page: Number(url.searchParams.get('page')) || 1,
       perPage: isLedger ? 50 : 8,
       sort: url.searchParams.get('sort') || 'date',
@@ -474,14 +474,14 @@ async function handleAdmin(req, res, ctx) {
 
     const html = isLedger
       ? viewsAnalytics.renderLedger({
-        ledger, totals: analytics.sumTransactions(filters), options, filters, user, csrf
+        ledger, totals: await analytics.sumTransactions(filters), options, filters, user, csrf
       })
       : viewsAnalytics.renderAnalytics({
-        kpis: analytics.kpis(filters),
-        collection: analytics.collectionAnalysis(filters),
-        projects: analytics.byProject(filters),
-        agents: analytics.byAgent(filters),
-        types: analytics.byType(filters),
+        kpis: await analytics.kpis(filters),
+        collection: await analytics.collectionAnalysis(filters),
+        projects: await analytics.byProject(filters),
+        agents: await analytics.byAgent(filters),
+        types: await analytics.byType(filters),
         ledger, options, filters, user, csrf, active: pathname
       });
 
@@ -498,11 +498,11 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const filters = analytics.filtersFrom(Object.fromEntries(url.searchParams));
-    const options = analytics.filterOptions();
+    const filters = await analytics.filtersFrom(Object.fromEntries(url.searchParams));
+    const options = await analytics.filterOptions();
     const today = new Date();
 
-    audit('analytics_view', 'success', {
+    await audit('analytics_view', 'success', {
       userId: user.id, detail: pathname.split('/').pop(), ip
     });
 
@@ -513,17 +513,17 @@ async function handleAdmin(req, res, ctx) {
 
       const range = custom
         ? { from: filters.from || filters.to, to: filters.to || filters.from }
-        : analytics.weekBounds(offset, today);
-      const before = analytics.weekBounds(custom ? 0 : offset - 1, today);
+        : await analytics.weekBounds(offset, today);
+      const before = await analytics.weekBounds(custom ? 0 : offset - 1, today);
 
       const label = custom ? 'Custom range'
         : offset === 0 ? 'This week'
           : offset === -1 ? 'Last week' : `${Math.abs(offset)} weeks ago`;
 
       h.sendHtml(res, 200, viewsAnalytics.renderWeekly({
-        kpis: analytics.kpis({ ...filters, from: range.from, to: range.to }),
-        previous: analytics.kpis({ ...filters, from: before.from, to: before.to }),
-        series: analytics.dailySeries(range.from, range.to, filters),
+        kpis: await analytics.kpis({ ...filters, from: range.from, to: range.to }),
+        previous: await analytics.kpis({ ...filters, from: before.from, to: before.to }),
+        series: await analytics.dailySeries(range.from, range.to, filters),
         range: { ...range, label },
         weekOffset: offset,
         custom,
@@ -535,17 +535,17 @@ async function handleAdmin(req, res, ctx) {
     if (pathname.endsWith('/monthly')) {
       const month = filters.month
         || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-      const prior = analytics.shiftMonth(month, -1);
+      const prior = await analytics.shiftMonth(month, -1);
       const scope = { ...filters, month, year: null, from: null, to: null };
 
       const longMonth = (m) => new Date(`${m}-01T00:00:00Z`)
         .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
       h.sendHtml(res, 200, viewsAnalytics.renderMonthly({
-        kpis: analytics.kpis(scope),
-        previous: analytics.kpis({ ...scope, month: prior }),
+        kpis: await analytics.kpis(scope),
+        previous: await analytics.kpis({ ...scope, month: prior }),
         previousLabel: longMonth(prior),
-        series: analytics.monthlySeries(month.slice(0, 4), filters),
+        series: await analytics.monthlySeries(month.slice(0, 4), filters),
         month,
         year: month.slice(0, 4),
         options, filters, user, csrf
@@ -554,16 +554,16 @@ async function handleAdmin(req, res, ctx) {
     }
 
     const year = filters.year || String(today.getFullYear());
-    const years = db.prepare(`
+    const years = (await db.prepare(`
       SELECT DISTINCT substr(COALESCE(sale_date, purchase_date), 1, 4) AS y
         FROM ownerships
        WHERE COALESCE(sale_date, purchase_date) GLOB '[0-9][0-9][0-9][0-9]-*'
-       ORDER BY y DESC`).all().map((r) => r.y);
+       ORDER BY y DESC`).all()).map((r) => r.y);
     if (!years.includes(year)) years.unshift(year);
 
     h.sendHtml(res, 200, viewsAnalytics.renderAnnual({
-      kpis: analytics.kpis({ ...filters, year, month: null, from: null, to: null }),
-      series: analytics.monthlySeries(year, filters),
+      kpis: await analytics.kpis({ ...filters, year, month: null, from: null, to: null }),
+      series: await analytics.monthlySeries(year, filters),
       year, years, options, filters, user, csrf
     }));
     return true;
@@ -582,7 +582,7 @@ async function handleAdmin(req, res, ctx) {
     }
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const filters = analytics.filtersFrom(Object.fromEntries(url.searchParams));
+    const filters = await analytics.filtersFrom(Object.fromEntries(url.searchParams));
     const today = new Date();
     const context = {};
 
@@ -594,7 +594,7 @@ async function handleAdmin(req, res, ctx) {
       const offset = Number(url.searchParams.get('week')) || 0;
       const range = custom
         ? { from: filters.from || filters.to, to: filters.to || filters.from }
-        : analytics.weekBounds(offset, today);
+        : await analytics.weekBounds(offset, today);
 
       context.from = range.from;
       context.to = range.to;
@@ -616,13 +616,13 @@ async function handleAdmin(req, res, ctx) {
       filters.to = null;
     }
 
-    const report = reportExports.build(type, filters, context);
+    const report = await reportExports.build(type, filters, context);
     if (!report) return h.send(res, 404, 'Not found'), true;
 
-    const buffer = reportExports.render(report, format, { settings: content.settings() });
+    const buffer = reportExports.render(report, format, { settings: await content.settings() });
     const filename = reportExports.filenameFor(report, format, context);
 
-    audit('analytics_export', 'success', {
+    await audit('analytics_export', 'success', {
       userId: user.id, detail: `${type}.${format} — ${report.filterSummary}`, ip
     });
 
@@ -644,13 +644,13 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     const saleId = Number(saleMatch[1]);
-    const sale = analytics.saleById(saleId);
+    const sale = await analytics.saleById(saleId);
     if (!sale) return h.send(res, 404, 'Not found'), true;
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    audit('sale_view', 'success', { userId: user.id, detail: `sale ${saleId}`, ip });
+    await audit('sale_view', 'success', { userId: user.id, detail: `sale ${saleId}`, ip });
 
-    const audits = db.prepare(`
+    const audits = await db.prepare(`
       SELECT f.*, u.client_number AS actor_number FROM finance_audit f
         LEFT JOIN users u ON u.id = f.actor_user_id
        WHERE (f.entity = 'sale' AND f.entity_id = ?)
@@ -658,9 +658,9 @@ async function handleAdmin(req, res, ctx) {
                 (SELECT id FROM payments WHERE ownership_id = ?))
        ORDER BY f.id DESC`).all(saleId, saleId);
 
-    h.sendHtml(res, 200, viewsAnalytics.renderSaleDetail({
+    h.sendHtml(res, 200, await viewsAnalytics.renderSaleDetail({
       sale,
-      transactions: analytics.saleTransactions(saleId),
+      transactions: await analytics.saleTransactions(saleId),
       audit: audits,
       user, csrf,
       flash: url.searchParams.get('ok') || '',
@@ -677,7 +677,7 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
     const saleId = Number(saleTxnMatch[1]);
-    const sale = analytics.saleById(saleId);
+    const sale = await analytics.saleById(saleId);
     if (!sale) return h.send(res, 404, 'Not found'), true;
 
     const fail = (message) => {
@@ -697,11 +697,11 @@ async function handleAdmin(req, res, ctx) {
     const reference = buildReference({
       projectName: sale.project_name,
       when: new Date(),
-      isTaken: (ref) => admin.referenceTaken(ref),
-      fallbackCode: content.settings().payment_ref_prefix || 'HHP'
+      isTaken: async (ref) => await admin.referenceTaken(ref),
+      fallbackCode: (await content.settings()).payment_ref_prefix || 'HHP'
     });
 
-    const result = analytics.recordTransaction({
+    const result = await analytics.recordTransaction({
       ownershipId: saleId,
       type,
       amountCents: cents,
@@ -715,7 +715,7 @@ async function handleAdmin(req, res, ctx) {
 
     if (!result.ok) return fail(result.error);
 
-    audit(`txn_${type.toLowerCase()}`, 'success', {
+    await audit(`txn_${type.toLowerCase()}`, 'success', {
       userId: user.id, clientNumber: sale.client_number,
       detail: `${reference} ${cents} cents on sale ${saleId}`, ip
     });
@@ -735,12 +735,12 @@ async function handleAdmin(req, res, ctx) {
     const action = voidMatch[2];
     const reason = String(body.reason || '').trim().slice(0, 300) || null;
 
-    const payment = db.prepare('SELECT ownership_id FROM payments WHERE id = ?').get(paymentId);
+    const payment = await db.prepare('SELECT ownership_id FROM payments WHERE id = ?').get(paymentId);
     if (!payment) return h.send(res, 404, 'Not found'), true;
 
     const result = action === 'void'
-      ? analytics.voidTransaction(paymentId, { actorId: user.id, reason })
-      : analytics.unvoidTransaction(paymentId, { actorId: user.id, reason });
+      ? await analytics.voidTransaction(paymentId, { actorId: user.id, reason })
+      : await analytics.unvoidTransaction(paymentId, { actorId: user.id, reason });
 
     const back = payment.ownership_id ? `/admin/sales/${payment.ownership_id}` : '/admin/analytics/ledger';
     if (!result.ok) {
@@ -748,7 +748,7 @@ async function handleAdmin(req, res, ctx) {
       return true;
     }
 
-    audit(`payment_${action}`, 'success', { userId: user.id, detail: `payment ${paymentId}`, ip });
+    await audit(`payment_${action}`, 'success', { userId: user.id, detail: `payment ${paymentId}`, ip });
     h.redirect(res, `${back}?ok=${action === 'void' ? 'Transaction voided.' : 'Transaction restored.'}`);
     return true;
   }
@@ -756,13 +756,13 @@ async function handleAdmin(req, res, ctx) {
   /* ── Overview ── */
   if (pathname === '/admin') {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
-    const counts = admin.counts();
-    const recent = enquiries.all().slice(0, 5);
-    audit('admin_view', 'success', { userId: user.id, detail: 'overview', ip });
+    const counts = await admin.counts();
+    const recent = (await enquiries.all()).slice(0, 5);
+    await audit('admin_view', 'success', { userId: user.id, detail: 'overview', ip });
 
     h.sendHtml(res, 200, views.adminLayout({
       title: 'Overview', active: '/admin', user, csrf,
-      body: views.renderDashboard({ counts, recent, clientsByDevelopment: admin.clientsByDevelopment(), user, csrf })
+      body: views.renderDashboard({ counts, recent, clientsByDevelopment: await admin.clientsByDevelopment(), user, csrf })
     }));
     return true;
   }
@@ -776,11 +776,11 @@ async function handleAdmin(req, res, ctx) {
       ? 'Enquiry marked as handled.'
       : url.searchParams.get('reopened') === '1' ? 'Enquiry reopened.' : '';
 
-    audit('admin_view', 'success', { userId: user.id, detail: 'enquiries', ip });
+    await audit('admin_view', 'success', { userId: user.id, detail: 'enquiries', ip });
 
     h.sendHtml(res, 200, views.adminLayout({
       title: 'Enquiries', active: '/admin/enquiries', user, csrf,
-      body: views.renderEnquiries({ list: enquiries.all(), counts: enquiries.counts(), user, csrf, flash })
+      body: views.renderEnquiries({ list: await enquiries.all(), counts: await enquiries.counts(), user, csrf, flash })
     }));
     return true;
   }
@@ -791,7 +791,7 @@ async function handleAdmin(req, res, ctx) {
 
     const id = Number.parseInt(m[1], 10);
     const action = m[2];
-    const record = enquiries.byId(id);
+    const record = await enquiries.byId(id);
 
     if (!record) {
       h.sendHtml(res, 404, views.adminLayout({
@@ -801,10 +801,10 @@ async function handleAdmin(req, res, ctx) {
       return true;
     }
 
-    if (action === 'handle') enquiries.markHandled(id, user.id);
-    else enquiries.reopen(id);
+    if (action === 'handle') await enquiries.markHandled(id, user.id);
+    else await enquiries.reopen(id);
 
-    audit(`enquiry_${action}`, 'success', {
+    await audit(`enquiry_${action}`, 'success', {
       userId: user.id, detail: `enquiry ${id} (${record.name})`, ip
     });
 
@@ -822,43 +822,43 @@ async function handleAdmin(req, res, ctx) {
       const fullName = String(body.fullName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
       const email = String(body.email || '').trim().slice(0, 160);
 
-      const refuse = (message) => {
+      const refuse = async (message) => {
         h.sendHtml(res, 200, views.adminLayout({
           title: 'Add a client', active: '/admin/clients', user, csrf,
           body: views.renderNewClient({
-            suggestedNumber: clientNumber || admin.suggestClientNumber(),
+            suggestedNumber: clientNumber || await admin.suggestClientNumber(),
             user, csrf, error: message
           })
         }));
       };
 
       if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(clientNumber)) {
-        refuse('Client number must be 3 to 32 characters, using letters, digits and hyphens.');
+        await refuse('Client number must be 3 to 32 characters, using letters, digits and hyphens.');
         return true;
       }
-      if (fullName.length < 2) { refuse('Please enter the client\'s full name.'); return true; }
+      if (fullName.length < 2) { await refuse('Please enter the client\'s full name.'); return true; }
       if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
-        refuse('That does not look like a valid email address.');
+        await refuse('That does not look like a valid email address.');
         return true;
       }
-      if (users.byClientNumber(clientNumber)) {
-        refuse(`Client number ${clientNumber} is already in use.`);
+      if (await users.byClientNumber(clientNumber)) {
+        await refuse(`Client number ${clientNumber} is already in use.`);
         return true;
       }
 
       const password = generatePassword(20);
-      admin.createClient({
+      await admin.createClient({
         clientNumber, fullName, email,
         passwordHash: await auth.hashPassword(password)
       });
-      audit('client_create', 'success', {
+      await audit('client_create', 'success', {
         userId: user.id, clientNumber, detail: `created ${fullName}`, ip
       });
 
       h.sendHtml(res, 200, views.adminLayout({
         title: 'Client created', active: '/admin/clients', user, csrf,
         body: views.renderNewClient({
-          suggestedNumber: admin.suggestClientNumber(),
+          suggestedNumber: await admin.suggestClientNumber(),
           user, csrf,
           created: { clientNumber, password }
         })
@@ -870,9 +870,9 @@ async function handleAdmin(req, res, ctx) {
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const q = (url.searchParams.get('q') || '').trim();
-    const clients = admin.searchClients(q);
+    const clients = await admin.searchClients(q);
 
-    audit('admin_view', 'success', {
+    await audit('admin_view', 'success', {
       userId: user.id, detail: q ? `clients search "${q}"` : 'clients', ip
     });
 
@@ -887,10 +887,10 @@ async function handleAdmin(req, res, ctx) {
   if (pathname === '/admin/clients/new') {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
-    audit('admin_view', 'success', { userId: user.id, detail: 'new client form', ip });
+    await audit('admin_view', 'success', { userId: user.id, detail: 'new client form', ip });
     h.sendHtml(res, 200, views.adminLayout({
       title: 'Add a client', active: '/admin/clients', user, csrf,
-      body: views.renderNewClient({ suggestedNumber: admin.suggestClientNumber(), user, csrf })
+      body: views.renderNewClient({ suggestedNumber: await admin.suggestClientNumber(), user, csrf })
     }));
     return true;
   }
@@ -904,8 +904,8 @@ async function handleAdmin(req, res, ctx) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const flag = (url.searchParams.get('ok') || '').trim();
 
-    audit('admin_view', 'success', { userId: user.id, detail: `client ${id}`, ip });
-    sendClientPage(res, h, id, {
+    await audit('admin_view', 'success', { userId: user.id, detail: `client ${id}`, ip });
+    await sendClientPage(res, h, id, {
       user, csrf,
       notice: CLIENT_FLASH[flag] || '',
       error: url.searchParams.get('error') || ''
@@ -922,18 +922,18 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     const clientId = Number(statementMatch[1]);
-    const client = admin.clientById(clientId);
+    const client = await admin.clientById(clientId);
     if (!client) return h.send(res, 404, 'Not found'), true;
 
     const pdf = invoice.buildStatementPdf({
-      settings: content.settings(),
+      settings: await content.settings(),
       client,
       ownership: invoice.ownershipFromClientRow(client),
-      payments: admin.paymentsFor(clientId),
+      payments: await admin.paymentsFor(clientId),
       generatedAt: new Date()
     });
 
-    audit('statement_download', 'success', {
+    await audit('statement_download', 'success', {
       userId: user.id, clientNumber: client.client_number, detail: 'by admin', ip
     });
 
@@ -950,8 +950,8 @@ async function handleAdmin(req, res, ctx) {
   if (payEditMatch) {
     const clientId = Number(payEditMatch[1]);
     const paymentId = Number(payEditMatch[2]);
-    const client = admin.clientById(clientId);
-    const payment = admin.paymentById(paymentId);
+    const client = await admin.clientById(clientId);
+    const payment = await admin.paymentById(paymentId);
 
     if (!client || !payment || payment.user_id !== clientId) {
       h.sendHtml(res, 404, views.adminLayout({
@@ -962,8 +962,8 @@ async function handleAdmin(req, res, ctx) {
     }
 
     if (method === 'GET') {
-      audit('admin_view', 'success', { userId: user.id, detail: `payment ${paymentId}`, ip });
-      sendPaymentEdit(res, h, clientId, paymentId, { user, csrf });
+      await audit('admin_view', 'success', { userId: user.id, detail: `payment ${paymentId}`, ip });
+      await sendPaymentEdit(res, h, clientId, paymentId, { user, csrf });
       return true;
     }
 
@@ -973,19 +973,19 @@ async function handleAdmin(req, res, ctx) {
     const paidOn = String(body.paidOn || '').trim();
     const status = String(body.status || '').trim();
 
-    const refuse = (message) =>
-      sendPaymentEdit(res, h, clientId, paymentId, { user, csrf, error: message });
+    const refuse = async (message) =>
+      await sendPaymentEdit(res, h, clientId, paymentId, { user, csrf, error: message });
 
     if (cents === null) {
-      refuse('Amount must be a positive number, for example 1500 or 1500.00.');
+      await refuse('Amount must be a positive number, for example 1500 or 1500.00.');
       return true;
     }
-    if (!isIsoDate(paidOn)) { refuse('Please give a valid date received.'); return true; }
-    if (!PAYMENT_STATUSES.includes(status)) { refuse('Unknown payment status.'); return true; }
+    if (!isIsoDate(paidOn)) { await refuse('Please give a valid date received.'); return true; }
+    if (!PAYMENT_STATUSES.includes(status)) { await refuse('Unknown payment status.'); return true; }
 
     /* Through the analytics layer, not straight to the table: an edit to a
        financial record must be audited and must recompute the sale. */
-    const result = analytics.updateTransaction(paymentId, {
+    const result = await analytics.updateTransaction(paymentId, {
       paidOn,
       amountCents: cents,
       method: payment.method,
@@ -995,9 +995,9 @@ async function handleAdmin(req, res, ctx) {
       reason: 'Edited from the client page'
     });
 
-    if (!result.ok) { refuse(result.error); return true; }
+    if (!result.ok) { await refuse(result.error); return true; }
 
-    audit('payment_update', 'success', {
+    await audit('payment_update', 'success', {
       userId: user.id, clientNumber: client.client_number,
       detail: `${payment.reference} ${cents} cents (${status})`, ip
     });
@@ -1009,8 +1009,8 @@ async function handleAdmin(req, res, ctx) {
 
     const clientId = Number(payStatusMatch[1]);
     const paymentId = Number(payStatusMatch[2]);
-    const client = admin.clientById(clientId);
-    const payment = admin.paymentById(paymentId);
+    const client = await admin.clientById(clientId);
+    const payment = await admin.paymentById(paymentId);
 
     if (!client || !payment || payment.user_id !== clientId) {
       h.send(res, 404, 'Not found');
@@ -1018,17 +1018,17 @@ async function handleAdmin(req, res, ctx) {
     }
 
     const status = String(body.status || '').trim();
-    const changed = analytics.setTransactionStatus(paymentId, status, {
+    const changed = await analytics.setTransactionStatus(paymentId, status, {
       actorId: user.id,
       reason: 'Changed from the client page'
     });
 
     if (!changed.ok) {
-      sendClientPage(res, h, clientId, { user, csrf, error: changed.error });
+      await sendClientPage(res, h, clientId, { user, csrf, error: changed.error });
       return true;
     }
 
-    audit('payment_status', 'success', {
+    await audit('payment_status', 'success', {
       userId: user.id, clientNumber: client.client_number,
       detail: `${payment.reference}: ${payment.status} -> ${status}`, ip
     });
@@ -1046,7 +1046,7 @@ async function handleAdmin(req, res, ctx) {
     if (payDeleteMatch) {
       const clientId = Number(payDeleteMatch[1]);
       const paymentId = Number(payDeleteMatch[2]);
-      const payment = admin.paymentById(paymentId);
+      const payment = await admin.paymentById(paymentId);
 
       // The payment must belong to the client in the URL — never trust the path alone.
       if (!payment || payment.user_id !== clientId) {
@@ -1061,7 +1061,7 @@ async function handleAdmin(req, res, ctx) {
          change to a financial record, so the figures are written to the
          finance audit trail first. Voiding is the reversible alternative and
          is offered on the sale page. */
-      analytics.financeAudit({
+      await analytics.financeAudit({
         actorUserId: user.id,
         action: 'payment_deleted',
         entity: 'payment',
@@ -1072,10 +1072,10 @@ async function handleAdmin(req, res, ctx) {
         reason: 'Deleted from the client page'
       });
 
-      admin.deletePayment(paymentId);
-      if (payment.ownership_id) analytics.recomputeSale(payment.ownership_id, user.id);
+      await admin.deletePayment(paymentId);
+      if (payment.ownership_id) await analytics.recomputeSale(payment.ownership_id, user.id);
 
-      audit('payment_delete', 'success', {
+      await audit('payment_delete', 'success', {
         userId: user.id, detail: `payment ${payment.reference} (${paymentId}) from client ${clientId}`, ip
       });
       return h.sendHtml(res, 302, '', { Location: `/admin/clients/${clientId}?ok=deleted` }), true;
@@ -1083,7 +1083,7 @@ async function handleAdmin(req, res, ctx) {
 
     const clientId = Number(actionMatch[1]);
     const action = actionMatch[2];
-    const client = admin.clientById(clientId);
+    const client = await admin.clientById(clientId);
 
     if (!client) {
       h.sendHtml(res, 404, views.adminLayout({
@@ -1099,27 +1099,27 @@ async function handleAdmin(req, res, ctx) {
       const email = String(body.email || '').trim().slice(0, 160);
 
       if (fullName.length < 2) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Please enter the client\'s full name.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Please enter the client\'s full name.' });
         return true;
       }
       if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'That does not look like a valid email address.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'That does not look like a valid email address.' });
         return true;
       }
 
-      admin.updateClient(clientId, { fullName, email });
-      audit('client_update', 'success', { userId: user.id, detail: `client ${clientId} (${client.client_number})`, ip });
+      await admin.updateClient(clientId, { fullName, email });
+      await audit('client_update', 'success', { userId: user.id, detail: `client ${clientId} (${client.client_number})`, ip });
       return h.sendHtml(res, 302, '', { Location: `/admin/clients/${clientId}?ok=saved` }), true;
     }
 
     /* ── Reset password — the new password is rendered once, never in a URL ── */
     if (action === 'reset-password') {
-      const password = generatePassword(20);
-      admin.setPassword(clientId, await auth.hashPassword(password));
-      audit('client_password_reset', 'success', {
+      const password = generatePasswordWithSymbol(5);
+      await admin.setPassword(clientId, await auth.hashPassword(password));
+      await audit('client_password_reset', 'success', {
         userId: user.id, clientNumber: client.client_number, detail: `client ${clientId}`, ip
       });
-      sendClientPage(res, h, clientId, {
+      await sendClientPage(res, h, clientId, {
         user, csrf,
         notice: 'Password reset. Existing sessions have been signed out.',
         generatedPassword: password
@@ -1130,8 +1130,8 @@ async function handleAdmin(req, res, ctx) {
     /* ── Disable / re-enable ── */
     if (action === 'disable') {
       const disabled = String(body.disabled) === '1';
-      admin.setDisabled(clientId, disabled);
-      audit(disabled ? 'client_disable' : 'client_enable', 'success', {
+      await admin.setDisabled(clientId, disabled);
+      await audit(disabled ? 'client_disable' : 'client_enable', 'success', {
         userId: user.id, clientNumber: client.client_number, detail: `client ${clientId}`, ip
       });
       return h.sendHtml(res, 302, '', {
@@ -1140,8 +1140,8 @@ async function handleAdmin(req, res, ctx) {
     }
 
     if (action === 'unlock') {
-      admin.unlock(clientId);
-      audit('client_unlock', 'success', {
+      await admin.unlock(clientId);
+      await audit('client_unlock', 'success', {
         userId: user.id, clientNumber: client.client_number, detail: `client ${clientId}`, ip
       });
       return h.sendHtml(res, 302, '', { Location: `/admin/clients/${clientId}?ok=unlocked` }), true;
@@ -1154,37 +1154,37 @@ async function handleAdmin(req, res, ctx) {
       const purchaseDate = String(body.purchaseDate || '').trim();
       const status = String(body.ownershipStatus || 'Servicing in progress').slice(0, 60);
 
-      if (admin.ownershipCountFor(clientId) > 0) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'This client already has a stand linked.' });
+      if (await admin.ownershipCountFor(clientId) > 0) {
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'This client already has a stand linked.' });
         return true;
       }
       if (!Number.isInteger(standId) || standId <= 0) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Please choose a stand.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Please choose a stand.' });
         return true;
       }
       if (cents === null) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Purchase price must be a positive amount, for example 5500 or 5500.00.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Purchase price must be a positive amount, for example 5500 or 5500.00.' });
         return true;
       }
       if (!isIsoDate(purchaseDate)) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Please give a valid purchase date.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Please give a valid purchase date.' });
         return true;
       }
 
-      const stand = admin.stands().find((s) => s.id === standId);
+      const stand = (await admin.stands()).find((s) => s.id === standId);
       if (!stand) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'That stand does not exist.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'That stand does not exist.' });
         return true;
       }
       if (stand.held_by && stand.held_by !== client.client_number) {
-        sendClientPage(res, h, clientId, {
+        await sendClientPage(res, h, clientId, {
           user, csrf, error: `Stand ${stand.stand_number} is already held by ${stand.held_by}.`
         });
         return true;
       }
 
-      admin.linkStand({ userId: clientId, standId, priceCents: cents, purchaseDate, status });
-      audit('stand_link', 'success', {
+      await admin.linkStand({ userId: clientId, standId, priceCents: cents, purchaseDate, status });
+      await audit('stand_link', 'success', {
         userId: user.id, clientNumber: client.client_number,
         detail: `stand ${stand.stand_number} to client ${clientId} at ${cents} cents`, ip
       });
@@ -1194,11 +1194,11 @@ async function handleAdmin(req, res, ctx) {
     /* ── Unlink a stand ── */
     if (action === 'unlink') {
       if (!client.ownership_id) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'This client has no stand to unlink.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'This client has no stand to unlink.' });
         return true;
       }
-      admin.unlinkOwnership(client.ownership_id);
-      audit('stand_unlink', 'success', {
+      await admin.unlinkOwnership(client.ownership_id);
+      await audit('stand_unlink', 'success', {
         userId: user.id, clientNumber: client.client_number,
         detail: `stand ${client.stand_number} from client ${clientId}`, ip
       });
@@ -1212,11 +1212,11 @@ async function handleAdmin(req, res, ctx) {
       const status = String(body.status || 'Confirmed').slice(0, 30);
 
       if (cents === null) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Amount must be a positive number, for example 1500 or 1500.00.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Amount must be a positive number, for example 1500 or 1500.00.' });
         return true;
       }
       if (!isIsoDate(paidOn)) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Please give a valid date received.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Please give a valid date received.' });
         return true;
       }
 
@@ -1226,8 +1226,8 @@ async function handleAdmin(req, res, ctx) {
       const reference = buildReference({
         projectName: client.project_name,
         when: new Date(),
-        isTaken: (ref) => admin.referenceTaken(ref),
-        fallbackCode: content.settings().payment_ref_prefix || 'HHP'
+        isTaken: async (ref) => await admin.referenceTaken(ref),
+        fallbackCode: (await content.settings()).payment_ref_prefix || 'HHP'
       });
 
       /* Type is derived rather than asked for: the first money in on a sale is
@@ -1235,20 +1235,20 @@ async function handleAdmin(req, res, ctx) {
          and refunds are recorded from the sale page, where the outstanding
          balance is known and the overpayment rules can be checked. */
       const ownership = client.stand_id
-        ? db.prepare('SELECT id FROM ownerships WHERE user_id = ? AND stand_id = ? LIMIT 1')
+        ? await db.prepare('SELECT id FROM ownerships WHERE user_id = ? AND stand_id = ? LIMIT 1')
           .get(clientId, client.stand_id)
         : null;
 
       const priorConfirmed = ownership
-        ? db.prepare(`SELECT COUNT(*) AS c FROM payments
+        ? (await db.prepare(`SELECT COUNT(*) AS c FROM payments
                        WHERE ownership_id = ? AND voided_at IS NULL AND status = 'Confirmed'`)
-          .get(ownership.id).c
+          .get(ownership.id)).c
         : 0;
 
       const type = priorConfirmed > 0 ? 'INSTALLMENT' : 'DEPOSIT';
       const method = PAYMENT_METHODS.includes(String(body.method || '')) ? body.method : null;
 
-      const paymentId = admin.addPayment({
+      const paymentId = await admin.addPayment({
         userId: clientId,
         standId: client.stand_id || null,
         ownershipId: ownership ? ownership.id : null,
@@ -1263,7 +1263,7 @@ async function handleAdmin(req, res, ctx) {
       });
 
       /* Rule 8: an edit to a financial record must leave an audit trail. */
-      analytics.financeAudit({
+      await analytics.financeAudit({
         actorUserId: user.id,
         action: `${type.toLowerCase()}_created`,
         entity: 'payment',
@@ -1273,9 +1273,9 @@ async function handleAdmin(req, res, ctx) {
         reason: 'Recorded from the client page'
       });
 
-      if (ownership) analytics.recomputeSale(ownership.id, user.id);
+      if (ownership) await analytics.recomputeSale(ownership.id, user.id);
 
-      audit('payment_add', 'success', {
+      await audit('payment_add', 'success', {
         userId: user.id, clientNumber: client.client_number,
         detail: `${reference} ${cents} cents for client ${clientId}`, ip
       });
@@ -1293,7 +1293,7 @@ async function handleAdmin(req, res, ctx) {
   if (docUploadMatch || docDownloadMatch || docDeleteMatch) {
     const match = docUploadMatch || docDownloadMatch || docDeleteMatch;
     const clientId = Number(match[1]);
-    const client = admin.clientById(clientId);
+    const client = await admin.clientById(clientId);
 
     if (!client) {
       h.sendHtml(res, 404, views.adminLayout({
@@ -1311,13 +1311,13 @@ async function handleAdmin(req, res, ctx) {
       const file = files.find((f) => f.name === 'file');
 
       if (title.length < 2) {
-        sendClientPage(res, h, clientId, { user, csrf, error: 'Please give the document a title.' });
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Please give the document a title.' });
         return true;
       }
 
       const check = validateUpload(file, config.MAX_UPLOAD_BYTES);
       if (!check.ok) {
-        sendClientPage(res, h, clientId, { user, csrf, error: check.error });
+        await sendClientPage(res, h, clientId, { user, csrf, error: check.error });
         return true;
       }
 
@@ -1329,19 +1329,19 @@ async function handleAdmin(req, res, ctx) {
       try {
         await fsp.writeFile(path.join(config.PRIVATE_DOCS_DIR, storedName), file.data);
       } catch (err) {
-        audit('document_upload', 'failure', { userId: user.id, detail: String(err.message), ip });
-        sendClientPage(res, h, clientId, {
+        await audit('document_upload', 'failure', { userId: user.id, detail: String(err.message), ip });
+        await sendClientPage(res, h, clientId, {
           user, csrf, error: 'The file could not be saved. Please try again.'
         });
         return true;
       }
 
-      admin.addDocument({
+      await admin.addDocument({
         userId: clientId, title, storedName,
         mime: 'application/pdf', sizeBytes: file.data.length
       });
 
-      audit('document_upload', 'success', {
+      await audit('document_upload', 'success', {
         userId: user.id, clientNumber: client.client_number,
         detail: `${title} (${file.data.length} bytes)`, ip
       });
@@ -1350,7 +1350,7 @@ async function handleAdmin(req, res, ctx) {
 
     /* Both remaining actions name a document, which must belong to this client. */
     const docId = Number(match[2]);
-    const doc = admin.documentById(docId);
+    const doc = await admin.documentById(docId);
 
     if (!doc || doc.user_id !== clientId) {
       h.send(res, 404, 'Not found');
@@ -1363,7 +1363,7 @@ async function handleAdmin(req, res, ctx) {
     /* Belt and braces: stored_name is server-generated, but re-check so a future
        bad write cannot turn this route into arbitrary file disclosure. */
     if (filePath !== root && !filePath.startsWith(root + path.sep)) {
-      audit('document_download', 'denied', { userId: user.id, detail: 'path escape', ip });
+      await audit('document_download', 'denied', { userId: user.id, detail: 'path escape', ip });
       h.send(res, 403, 'Forbidden');
       return true;
     }
@@ -1372,10 +1372,10 @@ async function handleAdmin(req, res, ctx) {
     if (docDeleteMatch) {
       if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
-      admin.deleteDocument(docId);
+      await admin.deleteDocument(docId);
       try { await fsp.unlink(filePath); } catch { /* already gone */ }
 
-      audit('document_delete', 'success', {
+      await audit('document_delete', 'success', {
         userId: user.id, clientNumber: client.client_number, detail: `${doc.title} (${docId})`, ip
       });
       return h.sendHtml(res, 302, '', { Location: `/admin/clients/${clientId}?ok=documentDeleted` }), true;
@@ -1389,7 +1389,7 @@ async function handleAdmin(req, res, ctx) {
     if (!stat || !stat.isFile()) return h.send(res, 404, 'The stored file is missing.'), true;
 
     /* Logged distinctly from a client fetching their own document. */
-    audit('document_download', 'success', {
+    await audit('document_download', 'success', {
       userId: user.id, clientNumber: client.client_number,
       detail: `admin: ${doc.title} (${doc.id})`, ip
     });
@@ -1419,14 +1419,14 @@ async function handleAdmin(req, res, ctx) {
   const standDeleteMatch = pathname.match(/^\/admin\/properties\/(\d+)\/delete$/);
 
   if (pathname === '/admin/properties' || standEditMatch || standDeleteMatch) {
-    const projects = admin.projectsWithCounts();
+    const projects = await admin.projectsWithCounts();
 
     /* ── Delete ── */
     if (standDeleteMatch) {
       if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
       const standId = Number(standDeleteMatch[1]);
-      const stand = admin.standById(standId);
+      const stand = await admin.standById(standId);
       if (!stand) return h.send(res, 404, 'Not found'), true;
 
       /* A stand with a sale must not vanish. The ownership, the client's
@@ -1438,8 +1438,8 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      admin.deleteStand(standId);
-      audit('stand_delete', 'success', {
+      await admin.deleteStand(standId);
+      await audit('stand_delete', 'success', {
         userId: user.id, detail: `${stand.stand_number} (${standId})`, ip
       });
       h.redirect(res, '/admin/properties?ok=deleted');
@@ -1449,11 +1449,11 @@ async function handleAdmin(req, res, ctx) {
     /* ── Save an existing property ── */
     if (standEditMatch && method === 'POST') {
       const standId = Number(standEditMatch[1]);
-      const stand = admin.standById(standId);
+      const stand = await admin.standById(standId);
       if (!stand) return h.send(res, 404, 'Not found'), true;
 
       const form = readPropertyForm(body, projects);
-      const clash = admin.standNumberTaken(form.value.standNumber, standId);
+      const clash = await admin.standNumberTaken(form.value.standNumber, standId);
       if (clash) {
         form.errors.push(`Stand number ${form.value.standNumber} is already used by a property in `
           + `${clash.project_name}. Every property needs its own stand number.`);
@@ -1469,8 +1469,8 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      admin.updateStand(standId, form.value);
-      audit('stand_update', 'success', {
+      await admin.updateStand(standId, form.value);
+      await audit('stand_update', 'success', {
         userId: user.id, detail: `${form.value.standNumber} (${standId})`, ip
       });
       h.redirect(res, `/admin/properties/${standId}?ok=saved`);
@@ -1481,7 +1481,7 @@ async function handleAdmin(req, res, ctx) {
        Deliberately before the GET guard: this is a POST to the list URL. */
     if (pathname === '/admin/properties' && method === 'POST') {
       const form = readPropertyForm(body, projects);
-      const clash = admin.standNumberTaken(form.value.standNumber, 0);
+      const clash = await admin.standNumberTaken(form.value.standNumber, 0);
       if (clash) {
         form.errors.push(`Stand number ${form.value.standNumber} is already used by a property in `
           + `${clash.project_name}. Every property needs its own stand number.`);
@@ -1491,14 +1491,14 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, views.adminLayout({
           title: 'Properties', active: '/admin/properties', user, csrf,
           body: views.renderProperties({
-            stands: admin.standsForAdmin(), projects, user, csrf, error: form.errors.join(' ')
+            stands: await admin.standsForAdmin(), projects, user, csrf, error: form.errors.join(' ')
           })
         }));
         return true;
       }
 
-      const id = admin.createStand(form.value);
-      audit('stand_add', 'success', {
+      const id = await admin.createStand(form.value);
+      await audit('stand_add', 'success', {
         userId: user.id, detail: `${form.value.standNumber} (${id})`, ip
       });
 
@@ -1517,10 +1517,10 @@ async function handleAdmin(req, res, ctx) {
     /* ── The edit form ── */
     if (standEditMatch) {
       const standId = Number(standEditMatch[1]);
-      const stand = admin.standById(standId);
+      const stand = await admin.standById(standId);
       if (!stand) return h.send(res, 404, 'Not found'), true;
 
-      audit('admin_view', 'success', { userId: user.id, detail: `stand ${standId}`, ip });
+      await audit('admin_view', 'success', { userId: user.id, detail: `stand ${standId}`, ip });
       h.sendHtml(res, 200, views.adminLayout({
         title: `${stand.stand_number} — property`, active: '/admin/properties', user, csrf,
         body: views.renderPropertyEdit({
@@ -1534,11 +1534,11 @@ async function handleAdmin(req, res, ctx) {
     }
 
     /* ── The list ── */
-    audit('admin_view', 'success', { userId: user.id, detail: 'properties', ip });
+    await audit('admin_view', 'success', { userId: user.id, detail: 'properties', ip });
     h.sendHtml(res, 200, views.adminLayout({
       title: 'Properties', active: '/admin/properties', user, csrf,
       body: views.renderProperties({
-        stands: admin.standsForAdmin(), projects, user, csrf,
+        stands: await admin.standsForAdmin(), projects, user, csrf,
         notice: url.searchParams.get('ok') === 'deleted' ? 'Property deleted.' : '',
         error: url.searchParams.get('error') || ''
       })
@@ -1548,11 +1548,11 @@ async function handleAdmin(req, res, ctx) {
 
   /* ── Projects ── */
   if (pathname === '/admin/projects') {
-    const projects = admin.projectsWithCounts();
+    const projects = await admin.projectsWithCounts();
 
     if (method === 'POST') {
       const form = readProjectForm(body);
-      if (admin.projectNameTaken(form.value.name, 0)) {
+      if (await admin.projectNameTaken(form.value.name, 0)) {
         form.errors.push(`A development called "${form.value.name}" already exists.`);
       }
 
@@ -1564,15 +1564,15 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      const id = admin.createProject(form.value);
-      audit('project_add', 'success', { userId: user.id, detail: `${form.value.name} (${id})`, ip });
+      const id = await admin.createProject(form.value);
+      await audit('project_add', 'success', { userId: user.id, detail: `${form.value.name} (${id})`, ip });
       h.redirect(res, `/admin/projects/${id}?ok=created`);
       return true;
     }
 
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
-    audit('admin_view', 'success', { userId: user.id, detail: 'projects', ip });
+    await audit('admin_view', 'success', { userId: user.id, detail: 'projects', ip });
 
     /* Messages are composed from validated codes rather than echoed back from
        the query string, so a crafted link cannot print its own wording here. */
@@ -1618,13 +1618,13 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
     const projectId = Number(projectDeleteMatch[1]);
-    const project = admin.projectById(projectId);
+    const project = await admin.projectById(projectId);
     if (!project) return h.send(res, 404, 'Project not found'), true;
 
-    const result = admin.deleteProject(projectId);
+    const result = await admin.deleteProject(projectId);
 
     if (!result.ok) {
-      audit('project_delete', 'denied', {
+      await audit('project_delete', 'denied', {
         userId: user.id, detail: `${project.name}: ${result.reason}`, ip
       });
       h.redirect(res, `/admin/projects?error=${result.reason}`
@@ -1632,7 +1632,7 @@ async function handleAdmin(req, res, ctx) {
       return true;
     }
 
-    audit('project_delete', 'success', {
+    await audit('project_delete', 'success', {
       userId: user.id,
       detail: `${project.name} deleted with ${result.stands.length} propert`
         + `${result.stands.length === 1 ? 'y' : 'ies'}`,
@@ -1650,13 +1650,13 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
     const projectId = Number(soldOutMatch[1]);
-    const project = admin.projectById(projectId);
+    const project = await admin.projectById(projectId);
     if (!project) return h.send(res, 404, 'Not found'), true;
 
     const soldOut = String(body.soldOut || '') === '1';
-    admin.setProjectSoldOut(projectId, soldOut);
+    await admin.setProjectSoldOut(projectId, soldOut);
 
-    audit('project_sold_out', 'success', {
+    await audit('project_sold_out', 'success', {
       userId: user.id, detail: `${project.name} -> ${soldOut ? 'sold out' : 'selling'}`, ip
     });
     h.redirect(res, '/admin/projects?ok=soldout');
@@ -1666,7 +1666,7 @@ async function handleAdmin(req, res, ctx) {
   const projectMatch = pathname.match(/^\/admin\/projects\/(\d+)$/);
   if (projectMatch) {
     const projectId = Number(projectMatch[1]);
-    const base = admin.projectById(projectId);
+    const base = await admin.projectById(projectId);
 
     if (!base) {
       h.sendHtml(res, 404, views.adminLayout({
@@ -1678,12 +1678,12 @@ async function handleAdmin(req, res, ctx) {
 
     /* The counts-bearing row, so the page can show the property breakdown
        without a second query. */
-    const project = admin.projectsWithCounts().find((p) => p.id === projectId) || base;
+    const project = (await admin.projectsWithCounts()).find((p) => p.id === projectId) || base;
 
     /* ── Save the development itself: its name and details ── */
     if (method === 'POST') {
       const form = readProjectForm(body);
-      if (admin.projectNameTaken(form.value.name, projectId)) {
+      if (await admin.projectNameTaken(form.value.name, projectId)) {
         form.errors.push(`Another development is already called "${form.value.name}".`);
       }
 
@@ -1691,17 +1691,17 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, views.adminLayout({
           title: project.name, active: '/admin/projects', user, csrf,
           body: views.renderProjectDetail({
-            project, stands: admin.standsForProject(projectId),
-            pricing: admin.pricingFor(projectId),
-            steps: admin.progressSteps(projectId), user, csrf,
+            project, stands: await admin.standsForProject(projectId),
+            pricing: await admin.pricingFor(projectId),
+            steps: await admin.progressSteps(projectId), user, csrf,
             error: form.errors.join(' ')
           })
         }));
         return true;
       }
 
-      admin.updateProject(projectId, form.value);
-      audit('project_update', 'success', {
+      await admin.updateProject(projectId, form.value);
+      await audit('project_update', 'success', {
         userId: user.id, detail: `${project.name} -> ${form.value.name}`, ip
       });
       h.redirect(res, `/admin/projects/${projectId}?ok=details`);
@@ -1722,14 +1722,14 @@ async function handleAdmin(req, res, ctx) {
                   : flag === 'priceSaved' ? 'Price row saved.'
                     : flag === 'priceDeleted' ? 'Price row deleted.' : '';
 
-    audit('admin_view', 'success', { userId: user.id, detail: `project ${projectId}`, ip });
+    await audit('admin_view', 'success', { userId: user.id, detail: `project ${projectId}`, ip });
     h.sendHtml(res, 200, views.adminLayout({
       title: project.name, active: '/admin/projects', user, csrf,
       body: views.renderProjectDetail({
         project,
-        stands: admin.standsForProject(projectId),
-        pricing: admin.pricingFor(projectId),
-        steps: admin.progressSteps(projectId),
+        stands: await admin.standsForProject(projectId),
+        pricing: await admin.pricingFor(projectId),
+        steps: await admin.progressSteps(projectId),
         user, csrf,
         notice,
         error: url.searchParams.get('error') || ''
@@ -1747,7 +1747,7 @@ async function handleAdmin(req, res, ctx) {
 
     const match = addStepMatch || stepMatch || stepDeleteMatch;
     const projectId = Number(match[1]);
-    const project = admin.projectById(projectId);
+    const project = await admin.projectById(projectId);
 
     if (!project) return h.send(res, 404, 'Project not found'), true;
 
@@ -1758,30 +1758,30 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, views.adminLayout({
           title: project.name, active: '/admin/projects', user, csrf,
           body: views.renderProjectDetail({
-            project, stands: admin.standsForProject(projectId),
-            pricing: admin.pricingFor(projectId),
-            steps: admin.progressSteps(projectId), user, csrf,
+            project, stands: await admin.standsForProject(projectId),
+            pricing: await admin.pricingFor(projectId),
+            steps: await admin.progressSteps(projectId), user, csrf,
             error: 'Please give the step a label.'
           })
         }));
         return true;
       }
 
-      admin.addProgressStep(projectId, label, String(body.state || 'pending'));
-      audit('progress_add', 'success', {
+      await admin.addProgressStep(projectId, label, String(body.state || 'pending'));
+      await audit('progress_add', 'success', {
         userId: user.id, detail: `${project.name}: ${label}`, ip
       });
       return h.sendHtml(res, 302, '', { Location: `/admin/projects/${projectId}?ok=added` }), true;
     }
 
     const stepId = Number(match[2]);
-    const exists = admin.progressSteps(projectId).some((s) => s.id === stepId);
+    const exists = (await admin.progressSteps(projectId)).some((s) => s.id === stepId);
     if (!exists) return h.send(res, 404, 'Step not found'), true;
 
     /* ── Delete ── */
     if (stepDeleteMatch) {
-      admin.deleteProgressStep(stepId);
-      audit('progress_delete', 'success', {
+      await admin.deleteProgressStep(stepId);
+      await audit('progress_delete', 'success', {
         userId: user.id, detail: `${project.name}: step ${stepId}`, ip
       });
       return h.sendHtml(res, 302, '', { Location: `/admin/projects/${projectId}?ok=deleted` }), true;
@@ -1791,20 +1791,20 @@ async function handleAdmin(req, res, ctx) {
     const label = String(body.label || '').replace(/\s+/g, ' ').trim().slice(0, 120);
     const state = String(body.state || 'pending');
 
-    if (label.length < 2 || !admin.setProgressStep(stepId, label, state)) {
+    if (label.length < 2 || !await admin.setProgressStep(stepId, label, state)) {
       h.sendHtml(res, 200, views.adminLayout({
         title: project.name, active: '/admin/projects', user, csrf,
         body: views.renderProjectDetail({
-          project, stands: admin.standsForProject(projectId),
-          pricing: admin.pricingFor(projectId),
-          steps: admin.progressSteps(projectId), user, csrf,
+          project, stands: await admin.standsForProject(projectId),
+          pricing: await admin.pricingFor(projectId),
+          steps: await admin.progressSteps(projectId), user, csrf,
           error: 'A step needs a label and a valid state.'
         })
       }));
       return true;
     }
 
-    audit('progress_update', 'success', {
+    await audit('progress_update', 'success', {
       userId: user.id, detail: `${project.name}: ${label} -> ${state}`, ip
     });
     return h.sendHtml(res, 302, '', { Location: `/admin/projects/${projectId}?ok=saved` }), true;
@@ -1820,7 +1820,7 @@ async function handleAdmin(req, res, ctx) {
 
     const match = addPriceMatch || priceMatch || priceDeleteMatch;
     const projectId = Number(match[1]);
-    const project = admin.projectById(projectId);
+    const project = await admin.projectById(projectId);
     if (!project) return h.send(res, 404, 'Project not found'), true;
 
     const back = (flag) => h.redirect(res, `/admin/projects/${projectId}?ok=${flag}`);
@@ -1831,20 +1831,20 @@ async function handleAdmin(req, res, ctx) {
         h.redirect(res, `/admin/projects/${projectId}?error=${encodeURIComponent(form.errors.join(' '))}`);
         return true;
       }
-      admin.addPricing(projectId, form.value);
-      audit('pricing_add', 'success', {
+      await admin.addPricing(projectId, form.value);
+      await audit('pricing_add', 'success', {
         userId: user.id, detail: `${project.name}: ${form.value.sizeLabel}`, ip
       });
       return back('priceAdded');
     }
 
     const priceId = Number(match[2]);
-    const row = admin.pricingById(priceId);
+    const row = await admin.pricingById(priceId);
     if (!row || row.project_id !== projectId) return h.send(res, 404, 'Price row not found'), true;
 
     if (priceDeleteMatch) {
-      admin.deletePricing(priceId);
-      audit('pricing_delete', 'success', {
+      await admin.deletePricing(priceId);
+      await audit('pricing_delete', 'success', {
         userId: user.id, detail: `${project.name}: ${row.size_label}`, ip
       });
       return back('priceDeleted');
@@ -1855,8 +1855,8 @@ async function handleAdmin(req, res, ctx) {
       h.redirect(res, `/admin/projects/${projectId}?error=${encodeURIComponent(form.errors.join(' '))}`);
       return true;
     }
-    admin.updatePricing(priceId, form.value);
-    audit('pricing_update', 'success', {
+    await admin.updatePricing(priceId, form.value);
+    await audit('pricing_update', 'success', {
       userId: user.id, detail: `${project.name}: ${form.value.sizeLabel}`, ip
     });
     return back('priceSaved');
@@ -1866,7 +1866,7 @@ async function handleAdmin(req, res, ctx) {
   if (pathname === '/admin/content') {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
-    audit('admin_view', 'success', { userId: user.id, detail: 'content', ip });
+    await audit('admin_view', 'success', { userId: user.id, detail: 'content', ip });
     h.sendHtml(res, 200, views.adminLayout({
       title: 'Site content', active: '/admin/content', user, csrf,
       body: views.renderContentIndex({ pages: contentPageList(), user, csrf })
@@ -1879,8 +1879,8 @@ async function handleAdmin(req, res, ctx) {
     if (method === 'GET') {
       const flag = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
         .searchParams.get('ok') || '';
-      audit('admin_view', 'success', { userId: user.id, detail: 'settings', ip });
-      sendSettingsPage(res, h, { user, csrf, notice: SETTINGS_FLASH[flag] || '' });
+      await audit('admin_view', 'success', { userId: user.id, detail: 'settings', ip });
+      await sendSettingsPage(res, h, { user, csrf, notice: SETTINGS_FLASH[flag] || '' });
       return true;
     }
 
@@ -1889,11 +1889,11 @@ async function handleAdmin(req, res, ctx) {
       for (const s of contentSchema.SETTINGS) {
         const key = `s:${s.key}`;
         if (Object.prototype.hasOwnProperty.call(body, key)) {
-          content.setSetting(s.key, String(body[key] ?? '').trim().slice(0, 400));
+          await content.setSetting(s.key, String(body[key] ?? '').trim().slice(0, 400));
           saved++;
         }
       }
-      audit('settings_update', 'success', { userId: user.id, detail: `${saved} settings`, ip });
+      await audit('settings_update', 'success', { userId: user.id, detail: `${saved} settings`, ip });
       return h.sendHtml(res, 302, '', { Location: '/admin/settings?ok=saved' }), true;
     }
 
@@ -1908,8 +1908,8 @@ async function handleAdmin(req, res, ctx) {
     if (pathname === '/admin/logo/remove') {
       await removeCustomLogos(logoDir);
       // Back to the bundled wordmark, read from branding so there is one source.
-      content.setSetting('logo_url', FALLBACK.logo);
-      audit('logo_remove', 'success', { userId: user.id, ip });
+      await content.setSetting('logo_url', FALLBACK.logo);
+      await audit('logo_remove', 'success', { userId: user.id, ip });
       return h.sendHtml(res, 302, '', { Location: '/admin/settings?ok=logoRemoved' }), true;
     }
 
@@ -1917,7 +1917,7 @@ async function handleAdmin(req, res, ctx) {
     const check = validateLogoUpload(file, config.MAX_UPLOAD_BYTES);
 
     if (!check.ok) {
-      sendSettingsPage(res, h, { user, csrf, error: check.error });
+      await sendSettingsPage(res, h, { user, csrf, error: check.error });
       return true;
     }
 
@@ -1927,14 +1927,14 @@ async function handleAdmin(req, res, ctx) {
       await removeCustomLogos(logoDir);
       const filename = 'logo-custom' + check.extension;
       await fsp.writeFile(path.join(logoDir, filename), file.data);
-      content.setSetting('logo_url', 'assets/img/' + filename);
+      await content.setSetting('logo_url', 'assets/img/' + filename);
     } catch (err) {
-      audit('logo_update', 'failure', { userId: user.id, detail: String(err.message), ip });
-      sendSettingsPage(res, h, { user, csrf, error: 'The logo could not be saved. Please try again.' });
+      await audit('logo_update', 'failure', { userId: user.id, detail: String(err.message), ip });
+      await sendSettingsPage(res, h, { user, csrf, error: 'The logo could not be saved. Please try again.' });
       return true;
     }
 
-    audit('logo_update', 'success', {
+    await audit('logo_update', 'success', {
       userId: user.id, detail: `${file.data.length} bytes`, ip
     });
     return h.sendHtml(res, 302, '', { Location: '/admin/settings?ok=logo' }), true;
@@ -1957,8 +1957,8 @@ async function handleAdmin(req, res, ctx) {
       : flag === 'added' ? 'Item added.'
         : flag === 'deleted' ? 'Item deleted.' : '';
 
-    audit('admin_view', 'success', { userId: user.id, detail: `content ${pageKey}`, ip });
-    sendContentPage(res, h, pageKey, { user, csrf, notice });
+    await audit('admin_view', 'success', { userId: user.id, detail: `content ${pageKey}`, ip });
+    await sendContentPage(res, h, pageKey, { user, csrf, notice });
     return true;
   }
 
@@ -1985,11 +1985,11 @@ async function handleAdmin(req, res, ctx) {
       const item = Number(itemRaw);
       if (section.repeat ? item < 1 : item !== 0) continue;
 
-      content.setBlock(pageKey, sectionKey, item, fieldKey, String(value ?? '').slice(0, 4000));
+      await content.setBlock(pageKey, sectionKey, item, fieldKey, String(value ?? '').slice(0, 4000));
       saved++;
     }
 
-    audit('content_update', 'success', {
+    await audit('content_update', 'success', {
       userId: user.id, detail: `${pageKey}: ${saved} field${saved === 1 ? '' : 's'}`, ip
     });
     return h.sendHtml(res, 302, '', { Location: `/admin/content/${pageKey}?ok=saved` }), true;
@@ -2006,16 +2006,16 @@ async function handleAdmin(req, res, ctx) {
     if (!section || !section.repeat) return h.send(res, 404, 'No such repeating section'), true;
 
     if (contentAddMatch) {
-      const item = content.addItem(pageKey, sectionKey);
-      audit('content_add_item', 'success', {
+      const item = await content.addItem(pageKey, sectionKey);
+      await audit('content_add_item', 'success', {
         userId: user.id, detail: `${pageKey}/${sectionKey} item ${item}`, ip
       });
       return h.sendHtml(res, 302, '', { Location: `/admin/content/${pageKey}?ok=added` }), true;
     }
 
     const item = Number(match[3]);
-    content.deleteItem(pageKey, sectionKey, item);
-    audit('content_delete_item', 'success', {
+    await content.deleteItem(pageKey, sectionKey, item);
+    await audit('content_delete_item', 'success', {
       userId: user.id, detail: `${pageKey}/${sectionKey} item ${item}`, ip
     });
     return h.sendHtml(res, 302, '', { Location: `/admin/content/${pageKey}?ok=deleted` }), true;
