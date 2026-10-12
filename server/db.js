@@ -10,25 +10,31 @@
      - Timestamps are ISO-8601 UTC strings.
    ========================================================================== */
 
-const fs = require('node:fs');
-const path = require('node:path');
-const { DatabaseSync } = require('node:sqlite');
 const config = require('./config');
+const driver = require('./driver');
 /* format.js has no dependencies of its own, so this cannot create a cycle. */
 const { slugify } = require('./format');
 
-fs.mkdirSync(path.dirname(config.DB_PATH), { recursive: true });
-fs.mkdirSync(config.PRIVATE_DOCS_DIR, { recursive: true });
+/* Every statement returns a Promise, whichever engine is underneath. */
+const db = { exec: driver.exec, prepare: driver.prepare };
+const prepare = driver.prepare;
+const exec = driver.exec;
 
-const db = new DatabaseSync(config.DB_PATH);
+/* The schema and the migrations below are asynchronous, so they run once here
+   and every exported method awaits `ready` before its first query. Callers
+   never have to know whether the database has finished opening. */
+const TRANSACTION_TYPES = ['DEPOSIT', 'INSTALLMENT', 'FINAL_PAYMENT', 'REFUND'];
+const COLLECTION_TYPES = ['DEPOSIT', 'INSTALLMENT', 'FINAL_PAYMENT'];
+const PAYMENT_METHODS = [
+  'Cash', 'Bank transfer', 'EcoCash', 'InnBucks', 'Cheque', 'Card', 'Other'
+];
+const SALE_STATUSES = ['Active', 'Completed', 'Cancelled'];
+const PROPERTY_TYPES = ['Residential', 'Commercial', 'Industrial', 'Mixed use', 'Agricultural'];
+const STAND_STATUSES = ['Available', 'Reserved', 'On Hold', 'Sold'];
+const PROJECT_STATUSES = ['Planning', 'Development', 'Development in progress', 'Completed'];
+const ready = (async () => {
 
-/* Referential integrity and a sane default journal mode. WAL lets the
-   dashboard read while an enquiry write is in flight. */
-db.exec('PRAGMA foreign_keys = ON');
-db.exec('PRAGMA journal_mode = WAL');
-db.exec('PRAGMA busy_timeout = 5000');
-
-db.exec(`
+await driver.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id              INTEGER PRIMARY KEY,
   client_number   TEXT    NOT NULL UNIQUE,
@@ -147,7 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 
 /* Editable site content. `item` is 0 for a one-off field and 1..n for a row
    inside a repeating section such as the "what we do" cards. */
-db.exec(`
+await driver.exec(`
 CREATE TABLE IF NOT EXISTS site_settings (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL,
@@ -172,37 +178,37 @@ CREATE INDEX IF NOT EXISTS idx_blocks_page ON content_blocks(page, section, item
    genuinely absent, which makes startup idempotent.
    ------------------------------------------------------------------------ */
 
-function ensureColumn(table, column, definition) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+async function ensureColumn(table, column, definition) {
+  const cols = await prepare(`PRAGMA table_info(${table})`).all();
   if (!cols.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    await driver.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
 
 /* Enquiries gain a handled flag so the office can work through them. */
-ensureColumn('enquiries', 'handled_at', 'TEXT');
-ensureColumn('enquiries', 'handled_by', 'INTEGER REFERENCES users(id)');
+await ensureColumn('enquiries', 'handled_at', 'TEXT');
+await ensureColumn('enquiries', 'handled_by', 'INTEGER REFERENCES users(id)');
 
 /* Whether a development has nothing left to sell.
    Kept separate from `status` rather than added as another status value: a
    development can be finished being built (Completed) and sold out at the same
    time, and collapsing the two would lose one of them. */
-ensureColumn('projects', 'sold_out', 'INTEGER NOT NULL DEFAULT 0');
+await ensureColumn('projects', 'sold_out', 'INTEGER NOT NULL DEFAULT 0');
 
 /* The individual property gains the fields the business actually describes it
    by. `project_id` was already the link to its development, so nothing about
    the one-to-many relationship changes here — this only adds detail to the
    child, which is the side that was thin. */
-ensureColumn('stands', 'currency', "TEXT NOT NULL DEFAULT 'US$'");
-ensureColumn('stands', 'description', 'TEXT');
-ensureColumn('stands', 'location', 'TEXT');
-ensureColumn('stands', 'created_at', 'TEXT');
-ensureColumn('stands', 'updated_at', 'TEXT');
+await ensureColumn('stands', 'currency', "TEXT NOT NULL DEFAULT 'US$'");
+await ensureColumn('stands', 'description', 'TEXT');
+await ensureColumn('stands', 'location', 'TEXT');
+await ensureColumn('stands', 'created_at', 'TEXT');
+await ensureColumn('stands', 'updated_at', 'TEXT');
 
 /* Existing rows predate these fields. Stamped once, then left alone. */
 {
   const stamped = new Date().toISOString();
-  db.exec(`
+  await driver.exec(`
     UPDATE stands SET currency = 'US$' WHERE currency IS NULL OR currency = '';
     UPDATE stands SET created_at = '${stamped}' WHERE created_at IS NULL;
     UPDATE stands SET updated_at = COALESCE(created_at, '${stamped}') WHERE updated_at IS NULL;
@@ -212,14 +218,14 @@ ensureColumn('stands', 'updated_at', 'TEXT');
 /* ── Development overview, features and the published price list ─────────
    These describe the development itself, so they hang off the parent record
    rather than being repeated on every property inside it. */
-ensureColumn('projects', 'long_description', 'TEXT');
-ensureColumn('projects', 'features', 'TEXT');
+await ensureColumn('projects', 'long_description', 'TEXT');
+await ensureColumn('projects', 'features', 'TEXT');
 
 /* Prices are text rather than integer cents: the published list includes
    ranges such as "$2,000 – $4,000", which one integer cannot express. This is
    a tariff shown to buyers, not a figure the accounts add up — the sale price
    of an actual stand lives on the stand itself, in cents. */
-db.exec(`
+await driver.exec(`
 CREATE TABLE IF NOT EXISTS development_pricing (
   id         INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id),
@@ -239,9 +245,9 @@ CREATE INDEX IF NOT EXISTS idx_dev_pricing_project ON development_pricing(projec
    once; anything already absolute or hosted elsewhere is left alone. */
 {
   for (const key of ['logo_url', 'logo_light_url', 'favicon_url']) {
-    const row = db.prepare('SELECT value FROM site_settings WHERE key = ?').get(key);
+    const row = await prepare('SELECT value FROM site_settings WHERE key = ?').get(key);
     if (row && row.value && !/^(\/|https?:|data:)/i.test(row.value)) {
-      db.prepare('UPDATE site_settings SET value = ? WHERE key = ?').run(`/${row.value}`, key);
+      await prepare('UPDATE site_settings SET value = ? WHERE key = ?').run(`/${row.value}`, key);
     }
   }
 }
@@ -257,16 +263,16 @@ CREATE INDEX IF NOT EXISTS idx_dev_pricing_project ON development_pricing(projec
 {
   const external = /^(https?:)?\/\//i;
 
-  for (const p of db.prepare('SELECT id, name, image_url FROM projects').all()) {
+  for (const p of await prepare('SELECT id, name, image_url FROM projects').all()) {
     if (external.test(p.image_url || '')) {
-      db.prepare('UPDATE projects SET image_url = ? WHERE id = ?')
+      await prepare('UPDATE projects SET image_url = ? WHERE id = ?')
         .run(`/images/${slugify(p.name)}.jpg`, p.id);
     }
   }
 
-  for (const s of db.prepare('SELECT id, stand_number, image_url FROM stands').all()) {
+  for (const s of await prepare('SELECT id, stand_number, image_url FROM stands').all()) {
     if (external.test(s.image_url || '')) {
-      db.prepare('UPDATE stands SET image_url = ? WHERE id = ?')
+      await prepare('UPDATE stands SET image_url = ? WHERE id = ?')
         .run(`/images/stand-${slugify(s.stand_number)}.jpg`, s.id);
     }
   }
@@ -276,30 +282,20 @@ CREATE INDEX IF NOT EXISTS idx_dev_pricing_project ON development_pricing(projec
    distinction is deliberate and load-bearing:
      NEW SALE is recorded once, when the stand is sold, and is NOT cash.
      Everything else below is money actually moving, and lives in payments. */
-const TRANSACTION_TYPES = ['DEPOSIT', 'INSTALLMENT', 'FINAL_PAYMENT', 'REFUND'];
 
 /* The four types that count towards collections. NEW SALE is excluded by
    definition — a signed contract is not money in the bank. */
-const COLLECTION_TYPES = ['DEPOSIT', 'INSTALLMENT', 'FINAL_PAYMENT'];
 
-const PAYMENT_METHODS = [
-  'Cash', 'Bank transfer', 'EcoCash', 'InnBucks', 'Cheque', 'Card', 'Other'
-];
-
-const SALE_STATUSES = ['Active', 'Completed', 'Cancelled'];
 
 /* Property vocabulary, offered as dropdowns so the office cannot introduce a
    fourth spelling of "Residential" that then breaks the website's filters. */
-const PROPERTY_TYPES = ['Residential', 'Commercial', 'Industrial', 'Mixed use', 'Agricultural'];
-const STAND_STATUSES = ['Available', 'Reserved', 'On Hold', 'Sold'];
-const PROJECT_STATUSES = ['Planning', 'Development', 'Development in progress', 'Completed'];
 
 /* ── Sales analytics: schema ─────────────────────────────────────────────
    Adds the columns the analytics need to the existing tables. Nothing here
    changes what already worked; the website, portal, statements and CMS read
    the same columns they always did. */
 
-db.exec(`
+await driver.exec(`
 CREATE TABLE IF NOT EXISTS agents (
   id         INTEGER PRIMARY KEY,
   name       TEXT    NOT NULL UNIQUE,
@@ -331,30 +327,30 @@ CREATE INDEX IF NOT EXISTS idx_finance_audit_at     ON finance_audit(at);
 /* The sale side of the model. `purchase_price_cents` already existed and stays
    authoritative for the website and portal; `sale_price_cents` mirrors it for
    the analytics and may differ after an agreed discount. */
-ensureColumn('ownerships', 'sale_price_cents', 'INTEGER');
-ensureColumn('ownerships', 'deposit_required_cents', 'INTEGER');
-ensureColumn('ownerships', 'payment_plan', 'TEXT');
-ensureColumn('ownerships', 'agent_id', 'INTEGER REFERENCES agents(id)');
-ensureColumn('ownerships', 'sale_status', "TEXT DEFAULT 'Active'");
-ensureColumn('ownerships', 'sale_date', 'TEXT');
-ensureColumn('ownerships', 'closed_at', 'TEXT');
-ensureColumn('ownerships', 'sale_notes', 'TEXT');
+await ensureColumn('ownerships', 'sale_price_cents', 'INTEGER');
+await ensureColumn('ownerships', 'deposit_required_cents', 'INTEGER');
+await ensureColumn('ownerships', 'payment_plan', 'TEXT');
+await ensureColumn('ownerships', 'agent_id', 'INTEGER REFERENCES agents(id)');
+await ensureColumn('ownerships', 'sale_status', "TEXT DEFAULT 'Active'");
+await ensureColumn('ownerships', 'sale_date', 'TEXT');
+await ensureColumn('ownerships', 'closed_at', 'TEXT');
+await ensureColumn('ownerships', 'sale_notes', 'TEXT');
 
 /* The transaction side. `status` (Confirmed/Pending) already existed and keeps
    its meaning — whether the money has been verified. `voided_at` is a separate
    concept: a transaction that should no longer count at all. */
-ensureColumn('payments', 'ownership_id', 'INTEGER REFERENCES ownerships(id)');
-ensureColumn('payments', 'type', 'TEXT');
-ensureColumn('payments', 'method', 'TEXT');
-ensureColumn('payments', 'recorded_by', 'INTEGER REFERENCES users(id)');
-ensureColumn('payments', 'notes', 'TEXT');
-ensureColumn('payments', 'voided_at', 'TEXT');
-ensureColumn('payments', 'voided_by', 'INTEGER REFERENCES users(id)');
-ensureColumn('payments', 'void_reason', 'TEXT');
-ensureColumn('payments', 'original_transaction_id', 'INTEGER REFERENCES payments(id)');
-ensureColumn('payments', 'approved_by', 'INTEGER REFERENCES users(id)');
+await ensureColumn('payments', 'ownership_id', 'INTEGER REFERENCES ownerships(id)');
+await ensureColumn('payments', 'type', 'TEXT');
+await ensureColumn('payments', 'method', 'TEXT');
+await ensureColumn('payments', 'recorded_by', 'INTEGER REFERENCES users(id)');
+await ensureColumn('payments', 'notes', 'TEXT');
+await ensureColumn('payments', 'voided_at', 'TEXT');
+await ensureColumn('payments', 'voided_by', 'INTEGER REFERENCES users(id)');
+await ensureColumn('payments', 'void_reason', 'TEXT');
+await ensureColumn('payments', 'original_transaction_id', 'INTEGER REFERENCES payments(id)');
+await ensureColumn('payments', 'approved_by', 'INTEGER REFERENCES users(id)');
 
-db.exec(`
+await driver.exec(`
 CREATE INDEX IF NOT EXISTS idx_payments_ownership ON payments(ownership_id);
 CREATE INDEX IF NOT EXISTS idx_payments_type      ON payments(type);
 CREATE INDEX IF NOT EXISTS idx_payments_paid_on   ON payments(paid_on);
@@ -369,10 +365,10 @@ CREATE INDEX IF NOT EXISTS idx_payments_paid_on   ON payments(paid_on);
    sale, the earliest payment is the deposit and the rest are instalments.
    That is what those payments actually were; the payment method is left
    unknown because it genuinely is not recorded anywhere. */
-function backfillTransactionModel() {
+async function backfillTransactionModel() {
   const now = nowIso();
 
-  db.exec(`
+  await driver.exec(`
     UPDATE ownerships
        SET sale_price_cents = purchase_price_cents
      WHERE sale_price_cents IS NULL;
@@ -411,86 +407,137 @@ function backfillTransactionModel() {
 
   /* Anything with no date or amount would corrupt every total, so those are
      never treated as financial records. */
-  db.exec(`
+  await driver.exec(`
     UPDATE payments
        SET voided_at = COALESCE(voided_at, '${now}'),
            void_reason = COALESCE(void_reason, 'Incomplete record: missing date or amount')
      WHERE paid_on IS NULL OR paid_on = '' OR amount_cents IS NULL OR amount_cents <= 0;
   `);
 
-  return db.prepare(
+  return (await prepare(
     "SELECT COUNT(*) AS c FROM payments WHERE ownership_id IS NOT NULL AND type IS NOT NULL"
-  ).get().c;
+  ).get()).c;
 }
 
+
+
+  /* Runs once per start; the statements are written to be idempotent. */
+  await backfillTransactionModel();
+{
+  const existing = new Set(
+    (await prepare('SELECT page, section, item, field FROM content_blocks').all())
+      .map((r) => `${r.page}\u0000${r.section}\u0000${r.item}\u0000${r.field}`));
+  const liveItems = new Set(
+    (await prepare('SELECT DISTINCT page, section, item FROM content_blocks').all())
+      .map((r) => `${r.page}\u0000${r.section}\u0000${r.item}`));
+  const liveSections = new Set(
+    (await prepare('SELECT DISTINCT page, section FROM content_blocks').all())
+      .map((r) => `${r.page}\u0000${r.section}`));
+  const seededPages = new Set(
+    (await prepare('SELECT DISTINCT page FROM content_blocks').all()).map((r) => r.page));
+
+  /* Only repeatable sections can have their items deleted in the admin, so a
+     non-repeating section that is entirely absent was never created rather
+     than removed. That is what makes seeding a brand-new section safe. */
+  const repeatable = new Set();
+  for (const p of contentSchema.PAGES) {
+    for (const s of p.sections) {
+      if (s.repeat) repeatable.add(`${p.key}\u0000${s.key}`);
+    }
+  }
+
+  const insert = prepare(
+    'INSERT INTO content_blocks (page, section, item, field, value) VALUES (?, ?, ?, ?, ?)');
+
+  for (const b of defaultBlocks()) {
+    const fieldKey = `${b.page}\u0000${b.section}\u0000${b.item}\u0000${b.field}`;
+    if (existing.has(fieldKey)) continue;
+
+    const itemKey = `${b.page}\u0000${b.section}\u0000${b.item}`;
+    const sectionKey = `${b.page}\u0000${b.section}`;
+
+    if (liveItems.has(itemKey)) {
+      // A new field on an item that already exists.
+      await insert.run(b.page, b.section, b.item, b.field, b.value);
+      continue;
+    }
+
+    /* A non-repeating section, on a page that is already live, with no rows at
+       all: a section added to the schema after the site went live. */
+    if (!repeatable.has(sectionKey) && seededPages.has(b.page) && !liveSections.has(sectionKey)) {
+      await insert.run(b.page, b.section, b.item, b.field, b.value);
+    }
+  }
+}
+})();
 
 const nowIso = () => new Date().toISOString();
 
 /* ── Audit log ──────────────────────────────────────────────────────────── */
 
-const insertAudit = db.prepare(`
+const insertAudit = prepare(`
   INSERT INTO audit_log (at, action, outcome, actor_user_id, client_number, detail, ip)
   VALUES (?, ?, ?, ?, ?, ?, ?)
 `);
 
-function audit(action, outcome, { userId = null, clientNumber = null, detail = null, ip = null } = {}) {
-  insertAudit.run(nowIso(), action, outcome, userId, clientNumber, detail, ip);
+async function audit(action, outcome, { userId = null, clientNumber = null, detail = null, ip = null } = {}) {
+  await insertAudit.run(nowIso(), action, outcome, userId, clientNumber, detail, ip);
 }
 
 /* ── Users ──────────────────────────────────────────────────────────────── */
 
-const qUserByNumber = db.prepare('SELECT * FROM users WHERE client_number = ?');
-const qUserById     = db.prepare('SELECT * FROM users WHERE id = ?');
-const qBumpFailed   = db.prepare('UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?');
-const qLockUser     = db.prepare('UPDATE users SET locked_until = ?, failed_attempts = 0 WHERE id = ?');
-const qResetFailed  = db.prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?');
+const qUserByNumber = prepare('SELECT * FROM users WHERE client_number = ?');
+const qUserById     = prepare('SELECT * FROM users WHERE id = ?');
+const qBumpFailed   = prepare('UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?');
+const qLockUser     = prepare('UPDATE users SET locked_until = ?, failed_attempts = 0 WHERE id = ?');
+const qResetFailed  = prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?');
 
 const users = {
-  byClientNumber: (n) => qUserByNumber.get(n),
-  byId: (id) => qUserById.get(id),
-  bumpFailed: (id) => qBumpFailed.run(id),
-  lock: (id, untilIso) => qLockUser.run(untilIso, id),
-  resetFailed: (id) => qResetFailed.run(id),
+  byClientNumber: async (n) => await qUserByNumber.get(n),
+  byId: async (id) => await qUserById.get(id),
+  bumpFailed: async (id) => await qBumpFailed.run(id),
+  lock: async (id, untilIso) => await qLockUser.run(untilIso, id),
+  resetFailed: async (id) => await qResetFailed.run(id),
 
-  insert({ clientNumber, fullName, email, role = 'client', passwordHash }) {
-    const stmt = db.prepare(`
+  async insert({ clientNumber, fullName, email, role = 'client', passwordHash }) {
+    const stmt = prepare(`
       INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    return stmt.run(clientNumber, fullName, email, role, passwordHash, nowIso());
+    return await stmt.run(clientNumber, fullName, email, role, passwordHash, nowIso());
   }
 };
 
 /* ── Sessions ───────────────────────────────────────────────────────────── */
 
-const qInsertSession = db.prepare(`
+const qInsertSession = prepare(`
   INSERT INTO sessions (token_hash, user_id, created_at, expires_at, ip, user_agent)
   VALUES (?, ?, ?, ?, ?, ?)
 `);
-const qFindSession = db.prepare(`
+const qFindSession = prepare(`
   SELECT s.token_hash, s.user_id, s.expires_at,
          u.client_number, u.full_name, u.role, u.disabled
   FROM sessions s
   JOIN users u ON u.id = s.user_id
   WHERE s.token_hash = ?
 `);
-const qDeleteSession = db.prepare('DELETE FROM sessions WHERE token_hash = ?');
-const qDeleteExpired = db.prepare('DELETE FROM sessions WHERE expires_at < ?');
-const qDeleteUserSessions = db.prepare('DELETE FROM sessions WHERE user_id = ?');
+const qDeleteSession = prepare('DELETE FROM sessions WHERE token_hash = ?');
+const qDeleteExpired = prepare('DELETE FROM sessions WHERE expires_at < ?');
+const qDeleteUserSessions = prepare('DELETE FROM sessions WHERE user_id = ?');
 
 const sessions = {
-  create({ tokenHash, userId, expiresAt, ip, userAgent }) {
-    qInsertSession.run(tokenHash, userId, nowIso(), expiresAt, ip, userAgent);
+  async create({ tokenHash, userId, expiresAt, ip, userAgent }) {
+    await qInsertSession.run(tokenHash, userId, nowIso(), expiresAt, ip, userAgent);
   },
-  find: (tokenHash) => qFindSession.get(tokenHash),
-  destroy: (tokenHash) => qDeleteSession.run(tokenHash),
-  destroyAllForUser: (userId) => qDeleteUserSessions.run(userId),
-  purgeExpired: () => qDeleteExpired.run(nowIso())
+  find: async (tokenHash) => await qFindSession.get(tokenHash),
+  destroy: async (tokenHash) => await qDeleteSession.run(tokenHash),
+  destroyAllForUser: async (userId) => await qDeleteUserSessions.run(userId),
+  purgeExpired: async () => await qDeleteExpired.run(nowIso())
 };
 
 /* ── Client portal reads ────────────────────────────────────────────────── */
 
-const qOwnership = db.prepare(`
+const qOwnership = prepare(`
   SELECT o.id, o.purchase_price_cents, o.purchase_date, o.status,
          st.stand_number, st.size_sqm, st.type,
          p.name AS project_name, p.location AS project_location, p.id AS project_id
@@ -505,40 +552,40 @@ const qOwnership = db.prepare(`
 /* `id` and `stand_id` are selected because the admin renders a per-row action
    for each payment. Without the id the action URL lost its identifier and the
    delete button led to a 404. */
-const qPayments = db.prepare(`
+const qPayments = prepare(`
   SELECT id, stand_id, paid_on, reference, amount_cents, status
   FROM payments
   WHERE user_id = ?
   ORDER BY paid_on DESC, id DESC
 `);
 
-const qPaymentTotal = db.prepare(`
+const qPaymentTotal = prepare(`
   SELECT COALESCE(SUM(amount_cents), 0) AS total
   FROM payments
   WHERE user_id = ? AND status = 'Confirmed'
 `);
 
-const qDocuments = db.prepare(`
+const qDocuments = prepare(`
   SELECT id, title, mime, size_bytes, uploaded_at
   FROM documents
   WHERE user_id = ?
   ORDER BY uploaded_at DESC
 `);
 
-const qDocumentForUser = db.prepare(`
+const qDocumentForUser = prepare(`
   SELECT id, title, stored_name, mime
   FROM documents
   WHERE id = ? AND user_id = ?
 `);
 
-const qProgress = db.prepare(`
+const qProgress = prepare(`
   SELECT label, state FROM progress WHERE project_id = ? ORDER BY position
 `);
 
-const qProjects = db.prepare('SELECT * FROM projects ORDER BY id');
+const qProjects = prepare('SELECT * FROM projects ORDER BY id');
 /* `project_sold_out` travels with each stand so the website can leave a sold-out
    development out of the available-properties list without a second query. */
-const qStands = db.prepare(`
+const qStands = prepare(`
   SELECT st.*, p.name AS project_name, p.sold_out AS project_sold_out,
          p.image_url AS project_image_url
   FROM stands st JOIN projects p ON p.id = st.project_id
@@ -546,91 +593,39 @@ const qStands = db.prepare(`
 `);
 
 const portal = {
-  ownershipFor: (userId) => qOwnership.get(userId),
-  paymentsFor: (userId) => qPayments.all(userId),
-  paidTotalFor: (userId) => qPaymentTotal.get(userId).total,
-  documentsFor: (userId) => qDocuments.all(userId),
-  documentForUser: (id, userId) => qDocumentForUser.get(id, userId),
-  progressFor: (projectId) => qProgress.all(projectId),
-  projects: () => qProjects.all(),
-  stands: () => qStands.all()
+  ownershipFor: async (userId) => await qOwnership.get(userId),
+  paymentsFor: async (userId) => await qPayments.all(userId),
+  paidTotalFor: async (userId) => (await qPaymentTotal.get(userId)).total,
+  documentsFor: async (userId) => await qDocuments.all(userId),
+  documentForUser: async (id, userId) => await qDocumentForUser.get(id, userId),
+  progressFor: async (projectId) => await qProgress.all(projectId),
+  projects: async () => await qProjects.all(),
+  stands: async () => await qStands.all()
 };
 
 const contentSchema = require('./content');
 const { defaultSettings, defaultBlocks, defaultValue, defaultItemCount } = contentSchema;
 
 /* ── New fields on already-seeded pages ──────────────────────────────────
-   seedDefaults only runs from the seed script, so a field added to the schema
-   after a site is live would never reach its database and would render blank.
-
-   This fills in missing FIELDS, but only for items that already have a row. It
-   deliberately never creates items: deleting a service card is a decision the
-   office made, and re-adding it on the next restart would undo that. */
-{
-  const existing = new Set(
-    db.prepare('SELECT page, section, item, field FROM content_blocks').all()
-      .map((r) => `${r.page}\u0000${r.section}\u0000${r.item}\u0000${r.field}`));
-  const liveItems = new Set(
-    db.prepare('SELECT DISTINCT page, section, item FROM content_blocks').all()
-      .map((r) => `${r.page}\u0000${r.section}\u0000${r.item}`));
-  const liveSections = new Set(
-    db.prepare('SELECT DISTINCT page, section FROM content_blocks').all()
-      .map((r) => `${r.page}\u0000${r.section}`));
-  const seededPages = new Set(
-    db.prepare('SELECT DISTINCT page FROM content_blocks').all().map((r) => r.page));
-
-  /* Only repeatable sections can have their items deleted in the admin, so a
-     non-repeating section that is entirely absent was never created rather
-     than removed. That is what makes seeding a brand-new section safe. */
-  const repeatable = new Set();
-  for (const p of contentSchema.PAGES) {
-    for (const s of p.sections) {
-      if (s.repeat) repeatable.add(`${p.key}\u0000${s.key}`);
-    }
-  }
-
-  const insert = db.prepare(
-    'INSERT INTO content_blocks (page, section, item, field, value) VALUES (?, ?, ?, ?, ?)');
-
-  for (const b of defaultBlocks()) {
-    const fieldKey = `${b.page}\u0000${b.section}\u0000${b.item}\u0000${b.field}`;
-    if (existing.has(fieldKey)) continue;
-
-    const itemKey = `${b.page}\u0000${b.section}\u0000${b.item}`;
-    const sectionKey = `${b.page}\u0000${b.section}`;
-
-    if (liveItems.has(itemKey)) {
-      // A new field on an item that already exists.
-      insert.run(b.page, b.section, b.item, b.field, b.value);
-      continue;
-    }
-
-    /* A non-repeating section, on a page that is already live, with no rows at
-       all: a section added to the schema after the site went live. */
-    if (!repeatable.has(sectionKey) && seededPages.has(b.page) && !liveSections.has(sectionKey)) {
-      insert.run(b.page, b.section, b.item, b.field, b.value);
-    }
-  }
-}
 
 /* ── Site settings and content blocks ───────────────────────────────────── */
 
-const qAllSettings = db.prepare('SELECT key, value FROM site_settings');
-const qUpsertSetting = db.prepare(`
+const qAllSettings = prepare('SELECT key, value FROM site_settings');
+const qUpsertSetting = prepare(`
   INSERT INTO site_settings (key, value, updated_at) VALUES (?, ?, ?)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
 `);
 
-const qBlocksForPage = db.prepare(
+const qBlocksForPage = prepare(
   'SELECT section, item, field, value FROM content_blocks WHERE page = ?');
-const qUpsertBlock = db.prepare(`
+const qUpsertBlock = prepare(`
   INSERT INTO content_blocks (page, section, item, field, value) VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(page, section, item, field) DO UPDATE SET value = excluded.value
 `);
-const qDeleteBlockItem = db.prepare(
+const qDeleteBlockItem = prepare(
   'DELETE FROM content_blocks WHERE page = ? AND section = ? AND item = ?');
-const qDeletePageBlocks = db.prepare('DELETE FROM content_blocks WHERE page = ?');
-const qCountBlocks = db.prepare('SELECT COUNT(*) AS c FROM content_blocks');
+const qDeletePageBlocks = prepare('DELETE FROM content_blocks WHERE page = ?');
+const qCountBlocks = prepare('SELECT COUNT(*) AS c FROM content_blocks');
 
 const range = (from, to) => {
   const out = [];
@@ -640,21 +635,21 @@ const range = (from, to) => {
 
 const content = {
   /** All settings, with factory defaults filling any gap. */
-  settings() {
+  async settings() {
     const out = { ...defaultSettings() };
-    for (const row of qAllSettings.all()) out[row.key] = row.value;
+    for (const row of await qAllSettings.all()) out[row.key] = row.value;
     return out;
   },
 
-  setSetting(key, value) { qUpsertSetting.run(key, String(value ?? ''), nowIso()); },
+  async setSetting(key, value) { await qUpsertSetting.run(key, String(value ?? ''), nowIso()); },
 
-  settingsList() {
+  async settingsList() {
     const stored = Object.create(null);
-    for (const row of qAllSettings.all()) stored[row.key] = row.value;
+    for (const row of await qAllSettings.all()) stored[row.key] = row.value;
     return stored;
   },
 
-  setIsEmpty: () => qCountBlocks.get().c === 0,
+  setIsEmpty: async () => (await qCountBlocks.get()).c === 0,
 
   /**
    * Resolves one page's content for rendering.
@@ -664,13 +659,13 @@ const content = {
    * is what makes deleting every item in a repeating section stick, rather
    * than the defaults silently reappearing.
    */
-  resolve(pageKey) {
-    const rows = qBlocksForPage.all(pageKey);
+  async resolve(pageKey) {
+    const rows = await qBlocksForPage.all(pageKey);
     const seeded = rows.length > 0;
     const map = new Map();
     for (const r of rows) map.set(`${r.section}\u0000${r.item}\u0000${r.field}`, r.value);
 
-    const countFor = (sectionKey) => {
+const countFor = (sectionKey) => {
       if (!seeded) return defaultItemCount(pageKey, sectionKey);
       let max = 0;
       for (const r of rows) if (r.section === sectionKey && r.item > max) max = r.item;
@@ -679,6 +674,9 @@ const content = {
 
     return {
       seeded,
+      /* get/items/count read from the `map` built above. They touch no
+         database, so they stay synchronous — callers do
+         `c.items('value').map(...)` and must not receive a Promise. */
       get(section, field, item = 0) {
         const key = `${section}\u0000${item}\u0000${field}`;
         return map.has(key) ? map.get(key) : defaultValue(pageKey, section, field, item);
@@ -688,45 +686,45 @@ const content = {
     };
   },
 
-  setBlock(pageKey, sectionKey, item, fieldKey, value) {
-    qUpsertBlock.run(pageKey, sectionKey, Number(item) || 0, fieldKey, String(value ?? ''));
+  async setBlock(pageKey, sectionKey, item, fieldKey, value) {
+    await qUpsertBlock.run(pageKey, sectionKey, Number(item) || 0, fieldKey, String(value ?? ''));
   },
 
   /** Appends an item to a repeating section and returns its number. */
-  addItem(pageKey, sectionKey) {
-    const rows = qBlocksForPage.all(pageKey);
+  async addItem(pageKey, sectionKey) {
+    const rows = await qBlocksForPage.all(pageKey);
     let max = 0;
     for (const r of rows) if (r.section === sectionKey && r.item > max) max = r.item;
     const next = Math.max(max, defaultItemCount(pageKey, sectionKey)) + 1;
     for (const field of (contentSchema.sectionSchema(pageKey, sectionKey) || { fields: [] }).fields) {
-      qUpsertBlock.run(pageKey, sectionKey, next, field.key, '');
+      await qUpsertBlock.run(pageKey, sectionKey, next, field.key, '');
     }
     return next;
   },
 
-  deleteItem(pageKey, sectionKey, item) { qDeleteBlockItem.run(pageKey, sectionKey, Number(item)); },
+  async deleteItem(pageKey, sectionKey, item) { await qDeleteBlockItem.run(pageKey, sectionKey, Number(item)); },
 
   /**
    * Writes the factory content. Without `overwrite` only missing keys are
    * filled, so re-running the seed never destroys what the office has edited.
    */
-  seedDefaults({ overwrite = false } = {}) {
+  async seedDefaults({ overwrite = false } = {}) {
     let settings = 0;
     let blocks = 0;
 
-    const existingSettings = new Set(qAllSettings.all().map((r) => r.key));
+    const existingSettings = new Set((await qAllSettings.all()).map((r) => r.key));
     for (const s of contentSchema.SETTINGS) {
-      if (overwrite || !existingSettings.has(s.key)) { qUpsertSetting.run(s.key, s.value, nowIso()); settings++; }
+      if (overwrite || !existingSettings.has(s.key)) { await qUpsertSetting.run(s.key, s.value, nowIso()); settings++; }
     }
 
     const existingBlocks = new Set(
-      db.prepare('SELECT page, section, item, field FROM content_blocks').all()
+      (await prepare('SELECT page, section, item, field FROM content_blocks').all())
         .map((r) => `${r.page}\u0000${r.section}\u0000${r.item}\u0000${r.field}`));
 
     for (const b of defaultBlocks()) {
       const key = `${b.page}\u0000${b.section}\u0000${b.item}\u0000${b.field}`;
       if (overwrite || !existingBlocks.has(key)) {
-        qUpsertBlock.run(b.page, b.section, b.item, b.field, b.value);
+        await qUpsertBlock.run(b.page, b.section, b.item, b.field, b.value);
         blocks++;
       }
     }
@@ -735,47 +733,47 @@ const content = {
   },
 
   /** Wipes a page's content so it can be re-seeded from scratch. */
-  resetPage(pageKey) { qDeletePageBlocks.run(pageKey); }
+  async resetPage(pageKey) { await qDeletePageBlocks.run(pageKey); }
 };
 
 /* ── Enquiries ──────────────────────────────────────────────────────────── */
 
-const qInsertEnquiry = db.prepare(`
+const qInsertEnquiry = prepare(`
   INSERT INTO enquiries (name, phone, interest, message, created_at, ip)
   VALUES (?, ?, ?, ?, ?, ?)
 `);
 
 /* Unhandled first, then newest first within each group. */
-const qEnquiriesAll = db.prepare(`
+const qEnquiriesAll = prepare(`
   SELECT id, name, phone, interest, message, created_at, handled_at
   FROM enquiries
   ORDER BY (handled_at IS NOT NULL), created_at DESC
 `);
 
-const qEnquiryCounts = db.prepare(`
+const qEnquiryCounts = prepare(`
   SELECT COUNT(*) AS total,
          COALESCE(SUM(CASE WHEN handled_at IS NULL THEN 1 ELSE 0 END), 0) AS open
   FROM enquiries
 `);
 
-const qEnquiryById = db.prepare('SELECT * FROM enquiries WHERE id = ?');
-const qMarkHandled = db.prepare('UPDATE enquiries SET handled_at = ?, handled_by = ? WHERE id = ?');
-const qReopen = db.prepare('UPDATE enquiries SET handled_at = NULL, handled_by = NULL WHERE id = ?');
+const qEnquiryById = prepare('SELECT * FROM enquiries WHERE id = ?');
+const qMarkHandled = prepare('UPDATE enquiries SET handled_at = ?, handled_by = ? WHERE id = ?');
+const qReopen = prepare('UPDATE enquiries SET handled_at = NULL, handled_by = NULL WHERE id = ?');
 
 const enquiries = {
-  insert({ name, phone, interest, message, ip }) {
-    return qInsertEnquiry.run(name, phone, interest, message, nowIso(), ip);
+  async insert({ name, phone, interest, message, ip }) {
+    return await qInsertEnquiry.run(name, phone, interest, message, nowIso(), ip);
   },
-  all: () => qEnquiriesAll.all(),
-  byId: (id) => qEnquiryById.get(id),
-  counts: () => qEnquiryCounts.get(),
-  markHandled: (id, userId) => qMarkHandled.run(nowIso(), userId, id),
-  reopen: (id) => qReopen.run(id)
+  all: async () => await qEnquiriesAll.all(),
+  byId: async (id) => await qEnquiryById.get(id),
+  counts: async () => await qEnquiryCounts.get(),
+  markHandled: async (id, userId) => await qMarkHandled.run(nowIso(), userId, id),
+  reopen: async (id) => await qReopen.run(id)
 };
 
 /* ── Admin ──────────────────────────────────────────────────────────────── */
 
-const qAdminCounts = db.prepare(`
+const qAdminCounts = prepare(`
   SELECT
     (SELECT COUNT(*) FROM users WHERE role = 'client')                            AS clients,
     (SELECT COUNT(*) FROM documents)                                              AS documents,
@@ -786,7 +784,7 @@ const qAdminCounts = db.prepare(`
 `);
 
 /* One row per client, with their stand and how much they have paid. */
-const qClientsList = db.prepare(`
+const qClientsList = prepare(`
   SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.created_at,
          st.stand_number, p.name AS project_name,
          o.purchase_price_cents, o.status AS ownership_status,
@@ -806,7 +804,7 @@ const qClientsList = db.prepare(`
    holding two stands in the same development is listed once, while a client
    holding stands in two different developments appears under each — which is
    correct, not a duplicate. */
-const qClientsByDevelopment = db.prepare(`
+const qClientsByDevelopment = prepare(`
   SELECT p.name AS development, p.id AS project_id,
          u.id, u.client_number, u.full_name, u.email, u.disabled
   FROM users u
@@ -819,7 +817,7 @@ const qClientsByDevelopment = db.prepare(`
 `);
 
 /* A client with no sale at all belongs to no development. */
-const qClientsUnassigned = db.prepare(`
+const qClientsUnassigned = prepare(`
   SELECT u.id, u.client_number, u.full_name, u.email, u.disabled
   FROM users u
   WHERE u.role = 'client'
@@ -829,7 +827,7 @@ const qClientsUnassigned = db.prepare(`
 
 /* ── Admin: single client ───────────────────────────────────────────────── */
 
-const qClientById = db.prepare(`
+const qClientById = prepare(`
   SELECT u.id, u.client_number, u.full_name, u.email, u.role, u.disabled,
          u.created_at, u.locked_until, u.failed_attempts,
          o.id AS ownership_id, o.purchase_price_cents, o.purchase_date,
@@ -845,16 +843,16 @@ const qClientById = db.prepare(`
   LIMIT 1
 `);
 
-const qUpdateClient = db.prepare('UPDATE users SET full_name = ?, email = ? WHERE id = ?');
-const qSetDisabled  = db.prepare('UPDATE users SET disabled = ? WHERE id = ?');
-const qSetPassword  = db.prepare(
+const qUpdateClient = prepare('UPDATE users SET full_name = ?, email = ? WHERE id = ?');
+const qSetDisabled  = prepare('UPDATE users SET disabled = ? WHERE id = ?');
+const qSetPassword  = prepare(
   'UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?');
-const qUnlockClient = db.prepare(
+const qUnlockClient = prepare(
   'UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?');
 
 /* ── Admin: stands and ownership ────────────────────────────────────────── */
 
-const qStandsAll = db.prepare(`
+const qStandsAll = prepare(`
   SELECT st.id, st.stand_number, st.size_sqm, st.type, st.price_cents, st.status,
          p.name AS project_name,
          (SELECT u.client_number
@@ -878,91 +876,91 @@ const STAND_SELECT = `
     FROM stands st
     JOIN projects p ON p.id = st.project_id`;
 
-const qStandsForAdmin = db.prepare(`${STAND_SELECT} ORDER BY p.name, st.stand_number`);
-const qStandById = db.prepare(`${STAND_SELECT} WHERE st.id = ?`);
+const qStandsForAdmin = prepare(`${STAND_SELECT} ORDER BY p.name, st.stand_number`);
+const qStandById = prepare(`${STAND_SELECT} WHERE st.id = ?`);
 /* For the client-facing property page, addressed by stand number rather than
    an internal id. */
-const qStandByNumber = db.prepare(`${STAND_SELECT} WHERE lower(st.stand_number) = lower(?)`);
+const qStandByNumber = prepare(`${STAND_SELECT} WHERE lower(st.stand_number) = lower(?)`);
 
 /* Stand numbers are globally unique in the schema, so the check has to be
    global too. Checking only within the development let a duplicate through to
    the INSERT, which then failed with a raw constraint error. Returns the
    clashing row so the message can name the development it belongs to. */
-const qStandNumberTaken = db.prepare(`
+const qStandNumberTaken = prepare(`
   SELECT s.id, s.stand_number, p.name AS project_name
     FROM stands s JOIN projects p ON p.id = s.project_id
    WHERE lower(s.stand_number) = lower(?) AND s.id <> ?`);
 
-const qInsertStand = db.prepare(`
+const qInsertStand = prepare(`
   INSERT INTO stands (project_id, stand_number, size_sqm, type, price_cents, status, image_url,
                       currency, description, location, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-const qUpdateStand = db.prepare(`
+const qUpdateStand = prepare(`
   UPDATE stands
      SET project_id = ?, stand_number = ?, size_sqm = ?, type = ?,
          price_cents = ?, status = ?, image_url = ?,
          currency = ?, description = ?, location = ?, updated_at = ?
    WHERE id = ?`);
 
-const qDeleteStand = db.prepare('DELETE FROM stands WHERE id = ?');
+const qDeleteStand = prepare('DELETE FROM stands WHERE id = ?');
 
-const qUpdateProject = db.prepare(`
+const qUpdateProject = prepare(`
   UPDATE projects
      SET name = ?, location = ?, type = ?, status = ?, description = ?, image_url = ?,
          sold_out = ?, long_description = ?, features = ?
    WHERE id = ?`);
 
-const qInsertProject = db.prepare(`
+const qInsertProject = prepare(`
   INSERT INTO projects (name, location, type, status, description, image_url, sold_out,
                         long_description, features)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-const qSetProjectSoldOut = db.prepare('UPDATE projects SET sold_out = ? WHERE id = ?');
+const qSetProjectSoldOut = prepare('UPDATE projects SET sold_out = ? WHERE id = ?');
 
 /* ── Published price list ── */
-const qPricingFor = db.prepare(
+const qPricingFor = prepare(
   'SELECT * FROM development_pricing WHERE project_id = ? ORDER BY position, id');
-const qInsertPricing = db.prepare(`
+const qInsertPricing = prepare(`
   INSERT INTO development_pricing (project_id, size_label, cash, credit, deposit, position)
   VALUES (?, ?, ?, ?, ?, ?)`);
-const qUpdatePricing = db.prepare(`
+const qUpdatePricing = prepare(`
   UPDATE development_pricing SET size_label = ?, cash = ?, credit = ?, deposit = ? WHERE id = ?`);
-const qDeletePricing = db.prepare('DELETE FROM development_pricing WHERE id = ?');
-const qPricingById = db.prepare('SELECT * FROM development_pricing WHERE id = ?');
-const qNextPricingPosition = db.prepare(
+const qDeletePricing = prepare('DELETE FROM development_pricing WHERE id = ?');
+const qPricingById = prepare('SELECT * FROM development_pricing WHERE id = ?');
+const qNextPricingPosition = prepare(
   'SELECT COALESCE(MAX(position), 0) + 1 AS p FROM development_pricing WHERE project_id = ?');
 
-const qProjectNameTaken = db.prepare(
+const qProjectNameTaken = prepare(
   'SELECT id FROM projects WHERE lower(name) = lower(?) AND id <> ?');
 
-const qInsertOwnership = db.prepare(`
+const qInsertOwnership = prepare(`
   INSERT INTO ownerships (user_id, stand_id, purchase_price_cents, purchase_date, status)
   VALUES (?, ?, ?, ?, ?)
 `);
-const qOwnershipById = db.prepare('SELECT * FROM ownerships WHERE id = ?');
-const qDeleteOwnership = db.prepare('DELETE FROM ownerships WHERE id = ?');
-const qSetStandStatus = db.prepare('UPDATE stands SET status = ? WHERE id = ?');
-const qCountOwnershipsForUser = db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?');
+const qOwnershipById = prepare('SELECT * FROM ownerships WHERE id = ?');
+const qDeleteOwnership = prepare('DELETE FROM ownerships WHERE id = ?');
+const qSetStandStatus = prepare('UPDATE stands SET status = ? WHERE id = ?');
+const qCountOwnershipsForUser = prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?');
 
 /* ── Admin: payments ────────────────────────────────────────────────────── */
 
 /* The transaction columns are part of the insert so a payment recorded through
    the ordinary client form is typed and linked to its sale immediately —
    an untyped payment would be invisible to the analytics. */
-const qInsertPayment = db.prepare(`
+const qInsertPayment = prepare(`
   INSERT INTO payments
     (user_id, stand_id, ownership_id, type, paid_on, reference, amount_cents, status,
      method, recorded_by, notes)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-const qPaymentById = db.prepare('SELECT * FROM payments WHERE id = ?');
-const qDeletePayment = db.prepare('DELETE FROM payments WHERE id = ?');
-const qReferenceTaken = db.prepare('SELECT 1 AS x FROM payments WHERE reference = ?');
-const qReferenceTakenByOther = db.prepare(
+const qPaymentById = prepare('SELECT * FROM payments WHERE id = ?');
+const qDeletePayment = prepare('DELETE FROM payments WHERE id = ?');
+const qReferenceTaken = prepare('SELECT 1 AS x FROM payments WHERE reference = ?');
+const qReferenceTakenByOther = prepare(
   'SELECT 1 AS x FROM payments WHERE reference = ? AND id <> ?');
-const qSetPaymentStatus = db.prepare('UPDATE payments SET status = ? WHERE id = ?');
-const qUpdatePayment = db.prepare(`
+const qSetPaymentStatus = prepare('UPDATE payments SET status = ? WHERE id = ?');
+const qUpdatePayment = prepare(`
   UPDATE payments SET paid_on = ?, reference = ?, amount_cents = ?, status = ?
   WHERE id = ?
 `);
@@ -973,26 +971,26 @@ const PAYMENT_STATUSES = ['Confirmed', 'Pending'];
 
 /* ── Admin: documents ───────────────────────────────────────────────────── */
 
-const qDocumentsForUser = db.prepare(`
+const qDocumentsForUser = prepare(`
   SELECT id, title, stored_name, mime, size_bytes, uploaded_at
   FROM documents
   WHERE user_id = ?
   ORDER BY uploaded_at DESC, id DESC
 `);
-const qDocumentById = db.prepare('SELECT * FROM documents WHERE id = ?');
-const qInsertDocument = db.prepare(`
+const qDocumentById = prepare('SELECT * FROM documents WHERE id = ?');
+const qInsertDocument = prepare(`
   INSERT INTO documents (user_id, title, stored_name, mime, size_bytes, uploaded_at)
   VALUES (?, ?, ?, ?, ?, ?)
 `);
-const qDeleteDocument = db.prepare('DELETE FROM documents WHERE id = ?');
-const qCountDocumentsForUser = db.prepare('SELECT COUNT(*) AS c FROM documents WHERE user_id = ?');
+const qDeleteDocument = prepare('DELETE FROM documents WHERE id = ?');
+const qCountDocumentsForUser = prepare('SELECT COUNT(*) AS c FROM documents WHERE user_id = ?');
 
 /* ── Admin: project progress ────────────────────────────────────────────── */
 
 /* Development statistics are counted from the properties themselves on every
    read, never stored. A stored count would drift the moment a stand changed
    status through any other path. */
-const qProjectsWithCounts = db.prepare(`
+const qProjectsWithCounts = prepare(`
   SELECT p.*,
          (SELECT COUNT(*) FROM progress WHERE project_id = p.id) AS step_count,
          (SELECT COUNT(*) FROM stands s WHERE s.project_id = p.id) AS property_count,
@@ -1004,25 +1002,25 @@ const qProjectsWithCounts = db.prepare(`
   ORDER BY p.name
 `);
 
-const qProgressWithIds = db.prepare(
+const qProgressWithIds = prepare(
   'SELECT id, label, state, position FROM progress WHERE project_id = ? ORDER BY position, id');
-const qUpdateProgressStep = db.prepare('UPDATE progress SET label = ?, state = ? WHERE id = ?');
-const qDeleteProgressStep = db.prepare('DELETE FROM progress WHERE id = ?');
-const qInsertProgressStep = db.prepare(
+const qUpdateProgressStep = prepare('UPDATE progress SET label = ?, state = ? WHERE id = ?');
+const qDeleteProgressStep = prepare('DELETE FROM progress WHERE id = ?');
+const qInsertProgressStep = prepare(
   'INSERT INTO progress (project_id, label, state, position) VALUES (?, ?, ?, ?)');
-const qMaxProgressPosition = db.prepare(
+const qMaxProgressPosition = prepare(
   'SELECT COALESCE(MAX(position), 0) AS m FROM progress WHERE project_id = ?');
 
 const VALID_STATES = new Set(['done', 'current', 'pending']);
 
 /** Escapes LIKE wildcards so a search for "50%" is a literal, not a pattern. */
-function likePattern(q) {
+async function likePattern(q) {
   return '%' + String(q).replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
 }
 
 const admin = {
-  counts: () => qAdminCounts.get(),
-  clients: () => qClientsList.all(),
+  counts: async () => await qAdminCounts.get(),
+  clients: async () => await qClientsList.all(),
 
   /**
    * Clients grouped under the development they are associated with, via their
@@ -1030,11 +1028,11 @@ const admin = {
    *
    * Returns [{ development, clients: [{ id, client_number, full_name, ... }] }]
    */
-  clientsByDevelopment() {
+  async clientsByDevelopment() {
     const groups = [];
     const byName = new Map();
 
-    for (const row of qClientsByDevelopment.all()) {
+    for (const row of await qClientsByDevelopment.all()) {
       let group = byName.get(row.development);
       if (!group) {
         group = { development: row.development, clients: [] };
@@ -1044,19 +1042,19 @@ const admin = {
       group.clients.push(row);
     }
 
-    const unassigned = qClientsUnassigned.all();
+    const unassigned = await qClientsUnassigned.all();
     if (unassigned.length) groups.push({ development: 'Unassigned', clients: unassigned });
 
     return groups;
   },
 
   /** Clients filtered by number, name or email. An empty query lists all. */
-  searchClients(q) {
+  async searchClients(q) {
     const term = String(q || '').trim();
-    if (!term) return qClientsList.all();
+    if (!term) return await qClientsList.all();
 
-    const pattern = likePattern(term);
-    return db.prepare(`
+    const pattern = await likePattern(term);
+    return await prepare(`
       SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.created_at,
              st.stand_number, p.name AS project_name,
              o.purchase_price_cents, o.status AS ownership_status,
@@ -1074,95 +1072,95 @@ const admin = {
     `).all(pattern, pattern, pattern);
   },
 
-  clientById: (id) => qClientById.get(id),
+  clientById: async (id) => await qClientById.get(id),
 
-  updateClient(id, { fullName, email }) {
-    qUpdateClient.run(fullName, email || null, id);
-    return qClientById.get(id);
+  async updateClient(id, { fullName, email }) {
+    await qUpdateClient.run(fullName, email || null, id);
+    return await qClientById.get(id);
   },
 
-  setDisabled(id, disabled) {
-    qSetDisabled.run(disabled ? 1 : 0, id);
-    if (disabled) sessions.destroyAllForUser(id);
+  async setDisabled(id, disabled) {
+    await qSetDisabled.run(disabled ? 1 : 0, id);
+    if (disabled) await sessions.destroyAllForUser(id);
   },
 
-  setPassword(id, hash) {
-    qSetPassword.run(hash, id);
+  async setPassword(id, hash) {
+    await qSetPassword.run(hash, id);
     // A password change must invalidate every existing session for that user.
-    sessions.destroyAllForUser(id);
+    await sessions.destroyAllForUser(id);
   },
 
-  unlock(id) { qUnlockClient.run(id); },
+  async unlock(id) { await qUnlockClient.run(id); },
 
-  stands: () => qStandsAll.all(),
-  ownershipById: (id) => qOwnershipById.get(id),
-  ownershipCountFor: (userId) => qCountOwnershipsForUser.get(userId).c,
+  stands: async () => await qStandsAll.all(),
+  ownershipById: async (id) => await qOwnershipById.get(id),
+  ownershipCountFor: async (userId) => (await qCountOwnershipsForUser.get(userId)).c,
 
   /** Links a stand to a client and marks the stand sold. */
-  linkStand({ userId, standId, priceCents, purchaseDate, status }) {
-    qInsertOwnership.run(userId, standId, priceCents, purchaseDate, status);
-    qSetStandStatus.run('Sold', standId);
+  async linkStand({ userId, standId, priceCents, purchaseDate, status }) {
+    await qInsertOwnership.run(userId, standId, priceCents, purchaseDate, status);
+    await qSetStandStatus.run('Sold', standId);
   },
 
   /** Removes an ownership and frees the stand again. */
-  unlinkOwnership(ownershipId) {
-    const o = qOwnershipById.get(ownershipId);
+  async unlinkOwnership(ownershipId) {
+    const o = await qOwnershipById.get(ownershipId);
     if (!o) return false;
-    qDeleteOwnership.run(ownershipId);
-    qSetStandStatus.run('Available', o.stand_id);
+    await qDeleteOwnership.run(ownershipId);
+    await qSetStandStatus.run('Available', o.stand_id);
     return true;
   },
 
-  paymentsFor: (userId) => qPayments.all(userId),
-  paymentById: (id) => qPaymentById.get(id),
-  referenceTaken: (ref) => Boolean(qReferenceTaken.get(ref)),
+  paymentsFor: async (userId) => await qPayments.all(userId),
+  paymentById: async (id) => await qPaymentById.get(id),
+  referenceTaken: async (ref) => Boolean(await qReferenceTaken.get(ref)),
 
-  addPayment({ userId, standId, ownershipId = null, type = null, paidOn, reference,
+  async addPayment({ userId, standId, ownershipId = null, type = null, paidOn, reference,
     amountCents, status, method = null, recordedBy = null, notes = null }) {
-    qInsertPayment.run(userId, standId || null, ownershipId, type, paidOn, reference,
-      amountCents, status, method, recordedBy, notes);
-    return Number(db.prepare('SELECT last_insert_rowid() AS id').get().id);
+    const info = await qInsertPayment.run(userId, standId || null, ownershipId, type, paidOn,
+      reference, amountCents, status, method, recordedBy, notes);
+    return Number(info.lastInsertRowid);
   },
 
-  deletePayment(id) { qDeletePayment.run(id); },
+  async deletePayment(id) { await qDeletePayment.run(id); },
 
   /** Confirms a pending payment, or puts a confirmed one back to pending. */
-  setPaymentStatus(id, status) {
+  async setPaymentStatus(id, status) {
     if (!PAYMENT_STATUSES.includes(status)) return false;
-    qSetPaymentStatus.run(status, id);
+    await qSetPaymentStatus.run(status, id);
     return true;
   },
 
-  updatePayment(id, { paidOn, reference, amountCents, status }) {
+  async updatePayment(id, { paidOn, reference, amountCents, status }) {
     if (!PAYMENT_STATUSES.includes(status)) return false;
-    qUpdatePayment.run(paidOn, reference, amountCents, status, id);
+    await qUpdatePayment.run(paidOn, reference, amountCents, status, id);
     return true;
   },
 
   /** True when another payment already uses this reference. */
-  referenceTakenBy: (ref, id) => Boolean(qReferenceTakenByOther.get(ref, id)),
+  referenceTakenBy: async (ref, id) => Boolean(await qReferenceTakenByOther.get(ref, id)),
 
   /* ── Documents ── */
-  documentsFor: (userId) => qDocumentsForUser.all(userId),
-  documentById: (id) => qDocumentById.get(id),
-  documentCountFor: (userId) => qCountDocumentsForUser.get(userId).c,
+  documentsFor: async (userId) => await qDocumentsForUser.all(userId),
+  documentById: async (id) => await qDocumentById.get(id),
+  documentCountFor: async (userId) => (await qCountDocumentsForUser.get(userId)).c,
 
-  addDocument({ userId, title, storedName, mime, sizeBytes }) {
-    qInsertDocument.run(userId, title, storedName, mime, sizeBytes, nowIso());
+  async addDocument({ userId, title, storedName, mime, sizeBytes }) {
+    await qInsertDocument.run(userId, title, storedName, mime, sizeBytes, nowIso());
   },
 
-  deleteDocument(id) { qDeleteDocument.run(id); },
+  async deleteDocument(id) { await qDeleteDocument.run(id); },
 
-  projects: () => qProjects.all(),
-  projectsWithCounts: () => qProjectsWithCounts.all(),
+  projects: async () => await qProjects.all(),
+  projectsWithCounts: async () => await qProjectsWithCounts.all(),
 
   /**
    * Suggests the next free client number, e.g. HP-10246.
    * Derived from the highest existing HP- number rather than a counter table,
    * so it stays correct even if rows are deleted by hand.
    */
-  suggestClientNumber() {
-    const rows = db.prepare("SELECT client_number FROM users WHERE client_number LIKE 'HP-%'").all();
+  async suggestClientNumber() {
+    const rows = await prepare("SELECT client_number FROM users WHERE client_number LIKE 'HP-%'").all();
     let highest = 10000;
     for (const row of rows) {
       const n = Number.parseInt(String(row.client_number).slice(3), 10);
@@ -1171,11 +1169,11 @@ const admin = {
     return 'HP-' + String(highest + 1).padStart(5, '0');
   },
 
-  createClient({ clientNumber, fullName, email, passwordHash }) {
-    return users.insert({ clientNumber, fullName, email, role: 'client', passwordHash });
+  async createClient({ clientNumber, fullName, email, passwordHash }) {
+    return await users.insert({ clientNumber, fullName, email, role: 'client', passwordHash });
   },
 
-  projectById: (id) => db.prepare('SELECT * FROM projects WHERE id = ?').get(id),
+  projectById: async (id) => await prepare('SELECT * FROM projects WHERE id = ?').get(id),
 
   /**
    * Removes a development along with everything that exists only because of it.
@@ -1192,130 +1190,123 @@ const admin = {
    *
    * Returns { ok: true, stands } or { ok: false, reason, stands }.
    */
-  deleteProject(id) {
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+  async deleteProject(id) {
+    const project = await prepare('SELECT * FROM projects WHERE id = ?').get(id);
     if (!project) return { ok: false, reason: 'notFound', stands: [] };
 
-    const stands = db.prepare(
+    const stands = await prepare(
       'SELECT id, stand_number FROM stands WHERE project_id = ? ORDER BY stand_number').all(id);
 
     const countFor = (table) =>
-      db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE stand_id = ?`);
+      prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE stand_id = ?`);
 
     const blocked = [];
     for (const s of stands) {
-      const sales = countFor('ownerships').get(s.id).c;
-      const payments = countFor('payments').get(s.id).c;
-      if (sales || payments) blocked.push(s.stand_number);
+      const sales = await countFor('ownerships').get(s.id);
+      const payments = await countFor('payments').get(s.id);
+      if (sales.c || payments.c) blocked.push(s.stand_number);
     }
     if (blocked.length) return { ok: false, reason: 'hasRecords', stands: blocked };
 
     /* One transaction: either the development and all of its properties go, or
-       nothing does. */
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      db.prepare('DELETE FROM stands WHERE project_id = ?').run(id);
-      db.prepare('DELETE FROM progress WHERE project_id = ?').run(id);
-      db.prepare('DELETE FROM development_pricing WHERE project_id = ?').run(id);
-      db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-      db.exec('COMMIT');
-    } catch (err) {
-      db.exec('ROLLBACK');
-      throw err;
-    }
+       nothing does. driver.transaction uses a real Turso transaction, which
+       separate HTTP statements could not hold open. */
+    await driver.transaction(async (tx) => {
+      await tx.prepare('DELETE FROM stands WHERE project_id = ?').run(id);
+      await tx.prepare('DELETE FROM progress WHERE project_id = ?').run(id);
+      await tx.prepare('DELETE FROM development_pricing WHERE project_id = ?').run(id);
+      await tx.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    });
 
     return { ok: true, stands: stands.map((s) => s.stand_number) };
   },
 
   /* ── Developments ── */
   /** True when another project already uses this name, case-insensitively. */
-  projectNameTaken: (name, exceptId = 0) => Boolean(qProjectNameTaken.get(name, exceptId)),
+  projectNameTaken: async (name, exceptId = 0) => Boolean(await qProjectNameTaken.get(name, exceptId)),
 
-  updateProject(id, { name, location, type, status, description, imageUrl, soldOut,
+  async updateProject(id, { name, location, type, status, description, imageUrl, soldOut,
     longDescription = null, features = null }) {
-    qUpdateProject.run(name, location, type, status, description, imageUrl, soldOut ? 1 : 0,
+    await qUpdateProject.run(name, location, type, status, description, imageUrl, soldOut ? 1 : 0,
       longDescription, features, id);
     return true;
   },
 
-  createProject({ name, location, type, status, description, imageUrl, soldOut,
+  async createProject({ name, location, type, status, description, imageUrl, soldOut,
     longDescription = null, features = null }) {
-    const info = qInsertProject.run(name, location, type, status, description, imageUrl,
+    const info = await qInsertProject.run(name, location, type, status, description, imageUrl,
       soldOut ? 1 : 0, longDescription, features);
     return Number(info.lastInsertRowid);
   },
 
   /* ── The published price list for a development ── */
-  pricingFor: (projectId) => qPricingFor.all(projectId),
-  pricingById: (id) => qPricingById.get(id) || null,
+  pricingFor: async (projectId) => await qPricingFor.all(projectId),
+  pricingById: async (id) => await qPricingById.get(id) || null,
 
-  addPricing(projectId, { sizeLabel, cash, credit, deposit }) {
-    const position = qNextPricingPosition.get(projectId).p;
-    const info = qInsertPricing.run(projectId, sizeLabel, cash, credit, deposit, position);
+  async addPricing(projectId, { sizeLabel, cash, credit, deposit }) {
+    const position = (await qNextPricingPosition.get(projectId)).p;
+    const info = await qInsertPricing.run(projectId, sizeLabel, cash, credit, deposit, position);
     return Number(info.lastInsertRowid);
   },
 
-  updatePricing(id, { sizeLabel, cash, credit, deposit }) {
-    qUpdatePricing.run(sizeLabel, cash, credit, deposit, id);
+  async updatePricing(id, { sizeLabel, cash, credit, deposit }) {
+    await qUpdatePricing.run(sizeLabel, cash, credit, deposit, id);
     return true;
   },
 
-  deletePricing: (id) => qDeletePricing.run(id),
+  deletePricing: async (id) => await qDeletePricing.run(id),
 
   /** The quick toggle on the projects list, without opening the full form. */
-  setProjectSoldOut(id, soldOut) {
-    qSetProjectSoldOut.run(soldOut ? 1 : 0, id);
+  async setProjectSoldOut(id, soldOut) {
+    await qSetProjectSoldOut.run(soldOut ? 1 : 0, id);
     return true;
   },
 
   /* ── Stands, which the website shows as available properties ── */
-  standsForAdmin: () => qStandsForAdmin.all(),
+  standsForAdmin: async () => await qStandsForAdmin.all(),
   /** Every property belonging to one development. */
-  standsForProject: (projectId) => db.prepare(`${STAND_SELECT} WHERE st.project_id = ? ORDER BY st.stand_number`).all(projectId),
-  standById: (id) => qStandById.get(id),
-  standByNumber: (number) => qStandByNumber.get(number) || null,
+  standsForProject: async (projectId) => await prepare(`${STAND_SELECT} WHERE st.project_id = ? ORDER BY st.stand_number`).all(projectId),
+  standById: async (id) => await qStandById.get(id),
+  standByNumber: async (number) => await qStandByNumber.get(number) || null,
   /** Returns the clashing row, or null. Stand numbers are unique globally. */
-  standNumberTaken: (standNumber, exceptId = 0) =>
-    qStandNumberTaken.get(standNumber, exceptId) || null,
+  standNumberTaken: async (standNumber, exceptId = 0) => await qStandNumberTaken.get(standNumber, exceptId) || null,
 
-  createStand({ projectId, standNumber, sizeSqm, type, priceCents, status, imageUrl,
+  async createStand({ projectId, standNumber, sizeSqm, type, priceCents, status, imageUrl,
     currency = 'US$', description = null, location = null }) {
     const at = new Date().toISOString();
-    const info = qInsertStand.run(projectId, standNumber, sizeSqm, type, priceCents, status,
+    const info = await qInsertStand.run(projectId, standNumber, sizeSqm, type, priceCents, status,
       imageUrl, currency, description, location, at, at);
     return Number(info.lastInsertRowid);
   },
 
-  updateStand(id, { projectId, standNumber, sizeSqm, type, priceCents, status, imageUrl,
+  async updateStand(id, { projectId, standNumber, sizeSqm, type, priceCents, status, imageUrl,
     currency = 'US$', description = null, location = null }) {
-    qUpdateStand.run(projectId, standNumber, sizeSqm, type, priceCents, status, imageUrl,
+    await qUpdateStand.run(projectId, standNumber, sizeSqm, type, priceCents, status, imageUrl,
       currency, description, location, new Date().toISOString(), id);
     return true;
   },
 
-  deleteStand: (id) => qDeleteStand.run(id),
-  progressSteps: (projectId) => qProgressWithIds.all(projectId),
+  deleteStand: async (id) => await qDeleteStand.run(id),
+  progressSteps: async (projectId) => await qProgressWithIds.all(projectId),
 
-  setProgressStep(id, label, state) {
+  async setProgressStep(id, label, state) {
     if (!VALID_STATES.has(state)) return false;
-    qUpdateProgressStep.run(label, state, id);
+    await qUpdateProgressStep.run(label, state, id);
     return true;
   },
 
-  deleteProgressStep(id) { qDeleteProgressStep.run(id); },
+  async deleteProgressStep(id) { await qDeleteProgressStep.run(id); },
 
-  addProgressStep(projectId, label, state) {
+  async addProgressStep(projectId, label, state) {
     const safeState = VALID_STATES.has(state) ? state : 'pending';
-    const next = qMaxProgressPosition.get(projectId).m + 1;
-    qInsertProgressStep.run(projectId, label, safeState, next);
+    const next = (await qMaxProgressPosition.get(projectId)).m + 1;
+    await qInsertProgressStep.run(projectId, label, safeState, next);
   }
 };
 
-/* Runs once per start; the statements are written to be idempotent. */
-const backfilledPayments = backfillTransactionModel();
 
 module.exports = {
-  db, audit, users, sessions, portal, enquiries, admin, content, nowIso,
+  db, ready, driver, audit, users, sessions, portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
   SALE_STATUSES, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES
 };
