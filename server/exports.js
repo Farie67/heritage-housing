@@ -71,9 +71,9 @@ const REPORTS = {
   /* ── Weekly: one row per day, so the shape of the week is visible ── */
   weekly: {
     label: 'Weekly report',
-    build(f, ctx) {
-      const series = analytics.dailySeries(ctx.from, ctx.to, f);
-      const k = analytics.kpis({ ...f, from: ctx.from, to: ctx.to });
+    async build(f, ctx) {
+      const series = await analytics.dailySeries(ctx.from, ctx.to, f);
+      const k = await analytics.kpis({ ...f, from: ctx.from, to: ctx.to });
 
       return {
         slug: 'weekly',
@@ -109,14 +109,14 @@ const REPORTS = {
   /* ── Monthly: every day of the month, plus the previous-month comparison ── */
   monthly: {
     label: 'Monthly report',
-    build(f, ctx) {
+    async build(f, ctx) {
       const month = ctx.month;
-      const prior = analytics.shiftMonth(month, -1);
+      const prior = await analytics.shiftMonth(month, -1);
       const scope = { ...f, month, year: null, from: null, to: null };
 
-      const k = analytics.kpis(scope);
-      const p = analytics.kpis({ ...scope, month: prior });
-      const series = analytics.dailySeries(`${month}-01`, `${month}-31`, scope);
+      const k = await analytics.kpis(scope);
+      const p = await analytics.kpis({ ...scope, month: prior });
+      const series = await analytics.dailySeries(`${month}-01`, `${month}-31`, scope);
 
       const change = (a, b) => (b ? (((a - b) / Math.abs(b)) * 100).toFixed(1) + '%' : 'n/a');
 
@@ -169,10 +169,10 @@ const REPORTS = {
   /* ── Annual: twelve months, plus the year's totals ── */
   annual: {
     label: 'Annual report',
-    build(f, ctx) {
+    async build(f, ctx) {
       const year = ctx.year;
-      const series = analytics.monthlySeries(year, f);
-      const k = analytics.kpis({ ...f, year, month: null, from: null, to: null });
+      const series = await analytics.monthlySeries(year, f);
+      const k = await analytics.kpis({ ...f, year, month: null, from: null, to: null });
 
       return {
         slug: 'annual',
@@ -207,9 +207,9 @@ const REPORTS = {
   /* ── Ledger: every transaction, honouring the filters ── */
   ledger: {
     label: 'Transaction ledger',
-    build(f) {
-      const rows = analytics.ledger(f, { page: 1, perPage: 200, sort: 'date', dir: 'asc' });
-      const totals = analytics.sumTransactions(f);
+    async build(f) {
+      const rows = await analytics.ledger(f, { page: 1, perPage: 200, sort: 'date', dir: 'asc' });
+      const totals = await analytics.sumTransactions(f);
 
       return {
         slug: 'ledger',
@@ -249,8 +249,8 @@ const REPORTS = {
   /* ── Project performance ── */
   project: {
     label: 'Project sales report',
-    build(f) {
-      const rows = analytics.byProject(f);
+    async build(f) {
+      const rows = await analytics.byProject(f);
       return {
         slug: 'project',
         title: 'Sales performance by project',
@@ -282,8 +282,8 @@ const REPORTS = {
   /* ── Agent performance ── */
   agent: {
     label: 'Sales agent report',
-    build(f) {
-      const rows = analytics.byAgent(f);
+    async build(f) {
+      const rows = await analytics.byAgent(f);
       return {
         slug: 'agent',
         title: 'Sales performance by agent',
@@ -313,8 +313,8 @@ const REPORTS = {
   /* ── Outstanding balances: the list the office chases ── */
   outstanding: {
     label: 'Outstanding balances',
-    build(f) {
-      const rows = analytics.sales(f).filter((s) => s.outstanding_cents > 0 || s.overpaid_cents > 0);
+    async build(f) {
+      const rows = (await analytics.sales(f)).filter((s) => s.outstanding_cents > 0 || s.overpaid_cents > 0);
 
       return {
         slug: 'outstanding',
@@ -354,12 +354,12 @@ const REPORTS = {
   /* ── Payment history: transactions grouped by sale ── */
   payments: {
     label: 'Payment history',
-    build(f) {
-      const sales = analytics.sales(f);
+    async build(f) {
+      const sales = await analytics.sales(f);
       const out = [];
 
       for (const s of sales) {
-        const txns = analytics.saleTransactions(s.sale_id);
+        const txns = await analytics.saleTransactions(s.sale_id);
         for (const t of txns) {
           out.push([
             s.sale_id, s.client_number, s.full_name, s.stand_number, s.project_name,
@@ -399,18 +399,18 @@ const REPORT_TYPES = Object.keys(REPORTS);
 const FORMATS = ['csv', 'xlsx', 'pdf'];
 
 /** Builds one report, or null if the type is unknown. */
-function build(type, filters, context = {}) {
+async function build(type, filters, context = {}) {
   const spec = REPORTS[type];
   if (!spec) return null;
 
-  const report = spec.build(filters, context);
+  const report = await spec.build(filters, context);
   report.type = type;
-  report.filterSummary = describeFilters(filters);
+  report.filterSummary = await describeFilters(filters);
   return report;
 }
 
 /** A one-line description of the filters an export was run with. */
-function describeFilters(f) {
+async function describeFilters(f) {
   const bits = [];
   if (f.from) bits.push(`from ${f.from}`);
   if (f.to) bits.push(`to ${f.to}`);
@@ -421,7 +421,7 @@ function describeFilters(f) {
   if (f.saleStatus) bits.push(`status ${f.saleStatus}`);
   if (f.search) bits.push(`search "${f.search}"`);
 
-  const named = analytics.filterOptions();
+  const named = await analytics.filterOptions();
   if (f.projectId) bits.push(`project ${(named.projects.find((p) => p.id === f.projectId) || {}).name || f.projectId}`);
   if (f.agentId) bits.push(`agent ${(named.agents.find((a) => a.id === f.agentId) || {}).name || f.agentId}`);
 

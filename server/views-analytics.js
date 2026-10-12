@@ -414,7 +414,7 @@ ${ledgerTable(ledger, { baseQuery: query })}
 
 /* ── Sales detail ───────────────────────────────────────────────────────── */
 
-function renderSaleDetail({ sale, transactions, audit, user, csrf, flash = '', error = '' }) {
+async function renderSaleDetail({ sale, transactions, audit, user, csrf, flash = '', error = '' }) {
   const balanceTone = sale.outstanding_cents ? 'warn' : 'good';
 
   const history = transactions.length ? transactions.map((t) => `          <tr${t.voided_at ? ' class="voided"' : ''}>
@@ -436,7 +436,7 @@ function renderSaleDetail({ sale, transactions, audit, user, csrf, flash = '', e
           </tr>`).join('\n')
     : '          <tr><td colspan="9">No payments recorded on this sale yet.</td></tr>';
 
-  const auditRows = audit.length ? audit.map((a) => `          <tr>
+  const auditRows = audit.length ? (await audit.map((a) => `          <tr>
             <td>${esc(formatDate(a.at))}</td>
             <td>${esc(a.actor_number || '—')}</td>
             <td>${esc(a.action)}</td>
@@ -444,7 +444,7 @@ function renderSaleDetail({ sale, transactions, audit, user, csrf, flash = '', e
             <td>${esc(a.old_value || '')}</td>
             <td>${esc(a.new_value || '')}</td>
             <td>${esc(a.reason || '')}</td>
-          </tr>`).join('\n')
+          </tr>`)).join('\n')
     : '          <tr><td colspan="7">Nothing recorded against this sale yet.</td></tr>';
 
   const body = `  <section class="container inner-page">

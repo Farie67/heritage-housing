@@ -261,8 +261,15 @@ function renderClients({ clients, user, csrf, query = '' }) {
           <td>${esc(money(c.paid_cents))}</td>
           <td>${purchase ? esc(money(balance)) : '<span class="muted">&mdash;</span>'}</td>
           <td>${esc(c.email || '')}</td>
+          <td>
+            <form method="post" action="/admin/clients/${esc(c.id)}/reset-password" class="inline-form"
+                  data-confirm="Reset this client's password? Their current one stops working immediately.">
+              <input type="hidden" name="csrf" value="${esc(csrf)}">
+              <button class="text-btn" type="submit">Reset password</button>
+            </form>
+          </td>
         </tr>`;
-  }).join('\n') : '        <tr><td colspan="7">No client accounts yet.</td></tr>';
+  }).join('\n') : '        <tr><td colspan="8">No client accounts yet.</td></tr>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -295,6 +302,7 @@ function renderClients({ clients, user, csrf, query = '' }) {
             <th scope="col">Paid</th>
             <th scope="col">Balance</th>
             <th scope="col">Email</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -400,8 +408,8 @@ function renderClientDetail({
     ${generatedPassword ? `<div class="notice info">
       <strong>New password for ${esc(client.client_number)}</strong><br>
       <code class="pw">${esc(generatedPassword)}</code><br>
-      Copy it now and give it to the client — it is shown once and only its hash is stored.
-      Their existing sessions have been signed out.
+      Give this to the client — it is shown only once. Their existing sessions have been signed
+      out, and only the password's hash is stored.
     </div>` : ''}
 
     <div class="client-grid">

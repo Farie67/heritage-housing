@@ -69,11 +69,11 @@ const NAV = [
   ['/contact.html', 'Contact']
 ];
 
-function layout({ title, description, body, active = '' }) {
-  const logo = logoAbsolute();
-  const logoLight = logoLightAbsolute();
-  const favicon = faviconAbsolute();
-  const brand = esc(brandName());
+async function layout({ title, description, body, active = '' }) {
+  const logo = await logoAbsolute();
+  const logoLight = await logoLightAbsolute();
+  const favicon = await faviconAbsolute();
+  const brand = esc(await brandName());
   const links = NAV.map(([href, label]) =>
     `    <a href="${href}"${href === active ? ' aria-current="page"' : ''}>${label}</a>`
   ).join('\n');
@@ -184,7 +184,8 @@ function documentRows(docs) {
  * Renders the client dashboard.
  * `user` comes from the session; `data` comes from the database.
  */
-function renderDashboard({ user, ownership, payments, paidTotal, documents, progress, csrf }) {
+async function renderDashboard({ user, ownership, payments, paidTotal, documents, progress, csrf,
+  passwordNotice = null }) {
   const purchase = ownership ? ownership.purchase_price_cents : 0;
   const balance = Math.max(purchase - paidTotal, 0);
   const pct = purchase > 0 ? Math.min(Math.round((paidTotal / purchase) * 100), 100) : 0;
@@ -256,10 +257,36 @@ ${paymentRows(payments)}
 ${projectBlock}
 
     <div class="client-card" style="margin-top:20px">
+      <h3>Change password</h3>
+      ${passwordNotice
+    ? `<p class="notice ${passwordNotice.kind === 'success' ? 'success' : 'error'}">${esc(passwordNotice.text)}</p>`
+    : ''}
+      <form method="post" action="/dashboard">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="currentPassword">Current password</label>
+        <input id="currentPassword" name="currentPassword" type="password"
+               autocomplete="current-password" required>
+
+        <label for="newPassword">New password</label>
+        <input id="newPassword" name="newPassword" type="password"
+               autocomplete="new-password" required>
+
+        <label for="confirmPassword">Confirm new password</label>
+        <input id="confirmPassword" name="confirmPassword" type="password"
+               autocomplete="new-password" required>
+
+        <p class="field-hint">At least 5 characters, including one symbol such as
+          @ # $ ! % &amp; or *</p>
+        <button class="btn primary" type="submit">Change password</button>
+      </form>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
       <h3>Need help?</h3>
       <p>Submit a support request about payments, documents, your stand or project progress.</p>
       <div class="card-actions">
-        ${whatsappButton(content.settings())}
+        ${whatsappButton(await content.settings())}
         <a class="btn outline" href="/contact.html">Contact support</a>
       </div>
     </div>
@@ -267,8 +294,8 @@ ${projectBlock}
 }
 
 /** Simple, consistent error page. */
-function renderError({ status, title, message }) {
-  return layout({
+async function renderError({ status, title, message }) {
+  return await layout({
     title: `${status} — ${title}`,
     description: title,
     body: `  <section class="container inner-page">

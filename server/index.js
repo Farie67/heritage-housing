@@ -29,6 +29,7 @@ const publicSite = require('./public-site');
 const invoice = require('./invoice');
 const { slugify } = require('./format');
 const { isMultipart, boundaryFrom, parseMultipart } = require('./multipart');
+const { validateNewPassword } = require('./passwords');
 
 /* ── MIME types ─────────────────────────────────────────────────────────── */
 
@@ -138,11 +139,11 @@ const loginLimiter = new RateLimiter(config.LOGIN_MAX_ATTEMPTS, config.LOGIN_WIN
 const enquiryLimiter = new RateLimiter(config.ENQUIRY_MAX_PER_HOUR, 60 * 60 * 1000);
 
 // Keep the limiters' maps from growing without bound.
-setInterval(() => {
+setInterval(async () => {
   loginLimiter.sweep();
   enquiryLimiter.sweep();
   adminRoutes.sweep();
-  sessions.purgeExpired();
+  await sessions.purgeExpired();
 }, 10 * 60 * 1000).unref();
 
 /* ── Static files ───────────────────────────────────────────────────────── */
@@ -227,7 +228,7 @@ async function handleLogin(req, res, body, ip) {
   const limit = loginLimiter.check(ip);
   if (!limit.allowed) {
     const mins = Math.ceil(limit.retryAfterMs / 60000);
-    audit('login', 'rate_limited', { clientNumber, detail: 'per-IP limit', ip });
+    await audit('login', 'rate_limited', { clientNumber, detail: 'per-IP limit', ip });
     return sendJson(res, 429, {
       error: `Too many sign-in attempts. Please try again in ${mins} minute${mins === 1 ? '' : 's'}.`
     }, { 'Retry-After': String(Math.ceil(limit.retryAfterMs / 1000)) });
@@ -266,8 +267,8 @@ async function handleLogin(req, res, body, ip) {
 async function handleLogout(req, res, user) {
   const cookies = parseCookies(req);
   const token = cookies[config.SESSION_COOKIE];
-  auth.destroySession(token);
-  audit('logout', 'success', { userId: user ? user.id : null, ip: clientIp(req) });
+  await auth.destroySession(token);
+  await audit('logout', 'success', { userId: user ? user.id : null, ip: clientIp(req) });
   return sendJson(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie() });
 }
 
@@ -299,8 +300,8 @@ async function handleEnquiry(req, res, body, ip, isFormPost) {
     return sendJson(res, 400, { error: 'Please complete all required fields.', fields: errors });
   }
 
-  enquiries.insert({ name, phone, interest, message, ip });
-  audit('enquiry', 'success', { detail: `${interest} from ${name}`, ip });
+  await enquiries.insert({ name, phone, interest, message, ip });
+  await audit('enquiry', 'success', { detail: `${interest} from ${name}`, ip });
 
   if (isFormPost) return redirect(res, '/contact.html?sent=1');
   return sendJson(res, 201, { ok: true });
@@ -308,12 +309,12 @@ async function handleEnquiry(req, res, body, ip, isFormPost) {
 
 /* ── API: client data ───────────────────────────────────────────────────── */
 
-function buildDashboard(user, csrf) {
-  const ownership = portal.ownershipFor(user.id);
-  const payments = portal.paymentsFor(user.id);
-  const paidTotal = portal.paidTotalFor(user.id);
-  const documents = portal.documentsFor(user.id);
-  const progress = ownership ? portal.progressFor(ownership.project_id) : [];
+async function buildDashboard(user, csrf) {
+  const ownership = await portal.ownershipFor(user.id);
+  const payments = await portal.paymentsFor(user.id);
+  const paidTotal = await portal.paidTotalFor(user.id);
+  const documents = await portal.documentsFor(user.id);
+  const progress = ownership ? await portal.progressFor(ownership.project_id) : [];
 
   return { ownership, payments, paidTotal, documents, progress, user, csrf };
 }
@@ -324,9 +325,9 @@ async function handleDocumentDownload(req, res, user, docId) {
 
   // Ownership is part of the query, so one client can never read another's
   // document by guessing an id. A miss is indistinguishable from "not found".
-  const doc = portal.documentForUser(id, user.id);
+  const doc = await portal.documentForUser(id, user.id);
   if (!doc) {
-    audit('document_download', 'denied', {
+    await audit('document_download', 'denied', {
       userId: user.id, detail: `document ${id}`, ip: clientIp(req)
     });
     return send(res, 404, 'Not found');
@@ -338,7 +339,7 @@ async function handleDocumentDownload(req, res, user, docId) {
   // Belt and braces: stored_name is server-generated, but re-check anyway so a
   // future bad write cannot turn this route into arbitrary file disclosure.
   if (filePath !== root && !filePath.startsWith(root + path.sep)) {
-    audit('document_download', 'denied', { userId: user.id, detail: 'path escape', ip: clientIp(req) });
+    await audit('document_download', 'denied', { userId: user.id, detail: 'path escape', ip: clientIp(req) });
     return send(res, 403, 'Forbidden');
   }
 
@@ -346,7 +347,7 @@ async function handleDocumentDownload(req, res, user, docId) {
   try { stat = await fsp.stat(filePath); } catch { stat = null; }
   if (!stat || !stat.isFile()) return send(res, 404, 'Not found');
 
-  audit('document_download', 'success', {
+  await audit('document_download', 'success', {
     userId: user.id, detail: `${doc.title} (${doc.id})`, ip: clientIp(req)
   });
 
@@ -381,7 +382,7 @@ const server = http.createServer(async (req, res) => {
     securityHeaders(res, { html: pathname.endsWith('.html') || pathname === '/' });
 
     const token = cookies[config.SESSION_COOKIE];
-    const user = auth.sessionUser(token);
+    const user = await auth.sessionUser(token);
 
     /* Issue the CSRF cookie once, here, and reuse the same value for the whole
        request. Minting a second token further down would hand the page a token
@@ -424,11 +425,11 @@ const server = http.createServer(async (req, res) => {
 
     /* CSRF — applies to every state-changing request, API or form. */
     if (!csrfOk(req, cookies, req.headers.host, body)) {
-      audit('csrf', 'denied', { userId: user ? user.id : null, detail: `${req.method} ${pathname}`, ip });
+      await audit('csrf', 'denied', { userId: user ? user.id : null, detail: `${req.method} ${pathname}`, ip });
       if (pathname.startsWith('/api/')) {
         return sendJson(res, 403, { error: 'Request blocked: origin check failed.' });
       }
-      return sendHtml(res, 403, views.renderError({
+      return sendHtml(res, 403, await views.renderError({
         status: 403, title: 'Request blocked',
         message: 'This request did not come from a trusted origin.'
       }));
@@ -458,16 +459,53 @@ const server = http.createServer(async (req, res) => {
 
     /* ── Client portal ── */
     if (pathname === '/dashboard') {
-      if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+      if (req.method !== 'GET' && req.method !== 'POST') {
+        return send(res, 405, 'Method not allowed');
+      }
       if (!user) return redirect(res, '/portal.html');
 
-      const data = buildDashboard(user, csrf || '');
-      audit('dashboard_view', 'success', { userId: user.id, ip });
+      /* A password change re-renders this same page carrying a message rather
+         than redirecting, so the outcome appears where the form was. The CSRF
+         check has already run for every state-changing request above. */
+      let passwordNotice = null;
 
-      return sendHtml(res, 200, views.layout({
+      if (req.method === 'POST') {
+        const current = String(body.currentPassword || '');
+        const next = String(body.newPassword || '');
+        const confirm = String(body.confirmPassword || '');
+        const me = await users.byId(user.id);
+
+        if (!me || !(await auth.verifyPassword(current, me.password_hash))) {
+          passwordNotice = { kind: 'error', text: 'Your current password is not correct.' };
+        } else if (next !== confirm) {
+          passwordNotice = { kind: 'error', text: 'The two new passwords do not match.' };
+        } else {
+          const problem = validateNewPassword(next);
+          if (problem) {
+            passwordNotice = { kind: 'error', text: problem };
+          } else {
+            await admin.setPassword(user.id, await auth.hashPassword(next));
+            await audit('client_password_change', 'success', { userId: user.id, ip });
+            passwordNotice = { kind: 'success', text: 'Your password has been changed.' };
+          }
+        }
+
+        if (passwordNotice.kind === 'error') {
+          await audit('client_password_change', 'denied', {
+            userId: user.id, detail: passwordNotice.text, ip
+          });
+        }
+      } else {
+        await audit('dashboard_view', 'success', { userId: user.id, ip });
+      }
+
+      const data = await buildDashboard(user, csrf || '');
+      data.passwordNotice = passwordNotice;
+
+      return sendHtml(res, 200, await views.layout({
         title: 'My Heritage — Client Dashboard',
         description: 'Your stand, payment history and project progress.',
-        body: views.renderDashboard(data)
+        body: await views.renderDashboard(data)
       }));
     }
 
@@ -482,7 +520,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/auth/logout' && req.method === 'POST') {
-      return handleLogout(req, res, user);
+      return await handleLogout(req, res, user);
     }
 
     /* ── Public enquiry form ── */
@@ -501,7 +539,7 @@ const server = http.createServer(async (req, res) => {
         return await handleDocumentDownload(req, res, user, docMatch[1]);
       }
 
-      const data = buildDashboard(user, csrf || '');
+      const data = await buildDashboard(user, csrf || '');
 
       if (pathname === '/api/me' && req.method === 'GET') {
         return sendJson(res, 200, {
@@ -525,18 +563,18 @@ const server = http.createServer(async (req, res) => {
       /* A client may fetch their own statement, and only their own: the id
          comes from the session, never from the URL. */
       if (pathname === '/api/statement.pdf' && req.method === 'GET') {
-        const client = admin.clientById(user.id);
+        const client = await admin.clientById(user.id);
         if (!client) return sendJson(res, 404, { error: 'No account record found.' });
 
         const pdf = invoice.buildStatementPdf({
-          settings: content.settings(),
+          settings: await content.settings(),
           client,
           ownership: invoice.ownershipFromClientRow(client),
-          payments: admin.paymentsFor(user.id),
+          payments: await admin.paymentsFor(user.id),
           generatedAt: new Date()
         });
 
-        audit('statement_download', 'success', {
+        await audit('statement_download', 'success', {
           userId: user.id, clientNumber: user.clientNumber, detail: 'by client', ip
         });
 
@@ -554,7 +592,7 @@ const server = http.createServer(async (req, res) => {
       const file = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
 
       if (publicSite.isContentPage(file)) {
-        const html = publicSite.renderFile(file);
+        const html = await publicSite.renderFile(file);
         if (html !== null) {
           if (req.method === 'HEAD') {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -564,7 +602,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      if (file === 'portal.html') return sendHtml(res, 200, publicSite.renderPortalPage());
+      if (file === 'portal.html') return sendHtml(res, 200, await publicSite.renderPortalPage());
     }
 
     /* ── One individual property, and one development ──
@@ -574,27 +612,27 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' || req.method === 'HEAD') {
       const propertyMatch = pathname.match(/^\/property\/([^/]+)\/?$/);
       if (propertyMatch) {
-        const stand = admin.standByNumber(decodeURIComponent(propertyMatch[1]));
-        if (!stand) return sendHtml(res, 404, publicSite.renderNotFound());
+        const stand = await admin.standByNumber(decodeURIComponent(propertyMatch[1]));
+        if (!stand) return sendHtml(res, 404, await publicSite.renderNotFound());
 
         if (req.method === 'HEAD') {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           return res.end();
         }
-        return sendHtml(res, 200, publicSite.renderProperty(stand));
+        return sendHtml(res, 200, await publicSite.renderProperty(stand));
       }
 
       const developmentMatch = pathname.match(/^\/development\/([^/]+)\/?$/);
       if (developmentMatch) {
         const wanted = decodeURIComponent(developmentMatch[1]).toLowerCase();
-        const project = portal.projects().find((p) => slugify(p.name) === wanted);
-        if (!project) return sendHtml(res, 404, publicSite.renderNotFound());
+        const project = (await portal.projects()).find((p) => slugify(p.name) === wanted);
+        if (!project) return sendHtml(res, 404, await publicSite.renderNotFound());
 
         if (req.method === 'HEAD') {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           return res.end();
         }
-        return sendHtml(res, 200, publicSite.renderDevelopment(project));
+        return sendHtml(res, 200, await publicSite.renderDevelopment(project));
       }
     }
 
@@ -607,7 +645,7 @@ const server = http.createServer(async (req, res) => {
       const ok = await serveStatic(req, res, pathname, cookies);
       if (ok !== false) return;
 
-      return sendHtml(res, 404, views.renderError({
+      return sendHtml(res, 404, await views.renderError({
         status: 404, title: 'Page not found',
         message: 'The page you asked for does not exist. It may have been moved or renamed.'
       }));
@@ -618,7 +656,7 @@ const server = http.createServer(async (req, res) => {
     const status = err.statusCode || 500;
     if (status >= 500) {
       console.error('[error]', err);
-      audit('server_error', 'failure', { detail: String(err.message || err), ip });
+      await audit('server_error', 'failure', { detail: String(err.message || err), ip });
     }
     if (res.headersSent) return res.destroy();
     return sendJson(res, status, { error: status === 413 ? 'Request too large.' : 'Something went wrong.' });
@@ -635,10 +673,10 @@ const server = http.createServer(async (req, res) => {
    `uncaughtException` is deliberately NOT handled here: that can leave the
    process in an unknown state, and continuing to serve from it is worse than
    restarting. Only the promise case is safe to absorb. */
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', async (reason) => {
   console.error('[unhandledRejection]', reason);
   try {
-    audit('server_error', 'failure', {
+    await audit('server_error', 'failure', {
       detail: `unhandled rejection: ${(reason && reason.message) || String(reason)}`
     });
   } catch { /* an audit failure must not cascade */ }
@@ -649,8 +687,8 @@ server.on('clientError', (err, socket) => {
 });
 
 if (require.main === module) {
-  server.listen(config.PORT, config.HOST, () => {
-    const count = users.byClientNumber('HP-10245');
+  server.listen(config.PORT, config.HOST, async () => {
+    const count = await users.byClientNumber('HP-10245');
     console.log(`\n  Heritage Housing Projects`);
     console.log(`  Server listening on http://${config.HOST}:${config.PORT}`);
     console.log(`  Database: ${config.DB_PATH}`);

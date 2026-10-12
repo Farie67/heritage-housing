@@ -15,14 +15,14 @@ const BY_FILE = new Map(PAGES.map((p) => [p.file, p.key]));
 const ALL_FILES = PAGES.map((p) => p.file);
 
 /** Data shared by every page. */
-function baseContext() {
-  const projects = portal.projects();
+async function baseContext() {
+  const projects = await portal.projects();
   const featured = projects.find((p) => p.name === 'Heritage Park') || projects[0] || null;
 
   return {
-    settings: content.settings(),
+    settings: await content.settings(),
     projects,
-    stands: portal.stands(),
+    stands: await portal.stands(),
     featuredImage: featured ? featured.image_url : null
   };
 }
@@ -31,19 +31,19 @@ function baseContext() {
  * Renders the page for a filename such as "about.html".
  * Returns null when the filename is not one of the editable pages.
  */
-function renderFile(file) {
+async function renderFile(file) {
   const pageKey = BY_FILE.get(file);
   if (!pageKey) return null;
 
-  const ctx = baseContext();
-  ctx.content = content.resolve(pageKey);
+  const ctx = await baseContext();
+  ctx.content = await content.resolve(pageKey);
 
   return viewsPublic.render(pageKey, ctx);
 }
 
 /** The signed-out client login page. */
-function renderPortalPage() {
-  const settings = content.settings();
+async function renderPortalPage() {
+  const settings = await content.settings();
 
   return viewsPublic.layout({
     settings,
@@ -56,21 +56,21 @@ function renderPortalPage() {
 }
 
 /** One individual property, addressed by its stand number. */
-function renderProperty(stand) {
-  return viewsPublic.renderPropertyPage(baseContext(), stand);
+async function renderProperty(stand) {
+  return viewsPublic.renderPropertyPage(await baseContext(), stand);
 }
 
 /** One development, together with the properties it contains. */
-function renderDevelopment(project) {
-  const ctx = baseContext();
+async function renderDevelopment(project) {
+  const ctx = await baseContext();
   /* Matched on the id rather than the name — a development can be renamed. */
   const stands = ctx.stands.filter((s) => s.project_id === project.id);
-  return viewsPublic.renderDevelopmentPage(ctx, project, stands, admin.pricingFor(project.id));
+  return viewsPublic.renderDevelopmentPage(ctx, project, stands, await admin.pricingFor(project.id));
 }
 
 /** A plain 404 that still carries the site chrome and a way out. */
-function renderNotFound() {
-  const ctx = baseContext();
+async function renderNotFound() {
+  const ctx = await baseContext();
   return viewsPublic.layout({
     settings: ctx.settings,
     title: 'Not found | Heritage Housing Projects',
