@@ -87,14 +87,14 @@ async function sendPaymentEdit(res, h, clientId, paymentId, opts) {
   const payment = await admin.paymentById(paymentId);
 
   if (!client || !payment || payment.user_id !== clientId) {
-    h.sendHtml(res, 404, views.adminLayout({
+    h.sendHtml(res, 404, await views.adminLayout({
       title: 'Not found', active: '/admin/clients', user: opts.user, csrf: opts.csrf,
       body: '<section class="container inner-page"><h1>Payment not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
     }));
     return;
   }
 
-  h.sendHtml(res, 200, views.adminLayout({
+  h.sendHtml(res, 200, await views.adminLayout({
     title: `Edit payment — ${client.full_name}`,
     active: '/admin/clients',
     user: opts.user,
@@ -150,14 +150,14 @@ async function sendContentPage(res, h, pageKey, opts) {
   const schema = contentSchema.page(pageKey);
 
   if (!schema) {
-    h.sendHtml(res, 404, views.adminLayout({
+    h.sendHtml(res, 404, await views.adminLayout({
       title: 'Not found', active: '/admin/content', user: opts.user, csrf: opts.csrf,
       body: '<section class="container inner-page"><h1>Page not found</h1><p><a class="btn primary" href="/admin/content">Back to content</a></p></section>'
     }));
     return;
   }
 
-  h.sendHtml(res, 200, views.adminLayout({
+  h.sendHtml(res, 200, await views.adminLayout({
     title: `Content — ${schema.label}`,
     active: '/admin/content',
     user: opts.user,
@@ -175,7 +175,7 @@ async function sendContentPage(res, h, pageKey, opts) {
 }
 
 async function sendSettingsPage(res, h, opts) {
-  h.sendHtml(res, 200, views.adminLayout({
+  h.sendHtml(res, 200, await views.adminLayout({
     title: 'Site settings',
     active: '/admin/settings',
     user: opts.user,
@@ -233,14 +233,14 @@ async function sendClientPage(res, h, id, opts) {
   const data = await loadClient(id);
 
   if (!data) {
-    h.sendHtml(res, 404, views.adminLayout({
+    h.sendHtml(res, 404, await views.adminLayout({
       title: 'Not found', active: '/admin/clients', user: opts.user, csrf: opts.csrf,
       body: '<section class="container inner-page"><h1>Client not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
     }));
     return;
   }
 
-  h.sendHtml(res, 200, views.adminLayout({
+  h.sendHtml(res, 200, await views.adminLayout({
     title: data.client.full_name,
     active: '/admin/clients',
     user: opts.user,
@@ -364,7 +364,7 @@ async function handleAdmin(req, res, ctx) {
   if (pathname === '/admin/login') {
     if (method === 'GET') {
       if (isAdmin(user)) return h.redirect(res, '/admin'), true;
-      h.sendHtml(res, 200, views.renderLogin({ csrf }));
+      h.sendHtml(res, 200, await views.renderLogin({ csrf }));
       return true;
     }
 
@@ -374,7 +374,7 @@ async function handleAdmin(req, res, ctx) {
     if (!limit.allowed) {
       const mins = Math.ceil(limit.retryAfterMs / 60000);
       await audit('admin_login', 'rate_limited', { detail: 'per-IP limit', ip });
-      h.sendHtml(res, 429, views.renderLogin({
+      h.sendHtml(res, 429, await views.renderLogin({
         csrf,
         error: `Too many sign-in attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
       }));
@@ -385,7 +385,7 @@ async function handleAdmin(req, res, ctx) {
     const password = String(body.password || '');
 
     if (!clientNumber || !password) {
-      h.sendHtml(res, 400, views.renderLogin({ csrf, error: 'Staff ID and password are required.' }));
+      h.sendHtml(res, 400, await views.renderLogin({ csrf, error: 'Staff ID and password are required.' }));
       return true;
     }
 
@@ -399,7 +399,7 @@ async function handleAdmin(req, res, ctx) {
       const message = result.reason === 'locked'
         ? `This account is temporarily locked. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
         : 'Invalid staff ID or password.';
-      h.sendHtml(res, 401, views.renderLogin({ csrf, error: message }));
+      h.sendHtml(res, 401, await views.renderLogin({ csrf, error: message }));
       return true;
     }
 
@@ -411,7 +411,7 @@ async function handleAdmin(req, res, ctx) {
       await audit('admin_login', 'denied', {
         userId: result.user.id, clientNumber, detail: 'not an admin account', ip
       });
-      h.sendHtml(res, 403, views.renderLogin({
+      h.sendHtml(res, 403, await views.renderLogin({
         csrf, error: 'That account does not have staff access.'
       }));
       return true;
@@ -473,10 +473,10 @@ async function handleAdmin(req, res, ctx) {
     });
 
     const html = isLedger
-      ? viewsAnalytics.renderLedger({
+      ? await viewsAnalytics.renderLedger({
         ledger, totals: await analytics.sumTransactions(filters), options, filters, user, csrf
       })
-      : viewsAnalytics.renderAnalytics({
+      : await viewsAnalytics.renderAnalytics({
         kpis: await analytics.kpis(filters),
         collection: await analytics.collectionAnalysis(filters),
         projects: await analytics.byProject(filters),
@@ -520,7 +520,7 @@ async function handleAdmin(req, res, ctx) {
         : offset === 0 ? 'This week'
           : offset === -1 ? 'Last week' : `${Math.abs(offset)} weeks ago`;
 
-      h.sendHtml(res, 200, viewsAnalytics.renderWeekly({
+      h.sendHtml(res, 200, await viewsAnalytics.renderWeekly({
         kpis: await analytics.kpis({ ...filters, from: range.from, to: range.to }),
         previous: await analytics.kpis({ ...filters, from: before.from, to: before.to }),
         series: await analytics.dailySeries(range.from, range.to, filters),
@@ -541,7 +541,7 @@ async function handleAdmin(req, res, ctx) {
       const longMonth = (m) => new Date(`${m}-01T00:00:00Z`)
         .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
-      h.sendHtml(res, 200, viewsAnalytics.renderMonthly({
+      h.sendHtml(res, 200, await viewsAnalytics.renderMonthly({
         kpis: await analytics.kpis(scope),
         previous: await analytics.kpis({ ...scope, month: prior }),
         previousLabel: longMonth(prior),
@@ -561,7 +561,7 @@ async function handleAdmin(req, res, ctx) {
        ORDER BY y DESC`).all()).map((r) => r.y);
     if (!years.includes(year)) years.unshift(year);
 
-    h.sendHtml(res, 200, viewsAnalytics.renderAnnual({
+    h.sendHtml(res, 200, await viewsAnalytics.renderAnnual({
       kpis: await analytics.kpis({ ...filters, year, month: null, from: null, to: null }),
       series: await analytics.monthlySeries(year, filters),
       year, years, options, filters, user, csrf
@@ -760,7 +760,7 @@ async function handleAdmin(req, res, ctx) {
     const recent = (await enquiries.all()).slice(0, 5);
     await audit('admin_view', 'success', { userId: user.id, detail: 'overview', ip });
 
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Overview', active: '/admin', user, csrf,
       body: views.renderDashboard({ counts, recent, clientsByDevelopment: await admin.clientsByDevelopment(), user, csrf })
     }));
@@ -778,7 +778,7 @@ async function handleAdmin(req, res, ctx) {
 
     await audit('admin_view', 'success', { userId: user.id, detail: 'enquiries', ip });
 
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Enquiries', active: '/admin/enquiries', user, csrf,
       body: views.renderEnquiries({ list: await enquiries.all(), counts: await enquiries.counts(), user, csrf, flash })
     }));
@@ -794,7 +794,7 @@ async function handleAdmin(req, res, ctx) {
     const record = await enquiries.byId(id);
 
     if (!record) {
-      h.sendHtml(res, 404, views.adminLayout({
+      h.sendHtml(res, 404, await views.adminLayout({
         title: 'Not found', active: '/admin/enquiries', user, csrf,
         body: '<section class="container inner-page"><h1>Enquiry not found</h1><p><a class="btn primary" href="/admin/enquiries">Back to enquiries</a></p></section>'
       }));
@@ -823,7 +823,7 @@ async function handleAdmin(req, res, ctx) {
       const email = String(body.email || '').trim().slice(0, 160);
 
       const refuse = async (message) => {
-        h.sendHtml(res, 200, views.adminLayout({
+        h.sendHtml(res, 200, await views.adminLayout({
           title: 'Add a client', active: '/admin/clients', user, csrf,
           body: views.renderNewClient({
             suggestedNumber: clientNumber || await admin.suggestClientNumber(),
@@ -855,7 +855,7 @@ async function handleAdmin(req, res, ctx) {
         userId: user.id, clientNumber, detail: `created ${fullName}`, ip
       });
 
-      h.sendHtml(res, 200, views.adminLayout({
+      h.sendHtml(res, 200, await views.adminLayout({
         title: 'Client created', active: '/admin/clients', user, csrf,
         body: views.renderNewClient({
           suggestedNumber: await admin.suggestClientNumber(),
@@ -876,7 +876,7 @@ async function handleAdmin(req, res, ctx) {
       userId: user.id, detail: q ? `clients search "${q}"` : 'clients', ip
     });
 
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Clients', active: '/admin/clients', user, csrf,
       body: views.renderClients({ clients, user, csrf, query: q })
     }));
@@ -888,7 +888,7 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     await audit('admin_view', 'success', { userId: user.id, detail: 'new client form', ip });
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Add a client', active: '/admin/clients', user, csrf,
       body: views.renderNewClient({ suggestedNumber: await admin.suggestClientNumber(), user, csrf })
     }));
@@ -954,7 +954,7 @@ async function handleAdmin(req, res, ctx) {
     const payment = await admin.paymentById(paymentId);
 
     if (!client || !payment || payment.user_id !== clientId) {
-      h.sendHtml(res, 404, views.adminLayout({
+      h.sendHtml(res, 404, await views.adminLayout({
         title: 'Not found', active: '/admin/clients', user, csrf,
         body: '<section class="container inner-page"><h1>Payment not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
       }));
@@ -1050,7 +1050,7 @@ async function handleAdmin(req, res, ctx) {
 
       // The payment must belong to the client in the URL — never trust the path alone.
       if (!payment || payment.user_id !== clientId) {
-        h.sendHtml(res, 404, views.adminLayout({
+        h.sendHtml(res, 404, await views.adminLayout({
           title: 'Not found', active: '/admin/clients', user, csrf,
           body: '<section class="container inner-page"><h1>Payment not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
         }));
@@ -1086,7 +1086,7 @@ async function handleAdmin(req, res, ctx) {
     const client = await admin.clientById(clientId);
 
     if (!client) {
-      h.sendHtml(res, 404, views.adminLayout({
+      h.sendHtml(res, 404, await views.adminLayout({
         title: 'Not found', active: '/admin/clients', user, csrf,
         body: '<section class="container inner-page"><h1>Client not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
       }));
@@ -1296,7 +1296,7 @@ async function handleAdmin(req, res, ctx) {
     const client = await admin.clientById(clientId);
 
     if (!client) {
-      h.sendHtml(res, 404, views.adminLayout({
+      h.sendHtml(res, 404, await views.adminLayout({
         title: 'Not found', active: '/admin/clients', user, csrf,
         body: '<section class="container inner-page"><h1>Client not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
       }));
@@ -1460,7 +1460,7 @@ async function handleAdmin(req, res, ctx) {
       }
 
       if (form.errors.length) {
-        h.sendHtml(res, 200, views.adminLayout({
+        h.sendHtml(res, 200, await views.adminLayout({
           title: `${stand.stand_number} — property`, active: '/admin/properties', user, csrf,
           body: views.renderPropertyEdit({
             stand, projects, user, csrf, error: form.errors.join(' ')
@@ -1488,7 +1488,7 @@ async function handleAdmin(req, res, ctx) {
       }
 
       if (form.errors.length) {
-        h.sendHtml(res, 200, views.adminLayout({
+        h.sendHtml(res, 200, await views.adminLayout({
           title: 'Properties', active: '/admin/properties', user, csrf,
           body: views.renderProperties({
             stands: await admin.standsForAdmin(), projects, user, csrf, error: form.errors.join(' ')
@@ -1521,7 +1521,7 @@ async function handleAdmin(req, res, ctx) {
       if (!stand) return h.send(res, 404, 'Not found'), true;
 
       await audit('admin_view', 'success', { userId: user.id, detail: `stand ${standId}`, ip });
-      h.sendHtml(res, 200, views.adminLayout({
+      h.sendHtml(res, 200, await views.adminLayout({
         title: `${stand.stand_number} — property`, active: '/admin/properties', user, csrf,
         body: views.renderPropertyEdit({
           stand, projects, user, csrf,
@@ -1535,7 +1535,7 @@ async function handleAdmin(req, res, ctx) {
 
     /* ── The list ── */
     await audit('admin_view', 'success', { userId: user.id, detail: 'properties', ip });
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Properties', active: '/admin/properties', user, csrf,
       body: views.renderProperties({
         stands: await admin.standsForAdmin(), projects, user, csrf,
@@ -1557,7 +1557,7 @@ async function handleAdmin(req, res, ctx) {
       }
 
       if (form.errors.length) {
-        h.sendHtml(res, 200, views.adminLayout({
+        h.sendHtml(res, 200, await views.adminLayout({
           title: 'Projects', active: '/admin/projects', user, csrf,
           body: views.renderProjects({ projects, user, csrf, error: form.errors.join(' ') })
         }));
@@ -1603,7 +1603,7 @@ async function handleAdmin(req, res, ctx) {
         + 'list first.'
       : errorCode ? 'That development could not be deleted.' : '';
 
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Projects', active: '/admin/projects', user, csrf,
       body: views.renderProjects({ projects, user, csrf, notice, error })
     }));
@@ -1669,7 +1669,7 @@ async function handleAdmin(req, res, ctx) {
     const base = await admin.projectById(projectId);
 
     if (!base) {
-      h.sendHtml(res, 404, views.adminLayout({
+      h.sendHtml(res, 404, await views.adminLayout({
         title: 'Not found', active: '/admin/projects', user, csrf,
         body: '<section class="container inner-page"><h1>Project not found</h1><p><a class="btn primary" href="/admin/projects">Back to projects</a></p></section>'
       }));
@@ -1688,7 +1688,7 @@ async function handleAdmin(req, res, ctx) {
       }
 
       if (form.errors.length) {
-        h.sendHtml(res, 200, views.adminLayout({
+        h.sendHtml(res, 200, await views.adminLayout({
           title: project.name, active: '/admin/projects', user, csrf,
           body: views.renderProjectDetail({
             project, stands: await admin.standsForProject(projectId),
@@ -1723,7 +1723,7 @@ async function handleAdmin(req, res, ctx) {
                     : flag === 'priceDeleted' ? 'Price row deleted.' : '';
 
     await audit('admin_view', 'success', { userId: user.id, detail: `project ${projectId}`, ip });
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: project.name, active: '/admin/projects', user, csrf,
       body: views.renderProjectDetail({
         project,
@@ -1755,7 +1755,7 @@ async function handleAdmin(req, res, ctx) {
     if (addStepMatch) {
       const label = String(body.label || '').replace(/\s+/g, ' ').trim().slice(0, 120);
       if (label.length < 2) {
-        h.sendHtml(res, 200, views.adminLayout({
+        h.sendHtml(res, 200, await views.adminLayout({
           title: project.name, active: '/admin/projects', user, csrf,
           body: views.renderProjectDetail({
             project, stands: await admin.standsForProject(projectId),
@@ -1792,7 +1792,7 @@ async function handleAdmin(req, res, ctx) {
     const state = String(body.state || 'pending');
 
     if (label.length < 2 || !await admin.setProgressStep(stepId, label, state)) {
-      h.sendHtml(res, 200, views.adminLayout({
+      h.sendHtml(res, 200, await views.adminLayout({
         title: project.name, active: '/admin/projects', user, csrf,
         body: views.renderProjectDetail({
           project, stands: await admin.standsForProject(projectId),
@@ -1867,7 +1867,7 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     await audit('admin_view', 'success', { userId: user.id, detail: 'content', ip });
-    h.sendHtml(res, 200, views.adminLayout({
+    h.sendHtml(res, 200, await views.adminLayout({
       title: 'Site content', active: '/admin/content', user, csrf,
       body: views.renderContentIndex({ pages: contentPageList(), user, csrf })
     }));
@@ -2022,7 +2022,7 @@ async function handleAdmin(req, res, ctx) {
   }
 
   /* Unknown /admin path */
-  h.sendHtml(res, 404, views.adminLayout({
+  h.sendHtml(res, 404, await views.adminLayout({
     title: 'Not found', user, csrf,
     body: '<section class="container inner-page"><h1>Page not found</h1><p><a class="btn primary" href="/admin">Back to overview</a></p></section>'
   }));

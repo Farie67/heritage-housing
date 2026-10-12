@@ -253,7 +253,7 @@ ${led.rows.map((r) => `          <tr${r.voided_at ? ' class="voided"' : ''}>
 
 /* ── Pages ──────────────────────────────────────────────────────────────── */
 
-function renderAnalytics({ kpis: k, collection: c, projects, agents, types, ledger,
+async function renderAnalytics({ kpis: k, collection: c, projects, agents, types, ledger,
   options, filters: f, user, csrf, active = '/admin/analytics', flash = '' }) {
   const maxProject = Math.max(...projects.map((p) => p.contractCents), 0);
   const maxType = Math.max(...types.map((t) => t.cents), 0);
@@ -363,12 +363,12 @@ ${exportPanel(query)}
     </div>
   </section>`;
 
-  return layout({ title: 'Sales analytics', active, user, csrf, body });
+  return await layout({ title: 'Sales analytics', active, user, csrf, body });
 }
 
 /* ── Ledger ─────────────────────────────────────────────────────────────── */
 
-function renderLedger({ ledger, totals, options, filters: f, user, csrf, flash = '' }) {
+async function renderLedger({ ledger, totals, options, filters: f, user, csrf, flash = '' }) {
   const query = new URLSearchParams(
     Object.entries({
       from: f.from, to: f.to, project: f.projectId, agent: f.agentId, type: f.type,
@@ -409,7 +409,7 @@ ${ledgerTable(ledger, { baseQuery: query })}
     </div>
   </section>`;
 
-  return layout({ title: 'Transaction ledger', active: '/admin/analytics/ledger', user, csrf, body });
+  return await layout({ title: 'Transaction ledger', active: '/admin/analytics/ledger', user, csrf, body });
 }
 
 /* ── Sales detail ───────────────────────────────────────────────────────── */
@@ -580,7 +580,7 @@ ${auditRows}
     </div>
   </section>`;
 
-  return layout({ title: `Sale #${sale.sale_id}`, active: '/admin/analytics', user, csrf, body });
+  return await layout({ title: `Sale #${sale.sale_id}`, active: '/admin/analytics', user, csrf, body });
 }
 
 /* ── Period views ───────────────────────────────────────────────────────── */
@@ -726,7 +726,7 @@ const CHART_KEY = `      <p class="chart-key">
       </p>`;
 
 /** Weekly analysis. */
-function renderWeekly({ kpis: k, previous, series, range, weekOffset, custom, options,
+async function renderWeekly({ kpis: k, previous, series, range, weekOffset, custom, options,
   filters: f, user, csrf }) {
   const d = (label, cur, prev, opts) => {
     const change = delta(cur, prev, opts);
@@ -773,11 +773,11 @@ ${dailyChart(series)}
     </div>
   </section>`;
 
-  return layout({ title: 'Weekly analysis', active: '/admin/analytics/weekly', user, csrf, body });
+  return await layout({ title: 'Weekly analysis', active: '/admin/analytics/weekly', user, csrf, body });
 }
 
 /** Monthly analysis, with the current-vs-previous comparison. */
-function renderMonthly({ kpis: k, previous, previousLabel, series, month, year, options,
+async function renderMonthly({ kpis: k, previous, previousLabel, series, month, year, options,
   filters: f, user, csrf }) {
   const monthName = new Date(`${month}-01T00:00:00Z`)
     .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -845,11 +845,11 @@ ${monthChart(series)}
     </div>
   </section>`;
 
-  return layout({ title: 'Monthly analysis', active: '/admin/analytics/monthly', user, csrf, body });
+  return await layout({ title: 'Monthly analysis', active: '/admin/analytics/monthly', user, csrf, body });
 }
 
 /** Annual analysis with the twelve-month chart. */
-function renderAnnual({ kpis: k, series, year, years, options, filters: f, user, csrf }) {
+async function renderAnnual({ kpis: k, series, year, years, options, filters: f, user, csrf }) {
   const body = `  <section class="container inner-page">
     <div class="dashboard-top">
       <div>
@@ -917,7 +917,7 @@ ${series.map((m) => `          <tr>
     </div>
   </section>`;
 
-  return layout({ title: 'Annual analysis', active: '/admin/analytics/annual', user, csrf, body });
+  return await layout({ title: 'Annual analysis', active: '/admin/analytics/annual', user, csrf, body });
 }
 
 module.exports = {

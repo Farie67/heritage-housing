@@ -27,10 +27,13 @@ const NAV = [
   ['/admin/content', 'Content']
 ];
 
-function adminLayout({ title, active = '', user, csrf, body }) {
-  const logo = logoAbsolute();
-  const favicon = faviconAbsolute();
-  const brand = esc(brandName());
+async function adminLayout({ title, active = '', user, csrf, body }) {
+  /* logoAbsolute/faviconAbsolute/brandName all read a site setting, so they are
+     asynchronous. Without the awaits the template renders the string
+     "[object Promise]" into src, href and alt. */
+  const logo = await logoAbsolute();
+  const favicon = await faviconAbsolute();
+  const brand = esc(await brandName());
   const links = NAV.map(([href, label]) =>
     `      <a href="${href}"${href === active ? ' aria-current="page"' : ''}>${esc(label)}</a>`
   ).join('\n');
@@ -87,10 +90,10 @@ ${body}
 
 /* ── Sign in ────────────────────────────────────────────────────────────── */
 
-function renderLogin({ error = '', csrf = '', notice = '' }) {
-  const logo = logoAbsolute();
-  const favicon = faviconAbsolute();
-  const brand = esc(brandName());
+async function renderLogin({ error = '', csrf = '', notice = '' }) {
+  const logo = await logoAbsolute();
+  const favicon = await faviconAbsolute();
+  const brand = esc(await brandName());
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
