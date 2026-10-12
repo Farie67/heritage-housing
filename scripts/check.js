@@ -236,31 +236,31 @@ function pdfText(buf) {
 
 /* ── Unit checks on the pure view helpers ───────────────────────────────── */
 
-function unitChecks() {
+async function unitChecks() {
   const views = require('../server/views');
 
-  check('esc() neutralises an HTML injection attempt', () => {
+  await check('esc() neutralises an HTML injection attempt', () => {
     const out = views.esc('<script>alert(1)</script>');
     assert.ok(!out.includes('<script'), 'raw <script> survived escaping');
     assert.strictEqual(out, '&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 
-  check('esc() escapes both quote characters (attribute contexts)', () => {
+  await check('esc() escapes both quote characters (attribute contexts)', () => {
     assert.strictEqual(views.esc(`a"b'c`), 'a&quot;b&#39;c');
   });
 
-  check('esc() handles null and undefined without throwing', () => {
+  await check('esc() handles null and undefined without throwing', () => {
     assert.strictEqual(views.esc(null), '');
     assert.strictEqual(views.esc(undefined), '');
   });
 
-  check('money() renders integer cents without float drift', () => {
+  await check('money() renders integer cents without float drift', () => {
     assert.strictEqual(views.money(550000), 'US$5,500');
     assert.strictEqual(views.money(300000), 'US$3,000');
     assert.strictEqual(views.money(0), 'US$0');
   });
 
-  check('money() shows both decimal places when an amount is not whole', () => {
+  await check('money() shows both decimal places when an amount is not whole', () => {
     // 25050 cents must not print as "US$250.5" on a payment statement.
     assert.strictEqual(views.money(25050), 'US$250.50');
     assert.strictEqual(views.money(224950), 'US$2,249.50');
@@ -268,7 +268,7 @@ function unitChecks() {
     assert.strictEqual(views.money(150), 'US$1.50');
   });
 
-  check('references: project initials are derived sensibly', () => {
+  await check('references: project initials are derived sensibly', () => {
     const { projectCode } = require('../server/references');
     assert.strictEqual(projectCode('Heritage Park'), 'HP');
     assert.strictEqual(projectCode('Raylands Estate'), 'RE');
@@ -281,7 +281,7 @@ function unitChecks() {
     assert.strictEqual(projectCode(null), 'GEN');
   });
 
-  check('references: the timestamp is local, zero-padded and ordered', () => {
+  await check('references: the timestamp is local, zero-padded and ordered', () => {
     const { timestamp, buildReference } = require('../server/references');
     // Constructed from local parts, so this is timezone-independent.
     const when = new Date(2026, 9, 2, 9, 5, 3);
@@ -291,7 +291,7 @@ function unitChecks() {
       'HP-20261002-090503');
   });
 
-  check('references: a client with no project falls back to the given prefix', () => {
+  await check('references: a client with no project falls back to the given prefix', () => {
     const { buildReference } = require('../server/references');
     const when = new Date(2026, 9, 2, 9, 5, 3);
     assert.strictEqual(
@@ -299,7 +299,7 @@ function unitChecks() {
       'HHP-20261002-090503');
   });
 
-  check('references: a collision within the same second is suffixed', () => {
+  await check('references: a collision within the same second is suffixed', () => {
     const { buildReference } = require('../server/references');
     const when = new Date(2026, 9, 2, 9, 5, 3);
     const taken = new Set(['HP-20261002-090503', 'HP-20261002-090503-2']);
@@ -315,7 +315,7 @@ function unitChecks() {
 const PAGE_FILES = ['index.html', 'about.html', 'services.html', 'projects.html',
                     'properties.html', 'news.html', 'contact.html', 'portal.html'];
 
-function staticChecks() {
+async function staticChecks() {
   const PUB = path.join(ROOT, 'public');
   const read = (p) => fs.readFileSync(path.join(PUB, p), 'utf8');
 
@@ -332,7 +332,7 @@ function staticChecks() {
   const css = stripBlock(read('assets/css/styles.css'));
 
   /* C-1 — credentials must not live in client-side code. */
-  check('C-1 no password or credential check in client-side JavaScript', () => {
+  await check('C-1 no password or credential check in client-side JavaScript', () => {
     assert.ok(!/demo123/.test(js), 'a password literal is present in site.js');
     assert.ok(!/HP-10245/.test(js), 'a client number is present in site.js');
     assert.ok(!/password\s*===|===\s*['"]demo/.test(js), 'credential comparison in site.js');
@@ -342,14 +342,14 @@ function staticChecks() {
   });
 
   /* H-1 — no HTML built from strings, so nothing can become stored XSS. */
-  check('H-1 no innerHTML / outerHTML / insertAdjacentHTML in client JavaScript', () => {
+  await check('H-1 no innerHTML / outerHTML / insertAdjacentHTML in client JavaScript', () => {
     for (const sink of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write']) {
       assert.ok(!js.includes(sink), `${sink} is still used in site.js`);
     }
   });
 
   /* H-2 — real pages, not display:none panels toggled by script. */
-  check('H-2 every page is a real document, not a display:none panel', () => {
+  await check('H-2 every page is a real document, not a display:none panel', () => {
     const flat = css.replace(/\s+/g, '');
     assert.ok(!/\.page\{display:none\}/.test(flat), '.page{display:none} is back');
     assert.ok(!/\.page\.active/.test(flat), '.page.active is back');
@@ -360,19 +360,19 @@ function staticChecks() {
   });
 
   /* H-3 — keyboard focus must be visible. */
-  check('H-3 a :focus-visible ring is defined', () => {
+  await check('H-3 a :focus-visible ring is defined', () => {
     assert.ok(css.includes(':focus-visible'), 'no :focus-visible rule');
     assert.ok(!/outline\s*:\s*none/.test(css), 'outline:none is still used');
   });
 
   /* H-4 / H-5 — keyboard escape from overlays. */
-  check('H-4 the mobile menu can be dismissed with the Escape key', () => {
+  await check('H-4 the mobile menu can be dismissed with the Escape key', () => {
     assert.ok(js.includes('Escape'), 'no Escape handling in site.js');
     assert.ok(js.includes('keydown'), 'no keydown listener in site.js');
   });
 
   /* Every link must be focusable — the original had five href-less anchors. */
-  check('no anchor is missing an href', () => {
+  await check('no anchor is missing an href', () => {
     for (const { file, html } of pages) {
       const anchors = html.match(/<a\b[^>]*>/g) || [];
       const bad = anchors.filter((a) => !/\shref=/.test(a));
@@ -381,18 +381,18 @@ function staticChecks() {
   });
 
   /* M — reduced motion, small text, image alt text, external deps. */
-  check('M prefers-reduced-motion is honoured', () => {
+  await check('M prefers-reduced-motion is honoured', () => {
     assert.ok(css.includes('prefers-reduced-motion'), 'no reduced-motion block');
   });
 
-  check('M no font-size below 11px remains', () => {
+  await check('M no font-size below 11px remains', () => {
     const sizes = [...css.matchAll(/font-size\s*:\s*(\d+(?:\.\d+)?)px/g)]
       .map((m) => Number(m[1]));
     const tiny = sizes.filter((n) => n < 11);
     assert.strictEqual(tiny.length, 0, `font sizes below 11px: ${tiny.join(', ')}`);
   });
 
-  check('M every CSS background image is labelled for screen readers', () => {
+  await check('M every CSS background image is labelled for screen readers', () => {
     for (const { file, html } of pages) {
       const tags = html.match(/<[a-z]+\b[^>]*background-image[^>]*>/g) || [];
       for (const tag of tags) {
@@ -402,7 +402,7 @@ function staticChecks() {
     }
   });
 
-  check('M the only external hosts are the expected ones', () => {
+  await check('M the only external hosts are the expected ones', () => {
     /* An explicit allowlist beats a bare count: a newly introduced third-party
        host fails this check even if the total number stays the same. */
     const EXPECTED = new Set([
@@ -425,31 +425,31 @@ function staticChecks() {
   });
 
   /* L — maintenance and polish. */
-  check('L the copyright year is not hard-coded', () => {
+  await check('L the copyright year is not hard-coded', () => {
     for (const { file, html } of pages) {
       assert.ok(html.includes('data-year'), `${file} does not use data-year`);
     }
     assert.ok(js.includes('data-year'), 'site.js does not fill in data-year');
   });
 
-  check('L the toast clears its previous timer', () => {
+  await check('L the toast clears its previous timer', () => {
     assert.ok(js.includes('clearTimeout'), 'toast does not clearTimeout — messages get cut short');
   });
 
-  check('L every page declares a favicon', () => {
+  await check('L every page declares a favicon', () => {
     for (const { file, html } of pages) {
       assert.ok(/rel="icon"/.test(html), `${file} has no favicon link`);
     }
   });
 
-  check('L no unused CSS custom properties', () => {
+  await check('L no unused CSS custom properties', () => {
     const defined = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]));
     const unused = [...defined].filter((v) => !used.has(v));
     assert.strictEqual(unused.length, 0, `unused custom properties: ${unused.join(', ')}`);
   });
 
-  check('L the stylesheet has no unbalanced comments or loose prose', () => {
+  await check('L the stylesheet has no unbalanced comments or loose prose', () => {
     /* A comment closed early turns the prose after it into garbage CSS, and the
        parser then swallows the NEXT rule. That is exactly how `.kpi-grid`
        silently stopped being a grid — the tiles stacked vertically one per row
@@ -486,7 +486,7 @@ function staticChecks() {
     }
   });
 
-  check('L every CSS custom property that is used is also defined', () => {
+  await check('L every CSS custom property that is used is also defined', () => {
     /* The dangerous case: a var() with no definition AND no fallback silently
        resolves to nothing, which can leave text invisible rather than
        obviously broken.
@@ -511,12 +511,12 @@ function staticChecks() {
       `used but never defined and with no fallback: ${[...new Set(undefinedVars)].join(', ')}`);
   });
 
-  check('L the palette carries the colours sampled from the logo', () => {
+  await check('L the palette carries the colours sampled from the logo', () => {
     assert.match(css, /--navy:\s*#283090/i, 'the sampled brand blue is not the primary');
     assert.match(css, /#e81820/i, 'the sampled brand red is missing');
   });
 
-  check('L each page uses the wordmark, the light variant and the square mark', () => {
+  await check('L each page uses the wordmark, the light variant and the square mark', () => {
     for (const { file, html } of pages) {
       /* Rooted, because the development and property pages sit one level deep
          and a relative asset path 404s there. */
@@ -531,7 +531,7 @@ function staticChecks() {
     }
   });
 
-  check('L the wordmark carries the site name as its alt text', () => {
+  await check('L the wordmark carries the site name as its alt text', () => {
     /* The logo is the only place the name appears in the header, so an empty
        alt would leave the home link with no accessible name. */
     for (const { file, html } of pages) {
@@ -544,7 +544,7 @@ function staticChecks() {
   });
 
   /* The original shipped 11 KB of single-line minified CSS. */
-  check('L the stylesheet is readable, not minified onto one line', () => {
+  await check('L the stylesheet is readable, not minified onto one line', () => {
     const lines = css.split('\n').length;
     assert.ok(lines > 200, `styles.css is only ${lines} lines — looks minified again`);
   });
@@ -560,15 +560,15 @@ async function stageAdmin() {
   const { db, users } = require('../server/db');
   const { hashPassword } = require('../server/auth');
   const hash = await hashPassword(ADMIN_PW);
-  const existing = users.byClientNumber(ADMIN_ID);
+  const existing = await users.byClientNumber(ADMIN_ID);
 
   if (existing) {
-    db.prepare(`UPDATE users SET full_name = ?, email = ?, password_hash = ?, role = 'admin',
+    await db.prepare(`UPDATE users SET full_name = ?, email = ?, password_hash = ?, role = 'admin',
                                    disabled = 0, failed_attempts = 0, locked_until = NULL
                  WHERE id = ?`).run('Test Admin', 'admin@test.local', hash, existing.id);
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
   } else {
-    users.insert({
+    await users.insert({
       clientNumber: ADMIN_ID, fullName: 'Test Admin',
       email: 'admin@test.local', role: 'admin', passwordHash: hash
     });
@@ -668,25 +668,25 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: marking an enquiry handled persists', async () => {
-    const row = db.prepare('SELECT id, handled_at FROM enquiries ORDER BY id LIMIT 1').get();
+    const row = await db.prepare('SELECT id, handled_at FROM enquiries ORDER BY id LIMIT 1').get();
     assert.ok(row, 'no enquiry to work with');
     assert.strictEqual(row.handled_at, null, 'enquiry was already handled');
 
     const r = await req(`/admin/enquiries/${row.id}/handle`, { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const after = db.prepare('SELECT handled_at, handled_by FROM enquiries WHERE id = ?').get(row.id);
+    const after = await db.prepare('SELECT handled_at, handled_by FROM enquiries WHERE id = ?').get(row.id);
     assert.ok(after.handled_at, 'handled_at was not written');
     assert.ok(after.handled_by, 'handled_by was not recorded');
 
     // And it can be reopened.
     await req(`/admin/enquiries/${row.id}/reopen`, { method: 'POST', jar });
-    const reopened = db.prepare('SELECT handled_at FROM enquiries WHERE id = ?').get(row.id);
+    const reopened = await db.prepare('SELECT handled_at FROM enquiries WHERE id = ?').get(row.id);
     assert.strictEqual(reopened.handled_at, null, 'reopen did not clear the flag');
   });
 
   await check('admin: an admin action is written to the audit log', async () => {
-    const row = db.prepare(
+    const row = await db.prepare(
       "SELECT COUNT(*) AS c FROM audit_log WHERE action LIKE 'admin_%'"
     ).get();
     assert.ok(row.c > 0, 'no admin activity in the audit log');
@@ -702,14 +702,14 @@ async function adminChecks(clientJar) {
   const SCRATCH = 'HP-88888';
   const { hashPassword } = require('../server/auth');
 
-  db.prepare('DELETE FROM users WHERE client_number = ?').run(SCRATCH);
-  db.prepare(`INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
+  await db.prepare('DELETE FROM users WHERE client_number = ?').run(SCRATCH);
+  await db.prepare(`INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
               VALUES (?, ?, ?, 'client', ?, ?)`)
     .run(SCRATCH, 'Scratch Client', 'scratch@example.com',
          await hashPassword('scratch-client-password'), new Date().toISOString());
 
-  const scratchId = db.prepare('SELECT id FROM users WHERE client_number = ?').get(SCRATCH).id;
-  const demoId = db.prepare("SELECT id FROM users WHERE client_number = 'HP-10245'").get().id;
+  const scratchId = (await db.prepare('SELECT id FROM users WHERE client_number = ?').get(SCRATCH)).id;
+  const demoId = (await db.prepare("SELECT id FROM users WHERE client_number = 'HP-10245'").get()).id;
 
   await check('admin: the client detail page renders', async () => {
     const r = await req(`/admin/clients/${demoId}`, { jar });
@@ -732,7 +732,7 @@ async function adminChecks(clientJar) {
       body: new URLSearchParams({ fullName: 'Renamed Client', email: 'renamed@example.com' }).toString()
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
-    const row = db.prepare('SELECT full_name, email FROM users WHERE id = ?').get(scratchId);
+    const row = await db.prepare('SELECT full_name, email FROM users WHERE id = ?').get(scratchId);
     assert.strictEqual(row.full_name, 'Renamed Client');
     assert.strictEqual(row.email, 'renamed@example.com');
   });
@@ -742,7 +742,7 @@ async function adminChecks(clientJar) {
       method: 'POST', jar,
       body: new URLSearchParams({ fullName: 'Renamed Client', email: 'not-an-email' }).toString()
     });
-    const row = db.prepare('SELECT email FROM users WHERE id = ?').get(scratchId);
+    const row = await db.prepare('SELECT email FROM users WHERE id = ?').get(scratchId);
     assert.strictEqual(row.email, 'renamed@example.com', 'a malformed email was saved');
   });
 
@@ -751,7 +751,7 @@ async function adminChecks(clientJar) {
       method: 'POST', jar,
       body: new URLSearchParams({ fullName: '   ', email: '' }).toString()
     });
-    const row = db.prepare('SELECT full_name FROM users WHERE id = ?').get(scratchId);
+    const row = await db.prepare('SELECT full_name FROM users WHERE id = ?').get(scratchId);
     assert.strictEqual(row.full_name, 'Renamed Client', 'a blank name was saved');
   });
 
@@ -779,7 +779,13 @@ async function adminChecks(clientJar) {
     assert.strictEqual(r.status, 200, `status ${r.status}`);
     const shown = (await r.text()).match(/<code class="pw">([^<]+)<\/code>/);
     assert.ok(shown, 'the new password was not shown to the admin');
-    const newPassword = shown[1];
+    /* The page HTML-escapes the password, and the symbol set includes '&'. Read
+       it back the way a browser would, or a reset that happens to contain '&'
+       looks like a broken password. */
+    const newPassword = shown[1]
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
 
     // The reset must have destroyed the session that was live a moment ago.
     assert.strictEqual((await req('/api/me', { jar: sJar })).status, 401,
@@ -800,7 +806,7 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: linking a stand creates the ownership and marks it sold', async () => {
-    const stand = db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0261'").get();
+    const stand = await db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0261'").get();
     const r = await req(`/admin/clients/${scratchId}/stand`, {
       method: 'POST', jar,
       body: new URLSearchParams({
@@ -810,16 +816,16 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const own = db.prepare('SELECT * FROM ownerships WHERE user_id = ?').get(scratchId);
+    const own = await db.prepare('SELECT * FROM ownerships WHERE user_id = ?').get(scratchId);
     assert.ok(own, 'no ownership row was created');
     assert.strictEqual(own.purchase_price_cents, 550000, 'price not stored as exact cents');
 
-    const after = db.prepare("SELECT status FROM stands WHERE stand_number = 'HP-0261'").get();
+    const after = await db.prepare("SELECT status FROM stands WHERE stand_number = 'HP-0261'").get();
     assert.strictEqual(after.status, 'Sold', 'the stand was not marked sold');
   });
 
   await check('admin: a client cannot hold two stands at once', async () => {
-    const stand = db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0310'").get();
+    const stand = await db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0310'").get();
     const r = await req(`/admin/clients/${scratchId}/stand`, {
       method: 'POST', jar,
       body: new URLSearchParams({
@@ -828,34 +834,34 @@ async function adminChecks(clientJar) {
       }).toString()
     });
     assert.strictEqual(r.status, 200, 'the second link was not refused in-page');
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?').get(scratchId).c, 1,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?').get(scratchId)).c, 1,
       'a second ownership was created');
   });
 
   await check('admin: a malformed purchase price is refused', async () => {
     // Unlink first so the "already has a stand" rule is not what refuses us.
-    const own = db.prepare('SELECT id FROM ownerships WHERE user_id = ?').get(scratchId);
+    const own = await db.prepare('SELECT id FROM ownerships WHERE user_id = ?').get(scratchId);
     await req(`/admin/clients/${scratchId}/unlink`, { method: 'POST', jar });
 
-    const stand = db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0310'").get();
+    const stand = await db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0310'").get();
     await req(`/admin/clients/${scratchId}/stand`, {
       method: 'POST', jar,
       body: new URLSearchParams({
         standId: String(stand.id), price: 'five thousand', purchaseDate: '2025-11-01'
       }).toString()
     });
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?').get(scratchId).c, 0,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?').get(scratchId)).c, 0,
       'a bogus price was accepted');
     assert.ok(own, 'expected an ownership to have existed for this test');
   });
 
   await check('admin: unlinking frees the stand again', async () => {
-    const row = db.prepare("SELECT status FROM stands WHERE stand_number = 'HP-0261'").get();
+    const row = await db.prepare("SELECT status FROM stands WHERE stand_number = 'HP-0261'").get();
     assert.strictEqual(row.status, 'Available', 'the stand was left marked sold');
   });
 
   await check('admin: a stand already held by another client cannot be taken', async () => {
-    const held = db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0245'").get();
+    const held = await db.prepare("SELECT id FROM stands WHERE stand_number = 'HP-0245'").get();
     const r = await req(`/admin/clients/${scratchId}/stand`, {
       method: 'POST', jar,
       body: new URLSearchParams({
@@ -863,7 +869,7 @@ async function adminChecks(clientJar) {
       }).toString()
     });
     assert.strictEqual(r.status, 200, 'the takeover was not refused in-page');
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?').get(scratchId).c, 0,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?').get(scratchId)).c, 0,
       'an already-held stand was reassigned');
   });
 
@@ -872,7 +878,7 @@ async function adminChecks(clientJar) {
   let testPaymentId = null;
 
   await check('admin: a pending payment is recorded but does not move the balance', async () => {
-    const before = db.prepare("SELECT COUNT(*) AS c FROM payments WHERE user_id = ?").get(demoId).c;
+    const before = (await db.prepare("SELECT COUNT(*) AS c FROM payments WHERE user_id = ?").get(demoId)).c;
 
     const r = await req(`/admin/clients/${demoId}/payments`, {
       method: 'POST', jar,
@@ -882,10 +888,10 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const after = db.prepare("SELECT COUNT(*) AS c FROM payments WHERE user_id = ?").get(demoId).c;
+    const after = (await db.prepare("SELECT COUNT(*) AS c FROM payments WHERE user_id = ?").get(demoId)).c;
     assert.strictEqual(after, before + 1, 'the payment was not recorded');
 
-    const stored = db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(demoId);
+    const stored = await db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(demoId);
     testPaymentId = stored.id;
     assert.strictEqual(stored.amount_cents, 100000, 'the amount was not stored as exact cents');
     assert.strictEqual(stored.status, 'Pending');
@@ -933,7 +939,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
     assert.strictEqual(
-      db.prepare('SELECT status FROM payments WHERE id = ?').get(row.id).status, 'Confirmed');
+      (await db.prepare('SELECT status FROM payments WHERE id = ?').get(row.id)).status, 'Confirmed');
 
     assert.ok((await (await req(`/admin/clients/${demoId}`, { jar })).text()).includes('US$1,500'),
       'confirming the payment did not reduce the balance');
@@ -953,7 +959,7 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: the reference is generated from the project and the time', async () => {
-    const stored = db.prepare('SELECT * FROM payments WHERE id = ?').get(testPaymentId);
+    const stored = await db.prepare('SELECT * FROM payments WHERE id = ?').get(testPaymentId);
 
     // Heritage Park gives HP, then local YYYYMMDD-HHMMSS.
     assert.match(stored.reference, /^HP-\d{8}-\d{6}(-\d+)?$/,
@@ -981,11 +987,11 @@ async function adminChecks(clientJar) {
         method: 'POST', jar,
         body: new URLSearchParams({ paidOn: '2026-03-02', amount: '5', status: 'Pending' }).toString()
       });
-      ids.push(db.prepare('SELECT id FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1')
-        .get(demoId).id);
+      ids.push((await db.prepare('SELECT id FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1')
+        .get(demoId)).id);
     }
 
-    const refs = ids.map((id) => db.prepare('SELECT reference FROM payments WHERE id = ?').get(id).reference);
+    const refs = await Promise.all(ids.map(async (id) => (await db.prepare('SELECT reference FROM payments WHERE id = ?').get(id)).reference));
     assert.strictEqual(new Set(refs).size, refs.length,
       `duplicate references were issued: ${refs.join(', ')}`);
 
@@ -1002,21 +1008,21 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const row = db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(scratchId);
+    const row = await db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(scratchId);
     assert.match(row.reference, /^HHP-\d{8}-\d{6}/, `fallback prefix not used: ${row.reference}`);
 
     await req(`/admin/clients/${scratchId}/payments/${row.id}/delete`, { method: 'POST', jar });
   });
 
   await check('admin: a malformed payment amount is refused', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS c FROM payments').get().c;
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM payments').get()).c;
     await req(`/admin/clients/${demoId}/payments`, {
       method: 'POST', jar,
       body: new URLSearchParams({
         paidOn: '2025-12-03', amount: '-50', status: 'Confirmed'
       }).toString()
     });
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM payments').get().c, before,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM payments').get()).c, before,
       'a negative amount was accepted');
   });
 
@@ -1024,7 +1030,7 @@ async function adminChecks(clientJar) {
     const target = { id: testPaymentId };
     const r = await req(`/admin/clients/${scratchId}/payments/${target.id}/delete`, { method: 'POST', jar });
     assert.strictEqual(r.status, 404, `cross-client delete returned ${r.status}`);
-    assert.ok(db.prepare('SELECT id FROM payments WHERE id = ?').get(target.id),
+    assert.ok(await db.prepare('SELECT id FROM payments WHERE id = ?').get(target.id),
       'another client\'s payment was deleted');
   });
 
@@ -1035,7 +1041,7 @@ async function adminChecks(clientJar) {
     assert.strictEqual(form.status, 200, `edit page returned ${form.status}`);
     assert.ok((await form.text()).includes('value="1000.00"'), 'the current amount is not prefilled');
 
-    const before = db.prepare('SELECT reference FROM payments WHERE id = ?').get(row.id).reference;
+    const before = (await db.prepare('SELECT reference FROM payments WHERE id = ?').get(row.id)).reference;
 
     const r = await req(`/admin/clients/${demoId}/payments/${row.id}`, {
       method: 'POST', jar,
@@ -1045,7 +1051,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const after = db.prepare('SELECT * FROM payments WHERE id = ?').get(row.id);
+    const after = await db.prepare('SELECT * FROM payments WHERE id = ?').get(row.id);
     assert.strictEqual(after.reference, before, 'the reference was changed by an edit');
     assert.strictEqual(after.amount_cents, 120050, 'the edited amount is not exact cents');
     assert.strictEqual(after.paid_on, '2025-12-02');
@@ -1056,7 +1062,7 @@ async function adminChecks(clientJar) {
 
   await check('admin: the edit page shows the reference as read-only', async () => {
     const row = { id: testPaymentId };
-    const current = db.prepare('SELECT reference FROM payments WHERE id = ?').get(row.id).reference;
+    const current = (await db.prepare('SELECT reference FROM payments WHERE id = ?').get(row.id)).reference;
 
     const html = await (await req(`/admin/clients/${demoId}/payments/${row.id}`, { jar })).text();
     assert.ok(html.includes(`value="${current}"`), 'the reference is not shown on the edit page');
@@ -1069,7 +1075,7 @@ async function adminChecks(clientJar) {
       method: 'POST', jar, body: new URLSearchParams({ status: 'Written off' }).toString()
     });
     assert.strictEqual(
-      db.prepare('SELECT status FROM payments WHERE id = ?').get(row.id).status, 'Confirmed',
+      (await db.prepare('SELECT status FROM payments WHERE id = ?').get(row.id)).status, 'Confirmed',
       'an invented status was stored');
   });
 
@@ -1084,7 +1090,7 @@ async function adminChecks(clientJar) {
 
     const r = await req(action, { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `deleting returned ${r.status}`);
-    assert.ok(!db.prepare('SELECT id FROM payments WHERE id = ?').get(row.id), 'the payment survived');
+    assert.ok(!await db.prepare('SELECT id FROM payments WHERE id = ?').get(row.id), 'the payment survived');
 
     assert.ok((await (await req(`/admin/clients/${demoId}`, { jar })).text()).includes('US$2,500'),
       'the balance did not return to US$2,500');
@@ -1093,7 +1099,7 @@ async function adminChecks(clientJar) {
   await check('admin: disabling an account ends its sessions', async () => {
     // The reset check above changed this password, so set a known one and
     // prove we really hold a live session before disabling the account.
-    db.prepare('UPDATE users SET password_hash = ?, disabled = 0 WHERE id = ?')
+    await db.prepare('UPDATE users SET password_hash = ?, disabled = 0 WHERE id = ?')
       .run(await hashPassword('scratch-client-password'), scratchId);
 
     const sJar = makeJar();
@@ -1108,17 +1114,17 @@ async function adminChecks(clientJar) {
     await req(`/admin/clients/${scratchId}/disable`, {
       method: 'POST', jar, body: new URLSearchParams({ disabled: '1' }).toString()
     });
-    assert.strictEqual(db.prepare('SELECT disabled FROM users WHERE id = ?').get(scratchId).disabled, 1,
+    assert.strictEqual((await db.prepare('SELECT disabled FROM users WHERE id = ?').get(scratchId)).disabled, 1,
       'the account was not disabled');
     assert.strictEqual((await req('/api/me', { jar: sJar })).status, 401,
       'the session survived the account being disabled');
-    assert.ok(!db.prepare('SELECT token_hash FROM sessions WHERE user_id = ?').get(scratchId),
+    assert.ok(!await db.prepare('SELECT token_hash FROM sessions WHERE user_id = ?').get(scratchId),
       'session rows survived disabling the account');
 
     await req(`/admin/clients/${scratchId}/disable`, {
       method: 'POST', jar, body: new URLSearchParams({ disabled: '0' }).toString()
     });
-    assert.strictEqual(db.prepare('SELECT disabled FROM users WHERE id = ?').get(scratchId).disabled, 0,
+    assert.strictEqual((await db.prepare('SELECT disabled FROM users WHERE id = ?').get(scratchId)).disabled, 0,
       'the account was not re-enabled');
   });
 
@@ -1134,7 +1140,7 @@ async function adminChecks(clientJar) {
 
   await check('admin: creating a client issues a working password', async () => {
     const clientNumber = 'HP-88999';
-    db.prepare('DELETE FROM users WHERE client_number = ?').run(clientNumber);
+    await db.prepare('DELETE FROM users WHERE client_number = ?').run(clientNumber);
 
     const r = await req('/admin/clients', {
       method: 'POST', jar,
@@ -1147,7 +1153,7 @@ async function adminChecks(clientJar) {
     const shown = (await r.text()).match(/<code class="pw">([^<]+)<\/code>/);
     assert.ok(shown, 'the generated password was not shown');
 
-    const row = db.prepare('SELECT id, role FROM users WHERE client_number = ?').get(clientNumber);
+    const row = await db.prepare('SELECT id, role FROM users WHERE client_number = ?').get(clientNumber);
     assert.ok(row, 'the client was not created');
     assert.strictEqual(row.role, 'client', 'the new account is not a client');
 
@@ -1159,18 +1165,18 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: a duplicate client number is refused', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM users').get()).c;
     const r = await req('/admin/clients', {
       method: 'POST', jar,
       body: new URLSearchParams({ clientNumber: 'HP-10245', fullName: 'Copy Cat' }).toString()
     });
     assert.strictEqual(r.status, 200, 'the duplicate was not refused in-page');
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM users').get().c, before,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM users').get()).c, before,
       'a duplicate client number was created');
   });
 
   await check('admin: a malformed client number and a blank name are refused', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM users').get()).c;
 
     await req('/admin/clients', {
       method: 'POST', jar,
@@ -1181,7 +1187,7 @@ async function adminChecks(clientJar) {
       body: new URLSearchParams({ clientNumber: 'HP-88998', fullName: '   ' }).toString()
     });
 
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM users').get().c, before,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM users').get()).c, before,
       'an invalid client was created');
   });
 
@@ -1206,7 +1212,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const row = db.prepare('SELECT * FROM documents WHERE user_id = ? AND title = ?')
+    const row = await db.prepare('SELECT * FROM documents WHERE user_id = ? AND title = ?')
       .get(scratchId, 'Uploaded Agreement');
     assert.ok(row, 'no document row was created');
     assert.strictEqual(row.size_bytes, MINIMAL_PDF.length, 'the recorded size is wrong');
@@ -1237,7 +1243,7 @@ async function adminChecks(clientJar) {
     // The declared type said PDF; only the magic bytes give it away.
     assert.strictEqual(r.status, 200, `the upload was not refused in-page (${r.status})`);
     assert.strictEqual(fs.readdirSync(TEST_DOCS).length, before, 'a non-PDF reached the disk');
-    assert.ok(!db.prepare('SELECT id FROM documents WHERE title = ?').get('Sneaky'),
+    assert.ok(!await db.prepare('SELECT id FROM documents WHERE title = ?').get('Sneaky'),
       'a non-PDF was recorded in the database');
   });
 
@@ -1265,7 +1271,7 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: an admin can download a client document', async () => {
-    const doc = db.prepare('SELECT id FROM documents WHERE title = ?').get('Uploaded Agreement');
+    const doc = await db.prepare('SELECT id FROM documents WHERE title = ?').get('Uploaded Agreement');
     const r = await req(`/admin/clients/${scratchId}/documents/${doc.id}/download`, { jar });
     assert.strictEqual(r.status, 200, `status ${r.status}`);
     assert.match(r.headers.get('content-type'), /application\/pdf/);
@@ -1275,13 +1281,13 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: a document cannot be fetched through another client\'s URL', async () => {
-    const doc = db.prepare('SELECT id FROM documents WHERE title = ?').get('Uploaded Agreement');
+    const doc = await db.prepare('SELECT id FROM documents WHERE title = ?').get('Uploaded Agreement');
     const r = await req(`/admin/clients/${demoId}/documents/${doc.id}/download`, { jar });
     assert.strictEqual(r.status, 404, `cross-client document read returned ${r.status}`);
   });
 
   await check('admin: deleting a document removes the row and the file', async () => {
-    const doc = db.prepare('SELECT id, stored_name FROM documents WHERE title = ?')
+    const doc = await db.prepare('SELECT id, stored_name FROM documents WHERE title = ?')
       .get('Uploaded Agreement');
     const onDisk = path.join(TEST_DOCS, doc.stored_name);
     assert.ok(fs.existsSync(onDisk), 'the file should exist before deletion');
@@ -1289,7 +1295,7 @@ async function adminChecks(clientJar) {
     const r = await req(`/admin/clients/${scratchId}/documents/${doc.id}/delete`,
       { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
-    assert.ok(!db.prepare('SELECT id FROM documents WHERE id = ?').get(doc.id), 'the row survived');
+    assert.ok(!await db.prepare('SELECT id FROM documents WHERE id = ?').get(doc.id), 'the row survived');
     assert.ok(!fs.existsSync(onDisk), 'the file survived on disk');
   });
 
@@ -1302,9 +1308,9 @@ async function adminChecks(clientJar) {
   });
 
   await check('admin: project progress can be added, edited and deleted', async () => {
-    const project = db.prepare("SELECT id FROM projects WHERE name = 'Heritage Park'").get();
-    const before = db.prepare('SELECT COUNT(*) AS c FROM progress WHERE project_id = ?')
-      .get(project.id).c;
+    const project = await db.prepare("SELECT id FROM projects WHERE name = 'Heritage Park'").get();
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM progress WHERE project_id = ?')
+      .get(project.id)).c;
 
     let r = await req(`/admin/projects/${project.id}/progress`, {
       method: 'POST', jar,
@@ -1312,10 +1318,10 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `add returned ${r.status}`);
     assert.strictEqual(
-      db.prepare('SELECT COUNT(*) AS c FROM progress WHERE project_id = ?').get(project.id).c,
+      (await db.prepare('SELECT COUNT(*) AS c FROM progress WHERE project_id = ?').get(project.id)).c,
       before + 1, 'the step was not added');
 
-    const step = db.prepare(
+    const step = await db.prepare(
       'SELECT * FROM progress WHERE project_id = ? ORDER BY position DESC, id DESC LIMIT 1')
       .get(project.id);
     assert.strictEqual(step.label, 'Roads and drainage');
@@ -1327,7 +1333,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `update returned ${r.status}`);
 
-    const updated = db.prepare('SELECT label, state FROM progress WHERE id = ?').get(step.id);
+    const updated = await db.prepare('SELECT label, state FROM progress WHERE id = ?').get(step.id);
     assert.strictEqual(updated.label, 'Roads, drainage and kerbs');
     assert.strictEqual(updated.state, 'current');
 
@@ -1336,19 +1342,19 @@ async function adminChecks(clientJar) {
       method: 'POST', jar,
       body: new URLSearchParams({ label: 'Still fine', state: 'nonsense' }).toString()
     });
-    assert.strictEqual(db.prepare('SELECT state FROM progress WHERE id = ?').get(step.id).state,
+    assert.strictEqual((await db.prepare('SELECT state FROM progress WHERE id = ?').get(step.id)).state,
       'current', 'an invalid state was stored');
 
     r = await req(`/admin/projects/${project.id}/progress/${step.id}/delete`, { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `delete returned ${r.status}`);
     assert.strictEqual(
-      db.prepare('SELECT COUNT(*) AS c FROM progress WHERE project_id = ?').get(project.id).c,
+      (await db.prepare('SELECT COUNT(*) AS c FROM progress WHERE project_id = ?').get(project.id)).c,
       before, 'the step was not deleted');
   });
 
   await check('admin: an edited step shows up in the client\'s portal', async () => {
-    const project = db.prepare("SELECT id FROM projects WHERE name = 'Heritage Park'").get();
-    const first = db.prepare('SELECT * FROM progress WHERE project_id = ? ORDER BY position LIMIT 1')
+    const project = await db.prepare("SELECT id FROM projects WHERE name = 'Heritage Park'").get();
+    const first = await db.prepare('SELECT * FROM progress WHERE project_id = ? ORDER BY position LIMIT 1')
       .get(project.id);
 
     await req(`/admin/projects/${project.id}/progress/${first.id}`, {
@@ -1402,7 +1408,7 @@ async function adminChecks(clientJar) {
     assert.ok(after.includes('Edited By The Verification Suite'),
       'the edit did not reach the public page');
 
-    const row = db.prepare(
+    const row = await db.prepare(
       "SELECT value FROM content_blocks WHERE page='home' AND section='hero' AND item=0 AND field='heading'"
     ).get();
     assert.strictEqual(row.value, 'Edited By The Verification Suite', 'the database was not written');
@@ -1426,22 +1432,22 @@ async function adminChecks(clientJar) {
     assert.strictEqual(r.status, 302);
 
     assert.strictEqual(
-      db.prepare("SELECT COUNT(*) AS c FROM content_blocks WHERE section='nosuchsection' OR field='nosuchfield'")
-        .get().c, 0, 'a crafted form invented content outside the schema');
+      (await db.prepare("SELECT COUNT(*) AS c FROM content_blocks WHERE section='nosuchsection' OR field='nosuchfield'")
+        .get()).c, 0, 'a crafted form invented content outside the schema');
     assert.strictEqual(
-      db.prepare("SELECT COUNT(*) AS c FROM content_blocks WHERE item=99 AND page='home'").get().c, 0,
+      (await db.prepare("SELECT COUNT(*) AS c FROM content_blocks WHERE item=99 AND page='home'").get()).c, 0,
       'a one-off field was written at a bogus item number');
   });
 
   await check('cms: adding and removing a repeating item works end to end', async () => {
-    const before = db.prepare(
-      "SELECT MAX(item) AS m FROM content_blocks WHERE page='home' AND section='feature'").get().m;
+    const before = (await db.prepare(
+      "SELECT MAX(item) AS m FROM content_blocks WHERE page='home' AND section='feature'").get()).m;
 
     let r = await req('/admin/content/home/feature/add', { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `add returned ${r.status}`);
 
-    const after = db.prepare(
-      "SELECT MAX(item) AS m FROM content_blocks WHERE page='home' AND section='feature'").get().m;
+    const after = (await db.prepare(
+      "SELECT MAX(item) AS m FROM content_blocks WHERE page='home' AND section='feature'").get()).m;
     assert.strictEqual(after, before + 1, 'no new item was created');
 
     await req('/admin/content/home/save', {
@@ -1458,8 +1464,8 @@ async function adminChecks(clientJar) {
     r = await req(`/admin/content/home/feature/${after}/delete`, { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `delete returned ${r.status}`);
     assert.strictEqual(
-      db.prepare("SELECT COUNT(*) AS c FROM content_blocks WHERE page='home' AND section='feature' AND item=?")
-        .get(after).c, 0, 'the item was not deleted');
+      (await db.prepare("SELECT COUNT(*) AS c FROM content_blocks WHERE page='home' AND section='feature' AND item=?")
+        .get(after)).c, 0, 'the item was not deleted');
 
     // The factory defaults must not silently reappear once a page is seeded.
     assert.ok(!(await (await req('/index.html')).text()).includes('A Brand New Card'),
@@ -1467,7 +1473,7 @@ async function adminChecks(clientJar) {
   });
 
   await check('cms: site settings change the public header and footer', async () => {
-    const original = db.prepare("SELECT value FROM site_settings WHERE key='phone'").get().value;
+    const original = (await db.prepare("SELECT value FROM site_settings WHERE key='phone'").get()).value;
 
     const r = await req('/admin/settings', {
       method: 'POST', jar,
@@ -1489,23 +1495,23 @@ async function adminChecks(clientJar) {
     const before = await (await req('/projects.html')).text();
     assert.ok(before.includes('Raylands Estate'), 'the project is missing to begin with');
 
-    db.prepare('UPDATE projects SET name = ? WHERE name = ?').run('Renamed Estate', 'Raylands Estate');
+    await db.prepare('UPDATE projects SET name = ? WHERE name = ?').run('Renamed Estate', 'Raylands Estate');
 
     const after = await (await req('/projects.html')).text();
     assert.ok(after.includes('Renamed Estate'), 'a database rename did not reach the public page');
     assert.ok(!after.includes('Raylands Estate'), 'the old name is still rendered');
 
-    db.prepare('UPDATE projects SET name = ? WHERE name = ?').run('Raylands Estate', 'Renamed Estate');
+    await db.prepare('UPDATE projects SET name = ? WHERE name = ?').run('Raylands Estate', 'Renamed Estate');
   });
 
   await check('cms: a stand price change reaches the public page', async () => {
-    const stand = db.prepare("SELECT id, price_cents FROM stands WHERE stand_number = 'HP-0310'").get();
-    db.prepare('UPDATE stands SET price_cents = ? WHERE id = ?').run(1234500, stand.id);
+    const stand = await db.prepare("SELECT id, price_cents FROM stands WHERE stand_number = 'HP-0310'").get();
+    await db.prepare('UPDATE stands SET price_cents = ? WHERE id = ?').run(1234500, stand.id);
 
     assert.ok((await (await req('/properties.html')).text()).includes('US$12,345'),
       'the new price is not on the properties page');
 
-    db.prepare('UPDATE stands SET price_cents = ? WHERE id = ?').run(stand.price_cents, stand.id);
+    await db.prepare('UPDATE stands SET price_cents = ? WHERE id = ?').run(stand.price_cents, stand.id);
     assert.ok(!(await (await req('/properties.html')).text()).includes('US$12,345'),
       'the price did not revert');
   });
@@ -1513,7 +1519,7 @@ async function adminChecks(clientJar) {
   await check('cms: the static export matches what the server renders', async () => {
     const publicSite = require('../server/public-site');
     const live = await (await req('/about.html')).text();
-    const exported = publicSite.renderFile('about.html');
+    const exported = await publicSite.renderFile('about.html');
 
     assert.ok(exported, 'the exporter produced nothing');
     assert.strictEqual(exported, live,
@@ -1609,7 +1615,7 @@ async function adminChecks(clientJar) {
       assert.ok(text.includes(needle), `the statement does not contain "${needle}"`);
     }
     // Every payment the database holds must be drawn.
-    for (const p of db.prepare('SELECT reference FROM payments WHERE user_id = ?').all(demoId)) {
+    for (const p of await db.prepare('SELECT reference FROM payments WHERE user_id = ?').all(demoId)) {
       assert.ok(text.includes(p.reference), `payment ${p.reference} is missing from the statement`);
     }
     return info;
@@ -1636,7 +1642,7 @@ async function adminChecks(clientJar) {
       body: new URLSearchParams({ paidOn: '2026-01-05', amount: '250', status: 'Pending' }).toString()
     });
 
-    const row = db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(demoId);
+    const row = await db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(demoId);
 
     const r = await req(`/admin/clients/${demoId}/statement.pdf`, { jar });
     const text = pdfText(Buffer.from(await r.arrayBuffer()));
@@ -1657,11 +1663,11 @@ async function adminChecks(clientJar) {
         method: 'POST', jar,
         body: new URLSearchParams({ paidOn: '2026-02-01', amount: '10', status: 'Confirmed' }).toString()
       });
-      ids.push(db.prepare('SELECT id FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1')
-        .get(demoId).id);
+      ids.push((await db.prepare('SELECT id FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 1')
+        .get(demoId)).id);
     }
 
-    const refs = ids.map((id) => db.prepare('SELECT reference FROM payments WHERE id = ?').get(id).reference);
+    const refs = await Promise.all(ids.map(async (id) => (await db.prepare('SELECT reference FROM payments WHERE id = ?').get(id)).reference));
 
     const r = await req(`/admin/clients/${demoId}/statement.pdf`, { jar });
     const buf = Buffer.from(await r.arrayBuffer());
@@ -1773,23 +1779,23 @@ async function adminChecks(clientJar) {
   });
 
   await check('analytics: the scenario sale is created at US$6,500 with nothing collected', async () => {
-    const project = db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get();
-    scenarioStandId = Number(db.prepare(
+    const project = await db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get();
+    scenarioStandId = Number((await db.prepare(
       'INSERT INTO stands (project_id, stand_number, size_sqm, type, price_cents, status) VALUES (?,?,?,?,?,?)')
-      .run(project.id, 'ANALYTICS-6500', 200, 'Residential', 650000, 'Sold').lastInsertRowid);
+      .run(project.id, 'ANALYTICS-6500', 200, 'Residential', 650000, 'Sold')).lastInsertRowid);
 
-    const clientId = Number(db.prepare(
+    const clientId = Number((await db.prepare(
       "INSERT INTO users (client_number, full_name, email, role, password_hash, created_at) VALUES (?,?,?,'client',?,?)")
       .run('HP-90001', 'Analytics Scenario Client', 'scenario@example.com', 'scrypt$unused',
-        new Date().toISOString()).lastInsertRowid);
+        new Date().toISOString())).lastInsertRowid);
 
-    scenarioSaleId = Number(db.prepare(`INSERT INTO ownerships
+    scenarioSaleId = Number((await db.prepare(`INSERT INTO ownerships
         (user_id, stand_id, purchase_price_cents, purchase_date, status, sale_price_cents, sale_status, sale_date)
         VALUES (?,?,?,?,?,?,'Active',?)`)
-      .run(clientId, scenarioStandId, 650000, '2026-01-10', 'Servicing in progress', 650000, '2026-01-10')
+      .run(clientId, scenarioStandId, 650000, '2026-01-10', 'Servicing in progress', 650000, '2026-01-10'))
       .lastInsertRowid);
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.sale_price_cents, 650000, 'sale price should be US$6,500');
     assert.strictEqual(s.collected_cents, 0, 'a new sale must not count as cash collected');
     assert.strictEqual(s.outstanding_cents, 650000, 'the whole price is outstanding');
@@ -1800,7 +1806,7 @@ async function adminChecks(clientJar) {
     const r = await recordTxn('DEPOSIT', '3000', '2026-01-10');
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.deposits_cents, 300000);
     assert.strictEqual(s.collected_cents, 300000, 'only the deposit has been collected');
     assert.strictEqual(s.outstanding_cents, 350000);
@@ -1811,7 +1817,7 @@ async function adminChecks(clientJar) {
     await recordTxn('INSTALLMENT', '500', '2026-02-01');
     await recordTxn('INSTALLMENT', '500', '2026-03-01');
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.installments_cents, 100000);
     assert.strictEqual(s.collected_cents, 400000);
     assert.strictEqual(s.outstanding_cents, 250000);
@@ -1822,7 +1828,7 @@ async function adminChecks(clientJar) {
     const r = await recordTxn('FINAL_PAYMENT', '3000', '2026-04-01');
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.finals_cents, 0, 'an over-large final payment was accepted');
     assert.strictEqual(s.outstanding_cents, 250000, 'the balance must be unchanged');
   });
@@ -1830,7 +1836,7 @@ async function adminChecks(clientJar) {
   await check('analytics: the exact US$2,500 final payment completes the sale', async () => {
     await recordTxn('FINAL_PAYMENT', '2500', '2026-04-01');
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.finals_cents, 250000);
     assert.strictEqual(s.collected_cents, 650000, 'total collected must equal the sale price');
     assert.strictEqual(s.net_cents, 650000);
@@ -1846,14 +1852,14 @@ async function adminChecks(clientJar) {
     const r = await recordTxn('REFUND', '7000', '2026-05-01');
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.refunds_cents, 0, 'an over-large refund was accepted');
   });
 
   await check('analytics: a US$500 refund gives gross 6,500, net 6,000, recoverable 500', async () => {
     await recordTxn('REFUND', '500', '2026-05-01');
 
-    const s = analytics.saleById(scenarioSaleId);
+    const s = await analytics.saleById(scenarioSaleId);
     assert.strictEqual(s.collected_cents, 650000, 'gross collections stay at the full price paid');
     assert.strictEqual(s.refunds_cents, 50000);
     assert.strictEqual(s.net_cents, 600000, 'net collections must fall by the refund');
@@ -1863,7 +1869,7 @@ async function adminChecks(clientJar) {
   });
 
   await check('analytics: the dashboard renders the figures the engine computes', async () => {
-    const k = analytics.kpis({});
+    const k = await analytics.kpis({});
     const html = await (await req('/admin/analytics', { jar })).text();
 
     for (const [label, cents] of [
@@ -1885,8 +1891,8 @@ async function adminChecks(clientJar) {
 
   await check('analytics: voiding a transaction removes it from every figure', async () => {
     // Rule 7.
-    const before = analytics.kpis({});
-    const txn = db.prepare(
+    const before = await analytics.kpis({});
+    const txn = await db.prepare(
       "SELECT id FROM payments WHERE ownership_id = ? AND type = 'INSTALLMENT' ORDER BY id LIMIT 1")
       .get(scenarioSaleId);
 
@@ -1894,24 +1900,24 @@ async function adminChecks(clientJar) {
       method: 'POST', jar, body: new URLSearchParams({ reason: 'scenario void' }).toString()
     });
 
-    const after = analytics.kpis({});
+    const after = await analytics.kpis({});
     assert.strictEqual(after.installmentsCents, before.installmentsCents - 50000,
       'a voided instalment is still being counted');
     assert.strictEqual(after.netCents, before.netCents - 50000, 'a voided transaction still affects net');
 
     // The row survives so the deletion stays auditable.
-    assert.ok(db.prepare('SELECT voided_at FROM payments WHERE id = ?').get(txn.id).voided_at,
+    assert.ok((await db.prepare('SELECT voided_at FROM payments WHERE id = ?').get(txn.id)).voided_at,
       'voiding deleted the row instead of marking it');
 
     await req(`/admin/payments/${txn.id}/restore`, {
       method: 'POST', jar, body: new URLSearchParams({ reason: 'scenario restore' }).toString()
     });
-    assert.strictEqual(analytics.kpis({}).netCents, before.netCents, 'restoring did not bring it back');
+    assert.strictEqual((await analytics.kpis({})).netCents, before.netCents, 'restoring did not bring it back');
   });
 
   await check('analytics: every change to money leaves an audit trail', async () => {
     // Rule 8 and the audit-trail section.
-    const rows = analytics.financeAuditLog({ limit: 300 });
+    const rows = await analytics.financeAuditLog({ limit: 300 });
     for (const action of ['deposit_created', 'installment_created', 'final_payment_created',
       'refund_created', 'payment_voided', 'payment_restored']) {
       assert.ok(rows.some((r) => r.action === action), `no audit entry for ${action}`);
@@ -1924,7 +1930,7 @@ async function adminChecks(clientJar) {
 
   await check('analytics: a payment cannot be recorded against a missing sale', async () => {
     // Rule 1.
-    const r = analytics.recordTransaction({
+    const r = await analytics.recordTransaction({
       ownershipId: 999999, type: 'DEPOSIT', amountCents: 1000, paidOn: '2026-01-01', reference: 'NOWHERE'
     });
     assert.strictEqual(r.ok, false, 'a payment was accepted for a sale that does not exist');
@@ -1933,7 +1939,7 @@ async function adminChecks(clientJar) {
 
   await check('analytics: an instalment cannot exist without a sale', async () => {
     // Rule 2.
-    const r = analytics.recordTransaction({
+    const r = await analytics.recordTransaction({
       ownershipId: null, type: 'INSTALLMENT', amountCents: 1000, paidOn: '2026-01-01', reference: 'ORPHAN'
     });
     assert.strictEqual(r.ok, false, 'an orphan instalment was accepted');
@@ -1942,25 +1948,25 @@ async function adminChecks(clientJar) {
   await check('analytics: an invalid type, amount or date is refused', async () => {
     // Rule 9.
     const base = { ownershipId: scenarioSaleId, paidOn: '2026-01-01', reference: 'R' };
-    assert.strictEqual(analytics.recordTransaction({ ...base, type: 'BRIBE', amountCents: 100 }).ok, false);
-    assert.strictEqual(analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: 0 }).ok, false);
-    assert.strictEqual(analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: -500 }).ok, false);
+    assert.strictEqual((await analytics.recordTransaction({ ...base, type: 'BRIBE', amountCents: 100 })).ok, false);
+    assert.strictEqual((await analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: 0 })).ok, false);
+    assert.strictEqual((await analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: -500 })).ok, false);
     assert.strictEqual(
-      analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: 100, paidOn: 'yesterday' }).ok, false);
+      (await analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: 100, paidOn: 'yesterday' })).ok, false);
     assert.strictEqual(
-      analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: 100, reference: '' }).ok, false);
+      (await analytics.recordTransaction({ ...base, type: 'DEPOSIT', amountCents: 100, reference: '' })).ok, false);
   });
 
   await check('analytics: transaction ids are unique', async () => {
     // Rule 11 — the primary key guarantees it, so this asserts the guarantee holds.
-    const ids = db.prepare('SELECT id FROM payments').all().map((r) => r.id);
+    const ids = (await db.prepare('SELECT id FROM payments').all()).map((r) => r.id);
     assert.strictEqual(new Set(ids).size, ids.length, 'duplicate transaction ids exist');
   });
 
   await check('analytics: analytics are keyed off the transaction date, not the sale date', async () => {
     // Rule 18 — the sale is dated 10 January; the May refund must land in May.
-    const jan = analytics.kpis({ from: '2026-01-01', to: '2026-01-31' });
-    const may = analytics.kpis({ from: '2026-05-01', to: '2026-05-31' });
+    const jan = await analytics.kpis({ from: '2026-01-01', to: '2026-01-31' });
+    const may = await analytics.kpis({ from: '2026-05-01', to: '2026-05-31' });
 
     assert.ok(jan.refundsCents === 0, 'the May refund leaked into January');
     assert.strictEqual(may.refundsCents, 50000, 'the refund is not counted in the month it happened');
@@ -2097,7 +2103,7 @@ async function adminChecks(clientJar) {
     const all = await (await req('/admin/analytics/export/project.csv', { jar })).text();
     assert.ok(all.includes('Heritage Park'), 'the unfiltered export is missing Heritage Park');
 
-    const goshen = db.prepare("SELECT id FROM projects WHERE name = 'Goshen Park'").get();
+    const goshen = await db.prepare("SELECT id FROM projects WHERE name = 'Goshen Park'").get();
     const filtered = await (await req(`/admin/analytics/export/project.csv?project=${goshen.id}`, { jar })).text();
 
     assert.ok(filtered.includes('Goshen Park'), 'the filtered export lost its own project');
@@ -2129,20 +2135,20 @@ async function adminChecks(clientJar) {
     /* This was a real bug. The client page's Confirm button changed the
        payment's status without recomputing the sale, so the money arrived and
        the sale stayed "Active" with a balance of zero. */
-    const project = db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get();
-    const standId = Number(db.prepare(
+    const project = await db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get();
+    const standId = Number((await db.prepare(
       'INSERT INTO stands (project_id, stand_number, size_sqm, type, price_cents, status) VALUES (?,?,?,?,?,?)')
-      .run(project.id, 'CONFIRM-1000', 100, 'Residential', 100000, 'Sold').lastInsertRowid);
+      .run(project.id, 'CONFIRM-1000', 100, 'Residential', 100000, 'Sold')).lastInsertRowid);
 
-    confirmClientId = Number(db.prepare(
+    confirmClientId = Number((await db.prepare(
       "INSERT INTO users (client_number, full_name, email, role, password_hash, created_at) VALUES (?,?,?,'client',?,?)")
       .run('HP-90002', 'Confirm Scenario', 'confirm@example.com', 'scrypt$unused',
-        new Date().toISOString()).lastInsertRowid);
+        new Date().toISOString())).lastInsertRowid);
 
-    confirmSaleId = Number(db.prepare(`INSERT INTO ownerships
+    confirmSaleId = Number((await db.prepare(`INSERT INTO ownerships
         (user_id, stand_id, purchase_price_cents, purchase_date, status, sale_price_cents, sale_status, sale_date)
         VALUES (?,?,?,?,?,?,'Active',?)`)
-      .run(confirmClientId, standId, 100000, '2026-06-01', 'Servicing in progress', 100000, '2026-06-01')
+      .run(confirmClientId, standId, 100000, '2026-06-01', 'Servicing in progress', 100000, '2026-06-01'))
       .lastInsertRowid);
 
     // The whole price, paid but not yet verified.
@@ -2152,12 +2158,12 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `recording returned ${r.status}`);
 
-    const before = analytics.saleById(confirmSaleId);
+    const before = await analytics.saleById(confirmSaleId);
     assert.strictEqual(before.collected_cents, 0, 'a pending payment must not count as collected');
     assert.strictEqual(before.outstanding_cents, 100000);
     assert.strictEqual(before.sale_status, 'Active');
 
-    const txn = db.prepare('SELECT id FROM payments WHERE ownership_id = ?').get(confirmSaleId);
+    const txn = await db.prepare('SELECT id FROM payments WHERE ownership_id = ?').get(confirmSaleId);
 
     // Confirm it through the real client-page route.
     const confirmed = await req(`/admin/clients/${confirmClientId}/payments/${txn.id}/status`, {
@@ -2166,22 +2172,22 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(confirmed.status, 302, `status route returned ${confirmed.status}`);
 
-    const after = analytics.saleById(confirmSaleId);
+    const after = await analytics.saleById(confirmSaleId);
     assert.strictEqual(after.collected_cents, 100000, 'confirming did not bring the money in');
     assert.strictEqual(after.outstanding_cents, 0, 'the balance was not recomputed');
     assert.strictEqual(after.sale_status, 'Completed',
       'confirming the payment that cleared the balance left the sale Active');
 
     assert.ok(
-      analytics.financeAuditLog({ limit: 400 })
+      (await analytics.financeAuditLog({ limit: 400 }))
         .some((a) => a.action === 'payment_status_changed' && a.new_value === 'Confirmed'),
       'the confirmation was not written to the finance audit trail');
   });
 
   await check('analytics: an edit from the client page is audited and recomputes', async () => {
     // Rule 8 — an edit to a financial record must leave a trail.
-    const txn = db.prepare('SELECT * FROM payments WHERE ownership_id = ?').get(confirmSaleId);
-    const editsBefore = analytics.financeAuditLog({ limit: 400 })
+    const txn = await db.prepare('SELECT * FROM payments WHERE ownership_id = ?').get(confirmSaleId);
+    const editsBefore = (await analytics.financeAuditLog({ limit: 400 }))
       .filter((a) => a.action === 'payment_edited' && a.entity_id === txn.id).length;
 
     const r = await req(`/admin/clients/${confirmClientId}/payments/${txn.id}`, {
@@ -2192,14 +2198,14 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `edit returned ${r.status}`);
 
-    const editsAfter = analytics.financeAuditLog({ limit: 400 })
+    const editsAfter = (await analytics.financeAuditLog({ limit: 400 }))
       .filter((a) => a.action === 'payment_edited' && a.entity_id === txn.id);
     assert.strictEqual(editsAfter.length, editsBefore + 1, 'the edit left no audit entry');
     assert.ok(editsAfter[0].old_value.includes('100000'), 'the audit entry does not record the old amount');
     assert.ok(editsAfter[0].new_value.includes('120000'), 'the audit entry does not record the new amount');
 
     // US$1,200 against a US$1,000 sale is an overpayment, reported as credit.
-    const sale = analytics.saleById(confirmSaleId);
+    const sale = await analytics.saleById(confirmSaleId);
     assert.strictEqual(sale.collected_cents, 120000, 'the edit did not take effect');
     assert.strictEqual(sale.outstanding_cents, 0, 'a credit balance must not read as owed');
     assert.strictEqual(sale.overpaid_cents, 20000, 'the credit balance is not identified separately');
@@ -2227,14 +2233,14 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const created = db.prepare("SELECT * FROM projects WHERE name = 'Test Valley Estate'").get();
+    const created = await db.prepare("SELECT * FROM projects WHERE name = 'Test Valley Estate'").get();
     assert.ok(created, 'the development was not created');
     testProjectId = created.id;
     assert.strictEqual(created.status, 'Planning');
   });
 
   await check('admin: a duplicate development name is refused', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS c FROM projects').get().c;
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM projects').get()).c;
 
     const r = await req('/admin/projects', {
       method: 'POST', jar,
@@ -2245,7 +2251,7 @@ async function adminChecks(clientJar) {
 
     assert.strictEqual(r.status, 200, 'the duplicate was not refused in-page');
     assert.ok((await r.text()).includes('already exists'), 'no explanation was given');
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM projects').get().c, before,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM projects').get()).c, before,
       'a duplicate development was created anyway');
   });
 
@@ -2268,7 +2274,7 @@ async function adminChecks(clientJar) {
 
     /* The analytics read the project name rather than storing a copy of it, so
        a rename has to show up in the sales reports as well. */
-    assert.ok(analytics.filterOptions().projects.some((p) => p.name === 'Renamed Valley Estate'),
+    assert.ok((await analytics.filterOptions()).projects.some((p) => p.name === 'Renamed Valley Estate'),
       'the sales analytics still offers the old name');
   });
 
@@ -2282,7 +2288,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const created = db.prepare("SELECT * FROM stands WHERE stand_number = 'TV-0001'").get();
+    const created = await db.prepare("SELECT * FROM stands WHERE stand_number = 'TV-0001'").get();
     assert.ok(created, 'the property was not created');
     testStandId = created.id;
     assert.strictEqual(created.size_sqm, 250);
@@ -2294,7 +2300,7 @@ async function adminChecks(clientJar) {
     /* Stand numbers are unique across the whole system, matching the schema's
        UNIQUE constraint. Checking only within the development let a duplicate
        through to the INSERT, which then failed with a raw constraint error. */
-    const before = db.prepare('SELECT COUNT(*) AS c FROM stands').get().c;
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM stands').get()).c;
 
     // Same development, different case.
     const same = await req('/admin/properties', {
@@ -2308,7 +2314,7 @@ async function adminChecks(clientJar) {
     assert.ok((await same.text()).includes('already used by a property'), 'no explanation was given');
 
     // A DIFFERENT development must be refused too, or the insert throws.
-    const other = db.prepare('SELECT id FROM projects WHERE id <> ? LIMIT 1').get(testProjectId);
+    const other = await db.prepare('SELECT id FROM projects WHERE id <> ? LIMIT 1').get(testProjectId);
     const cross = await req('/admin/properties', {
       method: 'POST', jar,
       body: new URLSearchParams({
@@ -2321,7 +2327,7 @@ async function adminChecks(clientJar) {
     assert.ok((await cross.text()).includes('already used by a property'),
       'the cross-development clash was not explained');
 
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM stands').get().c, before,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM stands').get()).c, before,
       'a duplicate property was created anyway');
   });
 
@@ -2339,7 +2345,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    const stored = db.prepare('SELECT * FROM stands WHERE id = ?').get(testStandId);
+    const stored = await db.prepare('SELECT * FROM stands WHERE id = ?').get(testStandId);
     assert.strictEqual(stored.size_sqm, 375);
     assert.strictEqual(stored.type, 'Commercial');
     assert.strictEqual(stored.price_cents, 510000);
@@ -2353,7 +2359,7 @@ async function adminChecks(clientJar) {
   await check('admin: a property with a sale against it cannot be deleted', async () => {
     /* Removing it would orphan a client's purchase, their payments and every
        sales figure that points at them. */
-    const held = db.prepare(`
+    const held = await db.prepare(`
       SELECT s.id, s.stand_number FROM stands s
        WHERE (SELECT COUNT(*) FROM ownerships o WHERE o.stand_id = s.id) > 0
        LIMIT 1`).get();
@@ -2361,7 +2367,7 @@ async function adminChecks(clientJar) {
 
     await req(`/admin/properties/${held.id}/delete`, { method: 'POST', jar });
 
-    assert.ok(db.prepare('SELECT 1 AS x FROM stands WHERE id = ?').get(held.id),
+    assert.ok(await db.prepare('SELECT 1 AS x FROM stands WHERE id = ?').get(held.id),
       'a property with a sale was deleted, orphaning the sale');
 
     const page = await (await req(`/admin/properties/${held.id}`, { jar })).text();
@@ -2371,7 +2377,7 @@ async function adminChecks(clientJar) {
   await check('admin: a property with no sale can be deleted', async () => {
     const r = await req(`/admin/properties/${testStandId}/delete`, { method: 'POST', jar });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
-    assert.ok(!db.prepare('SELECT 1 AS x FROM stands WHERE id = ?').get(testStandId),
+    assert.ok(!await db.prepare('SELECT 1 AS x FROM stands WHERE id = ?').get(testStandId),
       'the property was not deleted');
 
     const after = await (await req('/properties.html')).text();
@@ -2396,10 +2402,10 @@ async function adminChecks(clientJar) {
     }
 
     for (const number of ['BAD-1', 'BAD-2', 'BAD-3', 'BAD-4', 'BAD-5']) {
-      assert.ok(!db.prepare('SELECT 1 AS x FROM stands WHERE stand_number = ?').get(number),
+      assert.ok(!await db.prepare('SELECT 1 AS x FROM stands WHERE stand_number = ?').get(number),
         `${number} was created despite invalid input`);
     }
-    assert.ok(!db.prepare("SELECT 1 AS x FROM projects WHERE name = 'Valid Name'").get(),
+    assert.ok(!await db.prepare("SELECT 1 AS x FROM projects WHERE name = 'Valid Name'").get(),
       'a development with an invalid status was created');
   });
 
@@ -2413,7 +2419,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
     assert.strictEqual(
-      db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId).sold_out, 1,
+      (await db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId)).sold_out, 1,
       'the flag was not set');
 
     const page = await (await req('/projects.html')).text();
@@ -2433,7 +2439,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(r.status, 302, `status ${r.status}`);
 
-    soldOutStandId = db.prepare("SELECT id FROM stands WHERE stand_number = 'TV-SOLDOUT'").get().id;
+    soldOutStandId = (await db.prepare("SELECT id FROM stands WHERE stand_number = 'TV-SOLDOUT'").get()).id;
     assert.ok(soldOutStandId, 'the stand was not created');
 
     const page = await (await req('/properties.html')).text();
@@ -2460,7 +2466,7 @@ async function adminChecks(clientJar) {
       method: 'POST', jar, body: new URLSearchParams({ soldOut: '0' }).toString()
     });
     assert.strictEqual(
-      db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId).sold_out, 0);
+      (await db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId)).sold_out, 0);
 
     const page = await (await req('/properties.html')).text();
     assert.ok(page.includes('TV-SOLDOUT'), 'the stand did not come back with the development');
@@ -2481,12 +2487,12 @@ async function adminChecks(clientJar) {
 
     await save(true);
     assert.strictEqual(
-      db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId).sold_out, 1,
+      (await db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId)).sold_out, 1,
       'the checkbox did not mark the development sold out');
 
     await save(false);
     assert.strictEqual(
-      db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId).sold_out, 0,
+      (await db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId)).sold_out, 0,
       'clearing the checkbox did not make it available again');
   });
 
@@ -2495,7 +2501,7 @@ async function adminChecks(clientJar) {
       method: 'POST', jar: clientJar, body: new URLSearchParams({ soldOut: '1' }).toString()
     });
     assert.strictEqual(
-      db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId).sold_out, 0,
+      (await db.prepare('SELECT sold_out FROM projects WHERE id = ?').get(testProjectId)).sold_out, 0,
       'a non-admin changed the sold-out state');
   });
 
@@ -2510,9 +2516,9 @@ async function adminChecks(clientJar) {
      The relationship the brief is about, tested end to end. */
 
   await check('properties: one development holds many properties', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS c FROM stands WHERE project_id = ?')
-      .get(testProjectId).c;
-    const projectsBefore = db.prepare('SELECT COUNT(*) AS c FROM projects').get().c;
+    const before = (await db.prepare('SELECT COUNT(*) AS c FROM stands WHERE project_id = ?')
+      .get(testProjectId)).c;
+    const projectsBefore = (await db.prepare('SELECT COUNT(*) AS c FROM projects').get()).c;
 
     for (const [number, size, price, status] of [
       ['TV-1001', '200', '5500', 'Available'],
@@ -2530,20 +2536,20 @@ async function adminChecks(clientJar) {
     }
 
     assert.strictEqual(
-      db.prepare('SELECT COUNT(*) AS c FROM stands WHERE project_id = ?').get(testProjectId).c,
+      (await db.prepare('SELECT COUNT(*) AS c FROM stands WHERE project_id = ?').get(testProjectId)).c,
       before + 3, 'the properties were not all added to the one development');
 
     /* Adding three properties must not create three developments. */
-    assert.strictEqual(db.prepare('SELECT COUNT(*) AS c FROM projects').get().c, projectsBefore,
+    assert.strictEqual((await db.prepare('SELECT COUNT(*) AS c FROM projects').get()).c, projectsBefore,
       'a development was created per property instead of reusing the existing one');
 
     assert.strictEqual(
-      db.prepare("SELECT COUNT(DISTINCT project_id) AS c FROM stands WHERE stand_number LIKE 'TV-100%'").get().c,
+      (await db.prepare("SELECT COUNT(DISTINCT project_id) AS c FROM stands WHERE stand_number LIKE 'TV-100%'").get()).c,
       1, 'the properties landed in different developments');
   });
 
   await check('properties: each keeps its own number, size, price and status', async () => {
-    const rows = db.prepare("SELECT * FROM stands WHERE stand_number LIKE 'TV-100%' ORDER BY stand_number").all();
+    const rows = await db.prepare("SELECT * FROM stands WHERE stand_number LIKE 'TV-100%' ORDER BY stand_number").all();
 
     assert.strictEqual(rows.length, 3, 'expected three properties');
     assert.deepStrictEqual(rows.map((r) => r.stand_number), ['TV-1001', 'TV-1002', 'TV-1003'],
@@ -2557,7 +2563,7 @@ async function adminChecks(clientJar) {
   });
 
   await check('properties: development statistics update automatically', async () => {
-    const stats = admin.projectsWithCounts().find((p) => p.id === testProjectId);
+    const stats = (await admin.projectsWithCounts()).find((p) => p.id === testProjectId);
     assert.strictEqual(stats.property_count, 3, 'the property count is wrong');
     assert.strictEqual(stats.available_count, 1, 'the available count is wrong');
     assert.strictEqual(stats.reserved_count, 1, 'the reserved count is wrong');
@@ -2571,7 +2577,7 @@ async function adminChecks(clientJar) {
   await check('properties: selling one does not mark the development sold', async () => {
     /* One of three is Sold. The development is still selling, and its build
        status is untouched. */
-    const project = admin.projectsWithCounts().find((p) => p.id === testProjectId);
+    const project = (await admin.projectsWithCounts()).find((p) => p.id === testProjectId);
     assert.strictEqual(project.sold_out, 0, 'selling one property marked the whole development sold');
     assert.strictEqual(project.status, 'Development in progress',
       'the development build status changed when a property sold');
@@ -2579,17 +2585,17 @@ async function adminChecks(clientJar) {
   });
 
   await check('properties: a sale stays linked to the individual property', async () => {
-    const sale = db.prepare(`
+    const sale = await db.prepare(`
       SELECT o.id, o.stand_id, st.stand_number FROM ownerships o
         JOIN stands st ON st.id = o.stand_id
        WHERE st.stand_number = 'HP-0245' LIMIT 1`).get();
     assert.ok(sale, 'the HP-0245 sale is missing');
 
-    const linked = db.prepare('SELECT stand_number FROM stands WHERE id = ?').get(sale.stand_id);
+    const linked = await db.prepare('SELECT stand_number FROM stands WHERE id = ?').get(sale.stand_id);
     assert.strictEqual(linked.stand_number, 'HP-0245', 'the sale is attached to the wrong property');
 
     /* The payment chain must reach the same individual property. */
-    const payment = db.prepare('SELECT stand_id FROM payments WHERE ownership_id = ? LIMIT 1').get(sale.id);
+    const payment = await db.prepare('SELECT stand_id FROM payments WHERE ownership_id = ? LIMIT 1').get(sale.id);
     assert.ok(payment, 'the sale has no payments');
     assert.strictEqual(payment.stand_id, sale.stand_id,
       'a payment points at a different property than its sale');
@@ -2601,17 +2607,17 @@ async function adminChecks(clientJar) {
   });
 
   await check('properties: existing records survived the migration', async () => {
-    const home = (number) => db.prepare(`
+    const home = async (number) => await db.prepare(`
       SELECT p.name FROM stands s JOIN projects p ON p.id = s.project_id
        WHERE s.stand_number = ?`).get(number);
 
-    assert.strictEqual(home('HP-0245').name, 'Heritage Park', 'HP-0245 lost its development');
-    assert.strictEqual(home('GP-0102').name, 'Goshen Park', 'GP-0102 lost its development');
-    assert.ok(db.prepare('SELECT COUNT(*) AS c FROM payments').get().c >= 7, 'payments were lost');
-    assert.ok(db.prepare('SELECT COUNT(*) AS c FROM ownerships').get().c >= 2, 'sales were lost');
+    assert.strictEqual((await home('HP-0245')).name, 'Heritage Park', 'HP-0245 lost its development');
+    assert.strictEqual((await home('GP-0102')).name, 'Goshen Park', 'GP-0102 lost its development');
+    assert.ok((await db.prepare('SELECT COUNT(*) AS c FROM payments').get()).c >= 7, 'payments were lost');
+    assert.ok((await db.prepare('SELECT COUNT(*) AS c FROM ownerships').get()).c >= 2, 'sales were lost');
 
     // The new columns were backfilled rather than left null.
-    const stand = db.prepare("SELECT * FROM stands WHERE stand_number = 'HP-0245'").get();
+    const stand = await db.prepare("SELECT * FROM stands WHERE stand_number = 'HP-0245'").get();
     assert.strictEqual(stand.currency, 'US$', 'currency was not backfilled');
     assert.ok(stand.created_at, 'created_at was not backfilled');
     assert.ok(stand.updated_at, 'updated_at was not backfilled');
@@ -2659,11 +2665,11 @@ async function adminChecks(clientJar) {
   /* ══ Local images ═════════════════════════════════════════════════════ */
 
   await check('images: no external image URL or base64 remains anywhere', async () => {
-    const external = db.prepare(`
+    const external = (await db.prepare(`
       SELECT (SELECT COUNT(*) FROM projects WHERE image_url LIKE 'http%')
            + (SELECT COUNT(*) FROM stands   WHERE image_url LIKE 'http%')
            + (SELECT COUNT(*) FROM content_blocks WHERE value LIKE 'http%')
-           + (SELECT COUNT(*) FROM site_settings  WHERE value LIKE 'data:%') AS c`).get().c;
+           + (SELECT COUNT(*) FROM site_settings  WHERE value LIKE 'data:%') AS c`).get()).c;
     assert.strictEqual(external, 0, `${external} external reference(s) left in the database`);
 
     const css = await (await req('/assets/css/styles.css')).text();
@@ -2683,10 +2689,10 @@ async function adminChecks(clientJar) {
     /* The failure this guards against is a renamed or mistyped file: the page
        renders perfectly and the photograph is silently missing. */
     const referenced = new Set();
-    for (const r of db.prepare("SELECT image_url AS u FROM projects WHERE image_url LIKE '/images/%'").all()) {
+    for (const r of await db.prepare("SELECT image_url AS u FROM projects WHERE image_url LIKE '/images/%'").all()) {
       referenced.add(r.u);
     }
-    for (const r of db.prepare("SELECT image_url AS u FROM stands WHERE image_url LIKE '/images/%'").all()) {
+    for (const r of await db.prepare("SELECT image_url AS u FROM stands WHERE image_url LIKE '/images/%'").all()) {
       referenced.add(r.u);
     }
 
@@ -2822,7 +2828,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(add.status, 302, `adding returned ${add.status}`);
 
-    const row = admin.pricingFor(testProjectId).find((r) => r.size_label === '999 sqm');
+    const row = (await admin.pricingFor(testProjectId)).find((r) => r.size_label === '999 sqm');
     assert.ok(row, 'the price row was not created');
 
     let html = await (await req(page)).text();
@@ -2834,22 +2840,22 @@ async function adminChecks(clientJar) {
         sizeLabel: '999 sqm', cash: '$9,999', credit: '', deposit: ''
       }).toString()
     });
-    assert.strictEqual(admin.pricingById(row.id).cash, '$9,999', 'the price edit did not save');
+    assert.strictEqual((await admin.pricingById(row.id)).cash, '$9,999', 'the price edit did not save');
 
     await req(`/admin/projects/${testProjectId}/pricing/${row.id}/delete`, { method: 'POST', jar });
-    assert.ok(!admin.pricingById(row.id), 'the price row was not deleted');
+    assert.ok(!await admin.pricingById(row.id), 'the price row was not deleted');
 
     html = await (await req(page)).text();
     assert.ok(!html.includes('999 sqm'), 'the deleted price row is still on the public page');
   });
 
   await check('developments: a price row without a stand size is refused', async () => {
-    const before = admin.pricingFor(testProjectId).length;
+    const before = (await admin.pricingFor(testProjectId)).length;
     await req(`/admin/projects/${testProjectId}/pricing`, {
       method: 'POST', jar,
       body: new URLSearchParams({ sizeLabel: '   ', cash: '$1' }).toString()
     });
-    assert.strictEqual(admin.pricingFor(testProjectId).length, before,
+    assert.strictEqual((await admin.pricingFor(testProjectId)).length, before,
       'a price row with no stand size was accepted');
   });
 
@@ -2983,7 +2989,7 @@ async function adminChecks(clientJar) {
     }
   });
 
-  check('L the About polish is scoped and does not restyle the shared hero', () => {
+  await check('L the About polish is scoped and does not restyle the shared hero', () => {
     /* Read here rather than reusing the static-check binding, which lives in
        another scope. */
     const cssText = require('fs').readFileSync(
@@ -3014,7 +3020,7 @@ async function adminChecks(clientJar) {
         status: 'Planning', description: 'Created by the check suite.'
       }).toString()
     });
-    const project = admin.projects().find((p) => p.name === 'Delete Me Estate');
+    const project = (await admin.projects()).find((p) => p.name === 'Delete Me Estate');
     assert.ok(project, 'the development was not created');
 
     await req('/admin/properties', {
@@ -3024,23 +3030,23 @@ async function adminChecks(clientJar) {
         type: 'Residential', price: '5000', status: 'Available'
       }).toString()
     });
-    assert.ok(admin.standByNumber('DM-0001'), 'the property was not created');
+    assert.ok(await admin.standByNumber('DM-0001'), 'the property was not created');
 
     const res = await req(`/admin/projects/${project.id}/delete`, { method: 'POST', jar });
     assert.strictEqual(res.status, 302, `deleting returned ${res.status}`);
 
-    assert.ok(!admin.projectById(project.id), 'the development survived the delete');
-    assert.ok(!admin.standByNumber('DM-0001'), 'its property survived the delete');
+    assert.ok(!await admin.projectById(project.id), 'the development survived the delete');
+    assert.ok(!await admin.standByNumber('DM-0001'), 'its property survived the delete');
   });
 
   await check('admin: a development holding a sale is refused, and nothing is lost', async () => {
-    const tally = () => ({
-      payments: db.prepare('SELECT COUNT(*) c FROM payments').get().c,
-      ownerships: db.prepare('SELECT COUNT(*) c FROM ownerships').get().c,
-      stands: db.prepare('SELECT COUNT(*) c FROM stands').get().c
+    const tally = async () => ({
+      payments: (await db.prepare('SELECT COUNT(*) c FROM payments').get()).c,
+      ownerships: (await db.prepare('SELECT COUNT(*) c FROM ownerships').get()).c,
+      stands: (await db.prepare('SELECT COUNT(*) c FROM stands').get()).c
     });
 
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT p.id, p.name, s.stand_number
         FROM projects p
         JOIN stands s ON s.project_id = p.id
@@ -3048,15 +3054,15 @@ async function adminChecks(clientJar) {
        GROUP BY p.id LIMIT 1`).get();
     assert.ok(row, 'the fixture has no development carrying a payment');
 
-    const before = tally();
+    const before = await tally();
     const res = await req(`/admin/projects/${row.id}/delete`, { method: 'POST', jar });
     assert.strictEqual(res.status, 302, `the refusal returned ${res.status}`);
 
     /* Cascading here would have erased the client's payment history. */
-    assert.ok(admin.projectById(row.id), `${row.name} was deleted despite holding a payment`);
-    assert.ok(admin.standByNumber(row.stand_number),
+    assert.ok(await admin.projectById(row.id), `${row.name} was deleted despite holding a payment`);
+    assert.ok(await admin.standByNumber(row.stand_number),
       `${row.stand_number} was deleted despite holding a payment`);
-    assert.deepStrictEqual(tally(), before, 'a refused delete still removed records');
+    assert.deepStrictEqual(await tally(), before, 'a refused delete still removed records');
   });
 
   await check('admin: the delete control confirms, and no inline handler is left anywhere', async () => {
@@ -3079,7 +3085,7 @@ async function adminChecks(clientJar) {
     assert.ok(confirms > 0, 'no confirmation prompts were found anywhere in the admin');
   });
 
-  check('L the confirmation is attached from an external script, not an attribute', () => {
+  await check('L the confirmation is attached from an external script, not an attribute', () => {
     const js = require('fs').readFileSync(
       require('path').join(__dirname, '..', 'public', 'assets', 'js', 'site.js'), 'utf8');
     assert.ok(js.includes('data-confirm'), 'site.js never reads data-confirm');
@@ -3096,7 +3102,7 @@ async function adminChecks(clientJar) {
     });
     assert.strictEqual(res.status, 302, `adding a development returned ${res.status}`);
 
-    const made = admin.projects().find((p) => p.name === 'Added By Test');
+    const made = (await admin.projects()).find((p) => p.name === 'Added By Test');
     assert.ok(made, 'the development was not created');
     assert.strictEqual(made.location, 'Gweru, Zimbabwe', 'the location was not saved');
   });
@@ -3121,8 +3127,8 @@ async function adminChecks(clientJar) {
      (create-admin.js --disable). The database is discarded after the run. */
   const { users } = require('../server/db');
   for (const number of [ADMIN_ID, SCRATCH, 'HP-88999', 'HP-90001']) {
-    const u = users.byClientNumber(number);
-    if (u) db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(u.id);
+    const u = await users.byClientNumber(number);
+    if (u) await db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(u.id);
   }
 }
 
@@ -3417,13 +3423,13 @@ async function httpChecks() {
     // Set up a second, unrelated client.
     const pw = 'second-client-password';
     const hash = await hashPassword(pw);
-    const existing = db.prepare('SELECT id FROM users WHERE client_number = ?').get(OTHER_CLIENT);
+    const existing = await db.prepare('SELECT id FROM users WHERE client_number = ?').get(OTHER_CLIENT);
     if (existing) {
-      db.prepare('UPDATE users SET password_hash = ?, disabled = 0, failed_attempts = 0, locked_until = NULL WHERE id = ?')
+      await db.prepare('UPDATE users SET password_hash = ?, disabled = 0, failed_attempts = 0, locked_until = NULL WHERE id = ?')
         .run(hash, existing.id);
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
+      await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
     } else {
-      db.prepare(`INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
+      await db.prepare(`INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
                   VALUES (?, ?, ?, 'client', ?, ?)`)
         .run(OTHER_CLIENT, 'Other Client', 'other@example.com', hash, new Date().toISOString());
     }
@@ -3460,8 +3466,8 @@ async function httpChecks() {
     assert.ok(dash.includes('Other Client'), 'dashboard did not render the right client');
 
     // Clean up so the check is re-runnable.
-    const id = db.prepare('SELECT id FROM users WHERE client_number = ?').get(OTHER_CLIENT).id;
-    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    const id = (await db.prepare('SELECT id FROM users WHERE client_number = ?').get(OTHER_CLIENT)).id;
+    await db.prepare('DELETE FROM users WHERE id = ?').run(id);
   });
 
   /* ── Sign-out ── */
@@ -3543,10 +3549,10 @@ async function httpChecks() {
   console.log(`  Verifying ${BASE}\n  ${'='.repeat(60)}\n`);
 
   console.log('  Pure helpers');
-  unitChecks();
+  await unitChecks();
 
   console.log('\n  Audit findings fixed (static analysis of the built front-end)');
-  staticChecks();
+  await staticChecks();
 
   console.log('\n  HTTP behaviour');
   try {

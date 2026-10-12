@@ -209,11 +209,11 @@ async function main() {
 
   const run = db.prepare.bind(db);
 
-  db.exec('BEGIN');
+  await db.exec('BEGIN');
   try {
     if (FRESH) {
       /* Children before parents — these tables reference users(id). */
-      db.exec(`
+      await db.exec(`
         DELETE FROM sessions;
         DELETE FROM audit_log;
         DELETE FROM enquiries;
@@ -239,11 +239,11 @@ async function main() {
     `);
     for (const p of projects) {
       const detail = developmentDetail[p[0]] || {};
-      upProject.run(...p, detail.overview || null, detail.features || null);
+      await upProject.run(...p, detail.overview || null, detail.features || null);
     }
 
-    const projectId = (name) =>
-      db.prepare('SELECT id FROM projects WHERE name = ?').get(name).id;
+    const projectId = async (name) =>
+      (await db.prepare('SELECT id FROM projects WHERE name = ?').get(name)).id;
 
     /* Stands — upsert by stand number, resolving the project by name. */
     const upStand = db.prepare(`
@@ -255,7 +255,7 @@ async function main() {
         image_url = excluded.image_url
     `);
     for (const [proj, num, size, type, cents, img] of stands) {
-      upStand.run(projectId(proj), num, size, type, cents, img);
+      await upStand.run(await projectId(proj), num, size, type, cents, img);
     }
 
     /* Published price lists — replaced wholesale, so ordering stays correct
@@ -266,36 +266,36 @@ async function main() {
       VALUES (?, ?, ?, ?, ?, ?)`);
 
     for (const p of projects) {
-      const pid = projectId(p[0]);
-      clearPricing.run(pid);
+      const pid = await projectId(p[0]);
+      await clearPricing.run(pid);
       let position = 0;
       for (const [sizeLabel, cash, credit, deposit] of (developmentDetail[p[0]] || {}).pricing || []) {
-        addPricing.run(pid, sizeLabel, cash, credit, deposit, position++);
+        await addPricing.run(pid, sizeLabel, cash, credit, deposit, position++);
       }
     }
 
     /* Progress — replace wholesale so ordering stays correct. */
     for (const p of projects) {
-      const pid = projectId(p[0]);
-      db.prepare('DELETE FROM progress WHERE project_id = ?').run(pid);
+      const pid = await projectId(p[0]);
+      await db.prepare('DELETE FROM progress WHERE project_id = ?').run(pid);
       const ins = db.prepare('INSERT INTO progress (project_id, label, state, position) VALUES (?, ?, ?, ?)');
-      if (p[0] === 'Heritage Park') for (const [label, state, pos] of progress) ins.run(pid, label, state, pos);
+      if (p[0] === 'Heritage Park') for (const [label, state, pos] of progress) await ins.run(pid, label, state, pos);
     }
 
     /* Demo client — upsert by client number. */
-    const existing = db.prepare('SELECT id FROM users WHERE client_number = ?').get(DEMO_CLIENT_NUMBER);
+    const existing = await db.prepare('SELECT id FROM users WHERE client_number = ?').get(DEMO_CLIENT_NUMBER);
     let userId;
     if (existing) {
       userId = existing.id;
-      db.prepare(`
+      await db.prepare(`
         UPDATE users SET full_name = ?, email = ?, password_hash = ?,
                          disabled = 0, failed_attempts = 0, locked_until = NULL
         WHERE id = ?
       `).run('Demo Client', 'demo@heritagehousing.co.zw', passwordHash, userId);
       // Force a fresh sign-in with the new password.
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+      await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
     } else {
-      const r = db.prepare(`
+      const r = await db.prepare(`
         INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
         VALUES (?, ?, ?, 'client', ?, ?)
       `).run(DEMO_CLIENT_NUMBER, 'Demo Client', 'demo@heritagehousing.co.zw',
@@ -304,12 +304,12 @@ async function main() {
     }
 
     /* Ownership + payments — cleared and re-inserted so totals stay exact. */
-    db.prepare('DELETE FROM ownerships WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM payments   WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM documents  WHERE user_id = ?').run(userId);
+    await db.prepare('DELETE FROM payments   WHERE user_id = ?').run(userId);
+    await db.prepare('DELETE FROM documents  WHERE user_id = ?').run(userId);
+    await db.prepare('DELETE FROM ownerships WHERE user_id = ?').run(userId);
 
-    const standId = db.prepare('SELECT id FROM stands WHERE stand_number = ?').get('HP-0245').id;
-    db.prepare(`
+    const standId = (await db.prepare('SELECT id FROM stands WHERE stand_number = ?').get('HP-0245')).id;
+    await db.prepare(`
       INSERT INTO ownerships (user_id, stand_id, purchase_price_cents, purchase_date, status)
       VALUES (?, ?, ?, ?, ?)
     `).run(userId, standId, 550000, '2025-08-05', 'Servicing in progress');
@@ -319,7 +319,7 @@ async function main() {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     for (const [paidOn, ref, cents, status] of payments) {
-      insPay.run(userId, standId, paidOn, ref, cents, status);
+      await insPay.run(userId, standId, paidOn, ref, cents, status);
     }
 
     /* Real PDF files on disk, outside the web root. */
@@ -330,21 +330,21 @@ async function main() {
     for (const [title, filename, lines] of documents) {
       const buf = buildPdf(title + ' — Heritage Housing Projects', lines);
       fs.writeFileSync(path.join(config.PRIVATE_DOCS_DIR, filename), buf);
-      insDoc.run(userId, title, filename, buf.length, new Date().toISOString());
+      await insDoc.run(userId, title, filename, buf.length, new Date().toISOString());
     }
 
-    db.exec('COMMIT');
+    await db.exec('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
+    await db.exec('ROLLBACK');
     throw err;
   }
 
   /* Editable site content. Outside the transaction above because it is
      additive: without --fresh it only fills in keys that are missing, so
      re-seeding never overwrites what the office has edited. */
-  const contentCounts = content.seedDefaults({ overwrite: FRESH });
+  const contentCounts = await content.seedDefaults({ overwrite: FRESH });
 
-  const owned = db.prepare(`
+  const owned = await db.prepare(`
     SELECT u.client_number, u.full_name, st.stand_number, o.purchase_price_cents
     FROM users u
     JOIN ownerships o ON o.user_id = u.id
@@ -352,8 +352,8 @@ async function main() {
     WHERE u.client_number = ?
   `).get(DEMO_CLIENT_NUMBER);
 
-  const paid = db.prepare('SELECT COALESCE(SUM(amount_cents),0) AS t FROM payments WHERE user_id = ?')
-    .get(db.prepare('SELECT id FROM users WHERE client_number = ?').get(DEMO_CLIENT_NUMBER).id).t;
+  const paid = (await db.prepare('SELECT COALESCE(SUM(amount_cents),0) AS t FROM payments WHERE user_id = ?')
+    .get((await db.prepare('SELECT id FROM users WHERE client_number = ?').get(DEMO_CLIENT_NUMBER)).id)).t;
 
   console.log('\n  Seeded demonstration data');
   console.log('  ' + '-'.repeat(52));

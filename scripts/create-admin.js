@@ -45,13 +45,13 @@ async function main() {
     process.exit(1);
   }
 
-  const existing = users.byClientNumber(clientNumber);
+  const existing = await users.byClientNumber(clientNumber);
 
   if (disable) {
     if (!existing) { console.error(`\n  No account ${clientNumber}.\n`); process.exit(1); }
-    db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(existing.id);
-    sessions.destroyAllForUser(existing.id);
-    audit('admin_disable', 'success', { userId: existing.id, clientNumber, detail: 'via create-admin.js' });
+    await db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(existing.id);
+    await sessions.destroyAllForUser(existing.id);
+    await audit('admin_disable', 'success', { userId: existing.id, clientNumber, detail: 'via create-admin.js' });
     console.log(`\n  Disabled ${clientNumber}. Their sessions will be refused.\n`);
     process.exit(0);
   }
@@ -66,7 +66,7 @@ async function main() {
   const hash = await hashPassword(password);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
          SET full_name = ?, email = ?, password_hash = ?, role = 'admin',
              disabled = 0, failed_attempts = 0, locked_until = NULL
@@ -74,11 +74,11 @@ async function main() {
     `).run(fullName, email, hash, existing.id);
 
     // Any session issued under the old password must not survive a reset.
-    sessions.destroyAllForUser(existing.id);
-    audit('admin_password_reset', 'success', { userId: existing.id, clientNumber, detail: 'via create-admin.js' });
+    await sessions.destroyAllForUser(existing.id);
+    await audit('admin_password_reset', 'success', { userId: existing.id, clientNumber, detail: 'via create-admin.js' });
   } else {
-    users.insert({ clientNumber, fullName, email, role: 'admin', passwordHash: hash });
-    audit('admin_create', 'success', { clientNumber, detail: 'via create-admin.js' });
+    await users.insert({ clientNumber, fullName, email, role: 'admin', passwordHash: hash });
+    await audit('admin_create', 'success', { clientNumber, detail: 'via create-admin.js' });
   }
 
   console.log('');
