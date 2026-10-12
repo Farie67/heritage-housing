@@ -16,11 +16,13 @@
     "check": "node scripts/check.js",
     "coverage": "node tools/content-coverage.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  },
   "devDependencies": {},
   "comments": {
-    "zero-dependencies": "This project intentionally has no runtime dependencies. It uses only Node's standard library: node:http, node:sqlite, node:crypto, node:fs. There is no install step and no lockfile to audit.",
-    "node-version": "node:sqlite requires Node 22.5 or newer. Developed and tested on Node 24.",
-    "npm": "npm is not required. 'node server/index.js' is the whole build and run story."
+    "database": "The data layer is asynchronous and runs on one of two engines, chosen at start-up by server/driver.js. With TURSO_DATABASE_URL set it uses the remote Turso database through @libsql/client; with it unset it falls back to the local node:sqlite file so development and the test suite need no network. Every caller awaits the same methods either way.",
+    "install": "@libsql/client is only required for the Turso path. Without TURSO_DATABASE_URL the server starts and the whole 214-check suite passes with no install step at all; the driver throws a clear error rather than silently writing to a local file if Turso is configured but the package is missing.",
+    "node-version": "node:sqlite requires Node 22.5 or newer. Developed and tested on Node 24."
   }
 }
