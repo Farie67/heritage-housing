@@ -708,6 +708,41 @@ tr.voided td { opacity: .5; text-decoration: line-through; }
   .sold-out-stamp { font-size: .82rem; padding: 7px 13px; letter-spacing: .06em; }
 }
 
+/* ── Coming soon ─────────────────────────────────────────────────────────
+   The same stamp, in the brand navy rather than the red: "not yet available"
+   rather than "no longer available". Same size, rotation and position, so the
+   two read as the same device and only the meaning differs. */
+.property-img, .detail-image { position: relative; }
+
+.coming-soon-stamp {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-11deg);
+  padding: 9px 20px;
+  border: 3px solid #fff;
+  border-radius: 10px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(20, 23, 43, .38);
+}
+
+/* Less desaturation than a sold-out card: the photograph is still the
+   selling tool here, where a sold-out one is only a record. */
+.project-card.is-coming-soon .project-thumb { filter: grayscale(.35); }
+.property-card.is-coming-soon .property-img { filter: grayscale(.35); }
+.coming-soon-body { color: var(--muted); }
+.coming-soon-note-page { margin: 28px 0 0; }
+
+@media (max-width: 480px) {
+  .coming-soon-stamp { font-size: .82rem; padding: 7px 13px; letter-spacing: .06em; }
+}
+
 /* ── About page polish ───────────────────────────────────────────────────
    Every selector is scoped to .about-page. The hero, the values grid and the
    section rhythm are shared with the other inner pages, so nothing here may
