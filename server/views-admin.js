@@ -735,9 +735,16 @@ function renderProperties({ stands, projects, user, csrf, notice = '', error = '
           <td>${s.price_cents == null
     ? '<span class="muted">on request</span>'
     : esc(moneyIn(s.price_cents, s.currency))}</td>
-          <td>${statusTag(s.status)}</td>
+          <td>${statusTag(s.status)}${s.coming_soon
+    ? ' <span class="tag tag-installment">Coming soon</span>' : ''}</td>
           <td class="actions">
             <a class="text-btn" href="/admin/properties/${esc(s.id)}">Edit</a>
+            &middot;
+            <form method="post" action="/admin/properties/${esc(s.id)}/coming-soon" class="inline-form">
+              <input type="hidden" name="csrf" value="${esc(csrf)}">
+              <input type="hidden" name="comingSoon" value="${s.coming_soon ? '0' : '1'}">
+              <button class="text-btn" type="submit">${s.coming_soon ? 'Clear coming soon' : 'Mark coming soon'}</button>
+            </form>
             ${s.sale_count
     ? `<span class="muted"> &middot; ${esc(s.sale_count)} sale, locked</span>`
     : ` &middot; <form method="post" action="/admin/properties/${esc(s.id)}/delete" class="inline-form"
@@ -919,6 +926,9 @@ function renderProjects({ projects, user, csrf, notice = '', error = '' }) {
           <td>${p.sold_out
     ? '<span class="tag tag-refund">Sold out</span>'
     : '<span class="tag tag-deposit">Selling</span>'}</td>
+          <td>${p.coming_soon
+    ? '<span class="tag tag-installment">Coming soon</span>'
+    : '<span class="muted">&mdash;</span>'}</td>
           <td class="breakdown">${esc(propertyBreakdown(p))}</td>
           <td>
             <a class="text-btn" href="/admin/projects/${esc(p.id)}">Open</a>
@@ -929,6 +939,12 @@ function renderProjects({ projects, user, csrf, notice = '', error = '' }) {
               <button class="text-btn" type="submit">${p.sold_out ? 'Mark selling again' : 'Mark sold out'}</button>
             </form>
             &middot;
+            <form method="post" action="/admin/projects/${esc(p.id)}/coming-soon" class="inline-form">
+              <input type="hidden" name="csrf" value="${esc(csrf)}">
+              <input type="hidden" name="comingSoon" value="${p.coming_soon ? '0' : '1'}">
+              <button class="text-btn" type="submit">${p.coming_soon ? 'Clear coming soon' : 'Mark coming soon'}</button>
+            </form>
+            &middot;
             <form method="post" action="/admin/projects/${esc(p.id)}/delete" class="inline-form"
                   data-confirm="Are you sure? This will delete all associated properties.">
               <input type="hidden" name="csrf" value="${esc(csrf)}">
@@ -936,7 +952,7 @@ function renderProjects({ projects, user, csrf, notice = '', error = '' }) {
             </form>
           </td>
         </tr>`).join('\n')
-    : '        <tr><td colspan="6">No developments yet.</td></tr>';
+    : '        <tr><td colspan="7">No developments yet.</td></tr>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -958,6 +974,7 @@ function renderProjects({ projects, user, csrf, notice = '', error = '' }) {
           <tr>
             <th scope="col">Development</th><th scope="col">Location</th>
             <th scope="col">Build status</th><th scope="col">Availability</th>
+            <th scope="col">Announcement</th>
             <th scope="col">Properties</th><th scope="col">Actions</th>
           </tr>
         </thead>

@@ -195,6 +195,13 @@ await ensureColumn('enquiries', 'handled_by', 'INTEGER REFERENCES users(id)');
    time, and collapsing the two would lose one of them. */
 await ensureColumn('projects', 'sold_out', 'INTEGER NOT NULL DEFAULT 0');
 
+/* Whether a development has been announced but not released yet.
+   A third independent fact, for the same reason the second one is: a
+   development can be coming soon, on sale, or sold out, and it can pass through
+   those in order. Where it is set at the same time as `sold_out`, coming soon
+   wins — something not yet released cannot also be sold out. */
+await ensureColumn('projects', 'coming_soon', 'INTEGER NOT NULL DEFAULT 0');
+
 /* The individual property gains the fields the business actually describes it
    by. `project_id` was already the link to its development, so nothing about
    the one-to-many relationship changes here — this only adds detail to the
@@ -204,6 +211,10 @@ await ensureColumn('stands', 'description', 'TEXT');
 await ensureColumn('stands', 'location', 'TEXT');
 await ensureColumn('stands', 'created_at', 'TEXT');
 await ensureColumn('stands', 'updated_at', 'TEXT');
+
+/* The same announcement flag, one level down: a single stand can be advertised
+   before it is released even when the rest of its development is on sale. */
+await ensureColumn('stands', 'coming_soon', 'INTEGER NOT NULL DEFAULT 0');
 
 /* Existing rows predate these fields. Stamped once, then left alone. */
 {
@@ -587,6 +598,7 @@ const qProjects = prepare('SELECT * FROM projects ORDER BY id');
    development out of the available-properties list without a second query. */
 const qStands = prepare(`
   SELECT st.*, p.name AS project_name, p.sold_out AS project_sold_out,
+         p.coming_soon AS project_coming_soon,
          p.image_url AS project_image_url
   FROM stands st JOIN projects p ON p.id = st.project_id
   ORDER BY st.stand_number
@@ -872,6 +884,7 @@ const STAND_SELECT = `
   SELECT st.*, p.name AS project_name, p.location AS project_location,
          p.description AS project_description, p.image_url AS project_image_url,
          p.sold_out AS project_sold_out,
+         p.coming_soon AS project_coming_soon,
          (SELECT COUNT(*) FROM ownerships o WHERE o.stand_id = st.id) AS sale_count
     FROM stands st
     JOIN projects p ON p.id = st.project_id`;
@@ -904,6 +917,7 @@ const qUpdateStand = prepare(`
    WHERE id = ?`);
 
 const qDeleteStand = prepare('DELETE FROM stands WHERE id = ?');
+const qSetStandComingSoon = prepare('UPDATE stands SET coming_soon = ? WHERE id = ?');
 
 const qUpdateProject = prepare(`
   UPDATE projects
@@ -917,6 +931,7 @@ const qInsertProject = prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
 const qSetProjectSoldOut = prepare('UPDATE projects SET sold_out = ? WHERE id = ?');
+const qSetProjectComingSoon = prepare('UPDATE projects SET coming_soon = ? WHERE id = ?');
 
 /* ── Published price list ── */
 const qPricingFor = prepare(
@@ -1262,6 +1277,12 @@ const admin = {
     return true;
   },
 
+  /** The same, for a development that has not been released yet. */
+  async setProjectComingSoon(id, comingSoon) {
+    await qSetProjectComingSoon.run(comingSoon ? 1 : 0, id);
+    return true;
+  },
+
   /* ── Stands, which the website shows as available properties ── */
   standsForAdmin: async () => await qStandsForAdmin.all(),
   /** Every property belonging to one development. */
@@ -1287,6 +1308,13 @@ const admin = {
   },
 
   deleteStand: async (id) => await qDeleteStand.run(id),
+
+  /** The quick toggle on the properties list, without opening the full form. */
+  async setPropertyComingSoon(id, comingSoon) {
+    await qSetStandComingSoon.run(comingSoon ? 1 : 0, id);
+    return true;
+  },
+
   progressSteps: async (projectId) => await qProgressWithIds.all(projectId),
 
   async setProgressStep(id, label, state) {

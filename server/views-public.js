@@ -184,21 +184,28 @@ function pageHero(c, section = 'hero') {
 
 function projectCards(projects, c) {
   return projects.map((p) => {
-    const soldOut = Boolean(p.sold_out);
+    /* Coming soon wins over sold out: a development that has not been released
+       yet cannot also have sold out, so the two are never shown together. */
+    const comingSoon = Boolean(p.coming_soon);
+    const soldOut = !comingSoon && Boolean(p.sold_out);
     const href = `/development/${slugify(p.name)}`;
 
-    return `    <article class="project-card${soldOut ? ' is-sold-out' : ''}">
-      <div class="project-thumb" role="img" aria-label="${esc(p.type)} development at ${esc(p.name)}, ${esc(p.location)}" style="background-image:url('${esc(assetUrl(p.image_url))}')">${soldOut ? '<span class="sold-out-stamp">Sorry &mdash; sold out</span>' : ''}</div>
+    return `    <article class="project-card${comingSoon ? ' is-coming-soon' : soldOut ? ' is-sold-out' : ''}">
+      <div class="project-thumb" role="img" aria-label="${esc(p.type)} development at ${esc(p.name)}, ${esc(p.location)}" style="background-image:url('${esc(assetUrl(p.image_url))}')">${comingSoon ? '<span class="coming-soon-stamp">Coming Soon</span>' : soldOut ? '<span class="sold-out-stamp">Sorry &mdash; sold out</span>' : ''}</div>
       <div class="project-card-body">
         <span class="status">&#9679; ${esc(String(p.status).toUpperCase())}</span>
         <h3><a href="${esc(href)}">${esc(p.name)}</a></h3>
         <p><strong>${esc(p.location)}</strong></p>
         <p>${esc(p.description)}</p>
-        ${soldOut
-      ? `<p class="sold-out-body">Every stand at ${esc(p.name)} has now been sold. Get in touch and we
+        ${comingSoon
+      ? `<p class="coming-soon-body">${esc(p.name)} has not been released yet. Get in touch and we
+          will tell you as soon as it opens.</p>
+        <a class="btn outline" href="/contact.html" data-enquire="${esc(p.name)}">Register your interest</a>`
+      : soldOut
+        ? `<p class="sold-out-body">Every stand at ${esc(p.name)} has now been sold. Get in touch and we
           will tell you what is coming next.</p>
         <a class="btn outline" href="/contact.html" data-enquire="${esc(p.name)}">Ask about other developments</a>`
-      : `<a class="btn outline" href="${esc(href)}">View properties in ${esc(p.name)}</a>`}
+        : `<a class="btn outline" href="${esc(href)}">View properties in ${esc(p.name)}</a>`}
       </div>
     </article>`;
   }).join('\n');
@@ -210,11 +217,15 @@ function propertyCards(stands) {
     const href = `/property/${encodeURIComponent(s.stand_number)}`;
     const devHref = `/development/${slugify(s.project_name)}`;
 
+    /* A stand can be announced before it is released, even when the rest of its
+       development is already on sale. */
+    const comingSoon = Boolean(s.coming_soon);
+
     /* The STAND is the headline and the development is the context. Headlining
        the development made a dozen different stands all look like the same
        property. */
-    return `    <article class="property-card" data-project="${esc(s.project_name)}" data-type="${esc(s.type)}" data-size="${esc(s.size_sqm)}">
-      <div class="property-img" role="img" aria-label="${esc(s.type)} stand ${esc(s.stand_number)} at ${esc(s.project_name)}" style="background-image:url('${esc(assetUrl(s.image_url || s.project_image_url))}')"></div>
+    return `    <article class="property-card${comingSoon ? ' is-coming-soon' : ''}" data-project="${esc(s.project_name)}" data-type="${esc(s.type)}" data-size="${esc(s.size_sqm)}">
+      <div class="property-img" role="img" aria-label="${esc(s.type)} stand ${esc(s.stand_number)} at ${esc(s.project_name)}" style="background-image:url('${esc(assetUrl(s.image_url || s.project_image_url))}')">${comingSoon ? '<span class="coming-soon-stamp">Coming Soon</span>' : ''}</div>
       <div class="property-body">
         <span class="status">&#9679; ${esc(String(s.status).toUpperCase())}</span>
         <h3><a href="${esc(href)}">Stand ${esc(s.stand_number)}</a></h3>
@@ -448,9 +459,12 @@ ${projectCards(ctx.projects, c)}
 
 function propertiesPage(c, ctx) {
   /* A sold-out development has nothing left to offer, so its stands are left
-     out of the available list entirely rather than shown as unavailable. */
-  const available = ctx.stands.filter((s) => !s.project_sold_out);
-  const soldOut = (ctx.projects || []).filter((p) => p.sold_out);
+     out of the available list entirely rather than shown as unavailable. A
+     coming-soon one has nothing to offer yet, so it is left out for the same
+     reason. */
+  const available = ctx.stands.filter((s) => !s.project_sold_out && !s.project_coming_soon);
+  const soldOut = (ctx.projects || []).filter((p) => p.sold_out && !p.coming_soon);
+  const comingSoon = (ctx.projects || []).filter((p) => p.coming_soon);
 
   const projectOptions = [...new Set(available.map((s) => s.project_name))]
     .map((n) => `        <option value="${esc(n)}">${esc(n)}</option>`).join('\n');
@@ -464,6 +478,13 @@ function propertiesPage(c, ctx) {
       ${soldOut.map((p) => esc(p.name)).join(', ')}.
       Every stand there has been sold.
       <a href="/contact.html">Contact us</a> about our other developments.
+    </div>` : '';
+
+  const comingSoonNote = comingSoon.length ? `
+    <div class="notice info coming-soon-note-page">
+      <strong>Coming soon:</strong>
+      ${comingSoon.map((p) => esc(p.name)).join(', ')}.
+      Not on sale yet. <a href="/contact.html">Contact us</a> to register your interest.
     </div>` : '';
 
   return `  <section class="container inner-page">
@@ -500,7 +521,7 @@ ${sizeOptions}
     <div class="property-grid cards three" id="propertyGrid">
 ${propertyCards(available)}
     </div>
-${soldOutNote}
+${soldOutNote}${comingSoonNote}
   </section>`;
 }
 
@@ -645,13 +666,17 @@ function renderPropertyPage(ctx, stand) {
     : moneyIn(stand.price_cents, stand.currency);
   const devHref = `/development/${slugify(stand.project_name)}`;
   const available = stand.status === 'Available';
+  /* A stand can be announced before it is released; that reads differently from
+     one that is merely unavailable, so it gets the stamp rather than the notice
+     below. */
+  const comingSoon = Boolean(stand.coming_soon);
 
   const body = `  <section class="container inner-page">
     <p><a class="text-btn" href="/properties.html">&larr; All properties</a></p>
 
     <div class="detail-hero">
       <div class="detail-image" role="img" aria-label="${esc(stand.type)} stand ${esc(stand.stand_number)}"
-           style="background-image:url('${esc(assetUrl(stand.image_url || stand.project_image_url))}')"></div>
+           style="background-image:url('${esc(assetUrl(stand.image_url || stand.project_image_url))}')">${comingSoon ? '<span class="coming-soon-stamp">Coming Soon</span>' : ''}</div>
       <div class="detail-summary">
         <span class="status">&#9679; ${esc(String(stand.status).toUpperCase())}</span>
         <h1>Stand ${esc(stand.stand_number)}</h1>
@@ -763,7 +788,10 @@ ${featureItems}
       </div>
     </div>
 
-    ${project.sold_out ? `<div class="notice info sold-out-note-page">
+    ${project.coming_soon ? `<div class="notice info coming-soon-note-page">
+      <strong>Coming soon:</strong> ${esc(project.name)} has not been released yet.
+      <a href="/contact.html">Contact us</a> to register your interest.
+    </div>` : project.sold_out ? `<div class="notice info sold-out-note-page">
       <strong>Sorry &mdash; sold out:</strong> ${esc(project.name)}. Every stand here has been sold.
       <a href="/properties.html">See our other developments</a>.
     </div>` : ''}

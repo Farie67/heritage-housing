@@ -1417,8 +1417,9 @@ async function handleAdmin(req, res, ctx) {
 
   const standEditMatch = pathname.match(/^\/admin\/properties\/(\d+)$/);
   const standDeleteMatch = pathname.match(/^\/admin\/properties\/(\d+)\/delete$/);
+  const standComingSoonMatch = pathname.match(/^\/admin\/properties\/(\d+)\/coming-soon$/);
 
-  if (pathname === '/admin/properties' || standEditMatch || standDeleteMatch) {
+  if (pathname === '/admin/properties' || standEditMatch || standDeleteMatch || standComingSoonMatch) {
     const projects = await admin.projectsWithCounts();
 
     /* ── Delete ── */
@@ -1443,6 +1444,26 @@ async function handleAdmin(req, res, ctx) {
         userId: user.id, detail: `${stand.stand_number} (${standId})`, ip
       });
       h.redirect(res, '/admin/properties?ok=deleted');
+      return true;
+    }
+
+    /* ── Coming-soon toggle, straight from the properties list ──
+       The mirror of the development switch, for a single stand that has been
+       announced but is not on sale yet. */
+    if (standComingSoonMatch) {
+      if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+      const standId = Number(standComingSoonMatch[1]);
+      const stand = await admin.standById(standId);
+      if (!stand) return h.send(res, 404, 'Not found'), true;
+
+      const comingSoon = String(body.comingSoon || '') === '1';
+      await admin.setPropertyComingSoon(standId, comingSoon);
+
+      await audit('stand_coming_soon', 'success', {
+        userId: user.id, detail: `${stand.stand_number} -> ${comingSoon ? 'coming soon' : 'on sale'}`, ip
+      });
+      h.redirect(res, '/admin/properties?ok=comingsoon');
       return true;
     }
 
@@ -1539,7 +1560,9 @@ async function handleAdmin(req, res, ctx) {
       title: 'Properties', active: '/admin/properties', user, csrf,
       body: views.renderProperties({
         stands: await admin.standsForAdmin(), projects, user, csrf,
-        notice: url.searchParams.get('ok') === 'deleted' ? 'Property deleted.' : '',
+        notice: url.searchParams.get('ok') === 'deleted' ? 'Property deleted.'
+          : url.searchParams.get('ok') === 'comingsoon'
+            ? 'Coming-soon flag updated. The website now reflects this.' : '',
         error: url.searchParams.get('error') || ''
       })
     }));
@@ -1583,7 +1606,9 @@ async function handleAdmin(req, res, ctx) {
 
     const notice = okCode === 'soldout'
       ? 'Availability updated. The website now reflects this.'
-      : okCode === 'deleted'
+      : okCode === 'comingsoon'
+        ? 'Coming-soon flag updated. The website now reflects this.'
+        : okCode === 'deleted'
         ? (removed > 0
           ? `Development deleted, along with ${removed} propert${removed === 1 ? 'y' : 'ies'}.`
           : 'Development deleted.')
@@ -1660,6 +1685,28 @@ async function handleAdmin(req, res, ctx) {
       userId: user.id, detail: `${project.name} -> ${soldOut ? 'sold out' : 'selling'}`, ip
     });
     h.redirect(res, '/admin/projects?ok=soldout');
+    return true;
+  }
+
+  /* ── Coming-soon toggle, from the same list ──
+     The mirror of the sold-out switch: a development that has been announced
+     but is not on sale yet. Where both flags end up set, coming soon wins on
+     the website, so there is no need to clear the other one here. */
+  const comingSoonMatch = pathname.match(/^\/admin\/projects\/(\d+)\/coming-soon$/);
+  if (comingSoonMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const projectId = Number(comingSoonMatch[1]);
+    const project = await admin.projectById(projectId);
+    if (!project) return h.send(res, 404, 'Not found'), true;
+
+    const comingSoon = String(body.comingSoon || '') === '1';
+    await admin.setProjectComingSoon(projectId, comingSoon);
+
+    await audit('project_coming_soon', 'success', {
+      userId: user.id, detail: `${project.name} -> ${comingSoon ? 'coming soon' : 'on sale'}`, ip
+    });
+    h.redirect(res, '/admin/projects?ok=comingsoon');
     return true;
   }
 
