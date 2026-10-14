@@ -87,6 +87,13 @@ async function sessionUser(token) {
     await sessions.destroy(row.token_hash);
     return null;
   }
+  /* Archiving already destroys every session for the account, so this is the
+     second line of defence: a session that somehow survived is refused on its
+     next request rather than lasting until it expires. */
+  if (row.archived) {
+    await sessions.destroy(row.token_hash);
+    return null;
+  }
   return {
     id: row.user_id,
     clientNumber: row.client_number,
@@ -132,6 +139,15 @@ async function signIn(clientNumber, password, { ip, userAgent }) {
 
   if (user.disabled) {
     await audit('login', 'failure', { userId: user.id, clientNumber, detail: 'account disabled', ip });
+    return { ok: false, reason: 'disabled' };
+  }
+
+  /* An archived account is one the office has filed away — a test account, or a
+     client who has been refunded. It is refused the same way a disabled one is,
+     so the answer to a caller is identical and the archive does not become a
+     way to probe which accounts exist. */
+  if (user.archived) {
+    await audit('login', 'failure', { userId: user.id, clientNumber, detail: 'account archived', ip });
     return { ok: false, reason: 'disabled' };
   }
 

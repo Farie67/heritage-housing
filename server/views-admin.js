@@ -252,13 +252,13 @@ ${cards}
 
 /* ── Clients ────────────────────────────────────────────────────────────── */
 
-function renderClients({ clients, user, csrf, query = '' }) {
+function renderClients({ clients, user, csrf, query = '', showArchived = false }) {
   const rows = clients.length ? clients.map((c) => {
     const purchase = c.purchase_price_cents || 0;
     const balance = Math.max(purchase - c.paid_cents, 0);
     return `        <tr>
           <td><a href="/admin/clients/${esc(c.id)}"><strong>${esc(c.client_number)}</strong></a></td>
-          <td>${esc(c.full_name)}${c.disabled ? ' <span class="status open">DISABLED</span>' : ''}</td>
+          <td>${esc(c.full_name)}${c.disabled ? ' <span class="status open">DISABLED</span>' : ''}${c.archived ? ' <span class="status open">ARCHIVED</span>' : ''}</td>
           <td>${c.stand_number ? esc(c.stand_number) + '<br><small class="muted">' + esc(c.project_name) + '</small>' : '<span class="muted">none</span>'}</td>
           <td>${purchase ? esc(money(purchase)) : '<span class="muted">&mdash;</span>'}</td>
           <td>${esc(money(c.paid_cents))}</td>
@@ -270,16 +270,25 @@ function renderClients({ clients, user, csrf, query = '' }) {
               <input type="hidden" name="csrf" value="${esc(csrf)}">
               <button class="text-btn" type="submit">Reset password</button>
             </form>
+            &middot;
+            <form method="post" action="/admin/clients/${esc(c.id)}/archive" class="inline-form"
+                  ${c.archived ? '' : 'data-confirm="Archive this client? They will be signed out and hidden from this list. Their payments and records are kept."'}>
+              <input type="hidden" name="csrf" value="${esc(csrf)}">
+              <input type="hidden" name="archived" value="${c.archived ? '0' : '1'}">
+              <button class="text-btn" type="submit">${c.archived ? 'Restore' : 'Archive'}</button>
+            </form>
           </td>
         </tr>`;
-  }).join('\n') : '        <tr><td colspan="8">No client accounts yet.</td></tr>';
+  }).join('\n') : `        <tr><td colspan="8">${showArchived
+    ? 'No client accounts at all yet.'
+    : 'No active client accounts. Use “Show archived” to see accounts that have been filed away.'}</td></tr>`;
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
       <div>
         <span class="eyebrow dark">CLIENTS</span>
         <h1>Client accounts</h1>
-        <p class="muted">${esc(clients.length)} client${clients.length === 1 ? '' : 's'}${query ? ` matching “${esc(query)}”` : ''}.</p>
+        <p class="muted">${esc(clients.length)} ${showArchived ? '' : 'active '}client${clients.length === 1 ? '' : 's'}${query ? ` matching “${esc(query)}”` : ''}.</p>
       </div>
       <a class="btn primary" href="/admin/clients/new">Add a client</a>
     </div>
@@ -289,8 +298,14 @@ function renderClients({ clients, user, csrf, query = '' }) {
         <label for="q">Search</label>
         <input id="q" name="q" type="search" value="${esc(query)}" placeholder="Client number, name or email">
       </div>
+      <div class="field">
+        <label class="check-inline"><input id="show" name="show" type="checkbox" value="archived"${showArchived ? ' checked' : ''}>
+          <span>Show archived</span></label>
+        <p class="field-hint">Archived accounts are filed away, not deleted. Their payments and
+          statements are still on record.</p>
+      </div>
       <button class="btn primary" type="submit">Search</button>
-      ${query ? '<a class="btn outline" href="/admin/clients">Clear</a>' : ''}
+      ${query || showArchived ? '<a class="btn outline" href="/admin/clients">Clear</a>' : ''}
     </form>
 
     <div class="client-card">
@@ -340,6 +355,7 @@ function renderClientDetail({
 
   const badges = [
     client.disabled ? '<span class="status open">DISABLED</span>' : '',
+    client.archived ? '<span class="status open">ARCHIVED</span>' : '',
     client.locked_until ? '<span class="status open">LOCKED</span>' : ''
   ].filter(Boolean).join(' ');
 
@@ -450,6 +466,15 @@ function renderClientDetail({
           <input type="hidden" name="disabled" value="${client.disabled ? '0' : '1'}">
           <button class="btn ${client.disabled ? 'primary' : 'outline'}" type="submit">
             ${client.disabled ? 'Re-enable account' : 'Disable account'}
+          </button>
+        </form>
+
+        <form method="post" action="${esc(basePath)}/archive" class="stack"
+              ${client.archived ? '' : 'data-confirm="Archive this client? They will be signed out and hidden from the clients list. Their payments, documents and statements are all kept."'}>
+          <input type="hidden" name="csrf" value="${esc(csrf)}">
+          <input type="hidden" name="archived" value="${client.archived ? '0' : '1'}">
+          <button class="btn ${client.archived ? 'primary' : 'outline'}" type="submit">
+            ${client.archived ? 'Restore to active list' : 'Archive client'}
           </button>
         </form>
       </div>

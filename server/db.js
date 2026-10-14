@@ -189,6 +189,15 @@ async function ensureColumn(table, column, definition) {
 await ensureColumn('enquiries', 'handled_at', 'TEXT');
 await ensureColumn('enquiries', 'handled_by', 'INTEGER REFERENCES users(id)');
 
+/* Whether a client account has been filed away.
+   The cleanup path for test accounts and for clients who have been refunded: it
+   hides the account and stops it signing in, while leaving the ownership, the
+   payments and the audit trail exactly where they are. There is deliberately no
+   delete for a client, because every financial row points at this one.
+   Distinct from `disabled`, which is a temporary suspension that the office
+   expects to lift. */
+await ensureColumn('users', 'archived', 'INTEGER NOT NULL DEFAULT 0');
+
 /* Whether a development has nothing left to sell.
    Kept separate from `status` rather than added as another status value: a
    development can be finished being built (Completed) and sold out at the same
@@ -527,7 +536,7 @@ const qInsertSession = prepare(`
 `);
 const qFindSession = prepare(`
   SELECT s.token_hash, s.user_id, s.expires_at,
-         u.client_number, u.full_name, u.role, u.disabled
+         u.client_number, u.full_name, u.role, u.disabled, u.archived
   FROM sessions s
   JOIN users u ON u.id = s.user_id
   WHERE s.token_hash = ?
@@ -795,9 +804,11 @@ const qAdminCounts = prepare(`
     (SELECT COUNT(*) FROM enquiries WHERE handled_at IS NULL)                      AS open_enquiries
 `);
 
-/* One row per client, with their stand and how much they have paid. */
-const qClientsList = prepare(`
-  SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.created_at,
+/* One row per client, with their stand and how much they have paid.
+   Archived accounts are left out unless the office asks for them, so the list
+   stays the list of live accounts. */
+const CLIENTS_SELECT = `
+  SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.archived, u.created_at,
          st.stand_number, p.name AS project_name,
          o.purchase_price_cents, o.status AS ownership_status,
          (SELECT COALESCE(SUM(amount_cents), 0)
@@ -806,9 +817,12 @@ const qClientsList = prepare(`
   LEFT JOIN ownerships o ON o.user_id = u.id
   LEFT JOIN stands     st ON st.id = o.stand_id
   LEFT JOIN projects   p  ON p.id = st.project_id
-  WHERE u.role = 'client'
-  ORDER BY u.client_number
-`);
+  WHERE u.role = 'client'`;
+
+const qClientsList = prepare(
+  `${CLIENTS_SELECT} AND u.archived = 0 ORDER BY u.client_number`);
+const qClientsListAll = prepare(
+  `${CLIENTS_SELECT} ORDER BY u.client_number`);
 
 /* ── Clients grouped by the development they bought into ────────────────────
    There is no development column on users. The link is three hops:
@@ -818,7 +832,7 @@ const qClientsList = prepare(`
    correct, not a duplicate. */
 const qClientsByDevelopment = prepare(`
   SELECT p.name AS development, p.id AS project_id,
-         u.id, u.client_number, u.full_name, u.email, u.disabled
+         u.id, u.client_number, u.full_name, u.email, u.disabled, u.archived
   FROM users u
   JOIN ownerships o ON o.user_id = u.id
   JOIN stands     st ON st.id = o.stand_id
@@ -830,7 +844,7 @@ const qClientsByDevelopment = prepare(`
 
 /* A client with no sale at all belongs to no development. */
 const qClientsUnassigned = prepare(`
-  SELECT u.id, u.client_number, u.full_name, u.email, u.disabled
+  SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.archived
   FROM users u
   WHERE u.role = 'client'
     AND NOT EXISTS (SELECT 1 FROM ownerships o WHERE o.user_id = u.id)
@@ -840,7 +854,7 @@ const qClientsUnassigned = prepare(`
 /* ── Admin: single client ───────────────────────────────────────────────── */
 
 const qClientById = prepare(`
-  SELECT u.id, u.client_number, u.full_name, u.email, u.role, u.disabled,
+  SELECT u.id, u.client_number, u.full_name, u.email, u.role, u.disabled, u.archived,
          u.created_at, u.locked_until, u.failed_attempts,
          o.id AS ownership_id, o.purchase_price_cents, o.purchase_date,
          o.status AS ownership_status,
@@ -857,6 +871,7 @@ const qClientById = prepare(`
 
 const qUpdateClient = prepare('UPDATE users SET full_name = ?, email = ? WHERE id = ?');
 const qSetDisabled  = prepare('UPDATE users SET disabled = ? WHERE id = ?');
+const qSetArchived  = prepare('UPDATE users SET archived = ? WHERE id = ?');
 const qSetPassword  = prepare(
   'UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?');
 const qUnlockClient = prepare(
@@ -1064,25 +1079,19 @@ const admin = {
   },
 
   /** Clients filtered by number, name or email. An empty query lists all. */
-  async searchClients(q) {
+  /** Clients filtered by number, name or email. An empty query lists all.
+      Archived accounts are excluded unless `includeArchived` is set. */
+  async searchClients(q, { includeArchived = false } = {}) {
     const term = String(q || '').trim();
-    if (!term) return await qClientsList.all();
+    if (!term) return await (includeArchived ? qClientsListAll : qClientsList).all();
 
-    const pattern = await likePattern(term);
+    const pattern = likePattern(term);
     return await prepare(`
-      SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.created_at,
-             st.stand_number, p.name AS project_name,
-             o.purchase_price_cents, o.status AS ownership_status,
-             (SELECT COALESCE(SUM(amount_cents), 0)
-                FROM payments WHERE user_id = u.id AND status = 'Confirmed') AS paid_cents
-      FROM users u
-      LEFT JOIN ownerships o ON o.user_id = u.id
-      LEFT JOIN stands     st ON st.id = o.stand_id
-      LEFT JOIN projects   p  ON p.id = st.project_id
-      WHERE u.role = 'client'
+      ${CLIENTS_SELECT}
         AND (u.client_number LIKE ? ESCAPE '\\'
           OR u.full_name     LIKE ? ESCAPE '\\'
           OR COALESCE(u.email, '') LIKE ? ESCAPE '\\')
+        ${includeArchived ? '' : 'AND u.archived = 0'}
       ORDER BY u.client_number
     `).all(pattern, pattern, pattern);
   },
@@ -1097,6 +1106,17 @@ const admin = {
   async setDisabled(id, disabled) {
     await qSetDisabled.run(disabled ? 1 : 0, id);
     if (disabled) await sessions.destroyAllForUser(id);
+  },
+
+  /** Files a client account away, or brings it back.
+      Archiving hides the account from the clients list and stops it signing in,
+      but changes nothing else — the ownership, the payments and the audit trail
+      all stay, which is the whole point of preferring it to a delete. Signing
+      out on archive mirrors setDisabled, so a session opened a moment ago stops
+      working rather than lingering until it expires. */
+  async setClientArchived(id, archived) {
+    await qSetArchived.run(archived ? 1 : 0, id);
+    if (archived) await sessions.destroyAllForUser(id);
   },
 
   async setPassword(id, hash) {

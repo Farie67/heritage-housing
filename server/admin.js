@@ -59,6 +59,8 @@ const CLIENT_FLASH = {
   deleted: 'Payment deleted.',
   disabled: 'Account disabled and signed out.',
   enabled: 'Account re-enabled.',
+  archived: 'Client archived and signed out. Their records are untouched.',
+  unarchived: 'Client restored to the active list.',
   unlocked: 'Account unlocked.',
   document: 'Document uploaded.',
   documentDeleted: 'Document deleted.'
@@ -870,7 +872,8 @@ async function handleAdmin(req, res, ctx) {
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const q = (url.searchParams.get('q') || '').trim();
-    const clients = await admin.searchClients(q);
+    const showArchived = url.searchParams.get('show') === 'archived';
+    const clients = await admin.searchClients(q, { includeArchived: showArchived });
 
     await audit('admin_view', 'success', {
       userId: user.id, detail: q ? `clients search "${q}"` : 'clients', ip
@@ -878,7 +881,7 @@ async function handleAdmin(req, res, ctx) {
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Clients', active: '/admin/clients', user, csrf,
-      body: views.renderClients({ clients, user, csrf, query: q })
+      body: views.renderClients({ clients, user, csrf, query: q, showArchived })
     }));
     return true;
   }
@@ -1037,7 +1040,7 @@ async function handleAdmin(req, res, ctx) {
 
   const payDeleteMatch = pathname.match(/^\/admin\/clients\/(\d+)\/payments\/(\d+)\/delete$/);
   const actionMatch = pathname.match(
-    /^\/admin\/clients\/(\d+)\/(update|reset-password|disable|unlock|stand|unlink|payments)$/);
+    /^\/admin\/clients\/(\d+)\/(update|reset-password|disable|archive|unlock|stand|unlink|payments)$/);
 
   if (payDeleteMatch || actionMatch) {
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
@@ -1136,6 +1139,22 @@ async function handleAdmin(req, res, ctx) {
       });
       return h.sendHtml(res, 302, '', {
         Location: `/admin/clients/${clientId}?ok=${disabled ? 'disabled' : 'enabled'}`
+      }), true;
+    }
+
+    /* ── Archive / restore ──
+       The cleanup path. There is deliberately no delete for a client: the
+       ownerships, the payments and the audit rows all point at this account, so
+       removing it would break the financial trail. Archiving hides the account
+       and stops it signing in, and nothing else. */
+    if (action === 'archive') {
+      const archived = String(body.archived) === '1';
+      await admin.setClientArchived(clientId, archived);
+      await audit(archived ? 'client_archive' : 'client_unarchive', 'success', {
+        userId: user.id, clientNumber: client.client_number, detail: `client ${clientId}`, ip
+      });
+      return h.sendHtml(res, 302, '', {
+        Location: `/admin/clients/${clientId}?ok=${archived ? 'archived' : 'unarchived'}`
       }), true;
     }
 
