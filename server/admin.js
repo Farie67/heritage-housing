@@ -29,6 +29,7 @@ const { RateLimiter } = require('./security');
 const { generatePassword, generatePasswordWithSymbol } = require('./passwords');
 const { validateUpload, validateLogoUpload } = require('./multipart');
 const { logoPath, logoAbsolute, FALLBACK } = require('./branding');
+const { logSecurityEvent } = require('./security-log');
 const invoice = require('./invoice');
 const { buildReference } = require('./references');
 
@@ -376,6 +377,7 @@ async function handleAdmin(req, res, ctx) {
     if (!limit.allowed) {
       const mins = Math.ceil(limit.retryAfterMs / 60000);
       await audit('admin_login', 'rate_limited', { detail: 'per-IP limit', ip });
+      logSecurityEvent('admin_login_rate_limited', req, { retryAfterMs: limit.retryAfterMs });
       h.sendHtml(res, 429, await views.renderLogin({
         csrf,
         error: `Too many sign-in attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
@@ -401,6 +403,7 @@ async function handleAdmin(req, res, ctx) {
       const message = result.reason === 'locked'
         ? `This account is temporarily locked. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
         : 'Invalid staff ID or password.';
+      logSecurityEvent('admin_login_failed', req, { clientNumber, reason: result.reason });
       h.sendHtml(res, 401, await views.renderLogin({ csrf, error: message }));
       return true;
     }
@@ -413,6 +416,9 @@ async function handleAdmin(req, res, ctx) {
       await audit('admin_login', 'denied', {
         userId: result.user.id, clientNumber, detail: 'not an admin account', ip
       });
+      logSecurityEvent('admin_login_denied', req, {
+        clientNumber, reason: 'not an admin account'
+      });
       h.sendHtml(res, 403, await views.renderLogin({
         csrf, error: 'That account does not have staff access.'
       }));
@@ -421,6 +427,7 @@ async function handleAdmin(req, res, ctx) {
 
     adminLoginLimiter.reset(ip);
     await audit('admin_login', 'success', { userId: result.user.id, clientNumber, ip });
+    logSecurityEvent('admin_login_success', req, { clientNumber: result.user.clientNumber });
 
     h.sendHtml(res, 302, '', {
       Location: '/admin',
@@ -1121,6 +1128,11 @@ async function handleAdmin(req, res, ctx) {
       await admin.setPassword(clientId, await auth.hashPassword(password));
       await audit('client_password_reset', 'success', {
         userId: user.id, clientNumber: client.client_number, detail: `client ${clientId}`, ip
+      });
+      /* The password itself is deliberately absent from this line — it is shown
+         once in the response and must never reach a log. */
+      logSecurityEvent('password_reset_by_admin', req, {
+        clientNumber: client.client_number, actorClientNumber: user.clientNumber
       });
       await sendClientPage(res, h, clientId, {
         user, csrf,
