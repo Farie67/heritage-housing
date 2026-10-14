@@ -880,7 +880,24 @@ async function handleAdmin(req, res, ctx) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const q = (url.searchParams.get('q') || '').trim();
     const showArchived = url.searchParams.get('show') === 'archived';
-    const clients = await admin.searchClients(q, { includeArchived: showArchived });
+
+    /* The development filter the overview's folder tiles link to. A project id,
+       or the literal 'unassigned' for clients with no sale. Anything else is
+       treated as no filter rather than as an error, so a mangled link still
+       shows the full list instead of an empty page. */
+    const devParam = (url.searchParams.get('development') || '').trim();
+    let developmentId = null;
+    if (devParam === 'unassigned') developmentId = 'unassigned';
+    else if (Number.isInteger(Number.parseInt(devParam, 10))) {
+      developmentId = Number.parseInt(devParam, 10);
+    }
+
+    const clients = await admin.searchClients(q, { includeArchived: showArchived, developmentId });
+
+    /* The name of the active filter, so the page can say what it is showing. */
+    let developmentName = null;
+    if (developmentId === 'unassigned') developmentName = 'Unassigned';
+    else if (developmentId) developmentName = ((await admin.projectById(developmentId)) || {}).name || null;
 
     await audit('admin_view', 'success', {
       userId: user.id, detail: q ? `clients search "${q}"` : 'clients', ip
@@ -888,7 +905,9 @@ async function handleAdmin(req, res, ctx) {
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Clients', active: '/admin/clients', user, csrf,
-      body: views.renderClients({ clients, user, csrf, query: q, showArchived })
+      body: views.renderClients({
+        clients, user, csrf, query: q, showArchived, developmentId, developmentName
+      })
     }));
     return true;
   }

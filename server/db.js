@@ -1043,8 +1043,10 @@ const qMaxProgressPosition = prepare(
 
 const VALID_STATES = new Set(['done', 'current', 'pending']);
 
-/** Escapes LIKE wildcards so a search for "50%" is a literal, not a pattern. */
-async function likePattern(q) {
+/** Escapes LIKE wildcards so a search for "50%" is a literal, not a pattern.
+    Synchronous on purpose: it is pure string work, and an async version returns
+    a Promise that cannot be bound to a SQLite parameter. */
+function likePattern(q) {
   return '%' + String(q).replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
 }
 
@@ -1065,7 +1067,10 @@ const admin = {
     for (const row of await qClientsByDevelopment.all()) {
       let group = byName.get(row.development);
       if (!group) {
-        group = { development: row.development, clients: [] };
+        /* projectId travels with the group so the overview can link straight to
+           the filtered client list. Without it the view has no id to build a
+           URL from and the folders cannot be clickable. */
+        group = { development: row.development, projectId: row.project_id, clients: [] };
         byName.set(row.development, group);
         groups.push(group);
       }
@@ -1073,27 +1078,55 @@ const admin = {
     }
 
     const unassigned = await qClientsUnassigned.all();
-    if (unassigned.length) groups.push({ development: 'Unassigned', clients: unassigned });
+    if (unassigned.length) {
+      groups.push({ development: 'Unassigned', projectId: 'unassigned', clients: unassigned });
+    }
 
     return groups;
   },
 
-  /** Clients filtered by number, name or email. An empty query lists all. */
   /** Clients filtered by number, name or email. An empty query lists all.
-      Archived accounts are excluded unless `includeArchived` is set. */
-  async searchClients(q, { includeArchived = false } = {}) {
-    const term = String(q || '').trim();
-    if (!term) return await (includeArchived ? qClientsListAll : qClientsList).all();
+      Archived accounts are excluded unless `includeArchived` is set.
 
-    const pattern = likePattern(term);
-    return await prepare(`
-      ${CLIENTS_SELECT}
-        AND (u.client_number LIKE ? ESCAPE '\\'
-          OR u.full_name     LIKE ? ESCAPE '\\'
-          OR COALESCE(u.email, '') LIKE ? ESCAPE '\\')
-        ${includeArchived ? '' : 'AND u.archived = 0'}
-      ORDER BY u.client_number
-    `).all(pattern, pattern, pattern);
+      `developmentId` narrows the list to one development — a project id, or
+      the string 'unassigned' for clients with no sale at all. Both are needed
+      by the overview's folder tiles. */
+  async searchClients(q, { includeArchived = false, developmentId = null } = {}) {
+    const term = String(q || '').trim();
+
+    /* The two simplest shapes are precompiled. A development filter changes the
+       clause rather than just the bindings, so that case is built here. */
+    if (!developmentId && !term) {
+      return await (includeArchived ? qClientsListAll : qClientsList).all();
+    }
+
+    const clauses = [];
+    const args = [];
+
+    if (!includeArchived) clauses.push('u.archived = 0');
+
+    if (developmentId === 'unassigned') {
+      /* The same test qClientsUnassigned uses: no ownership row at all. */
+      clauses.push('NOT EXISTS (SELECT 1 FROM ownerships ow WHERE ow.user_id = u.id)');
+    } else if (Number.isInteger(developmentId) && developmentId > 0) {
+      /* EXISTS rather than a join on the outer query, so a client holding two
+         stands in the same development still appears once. */
+      clauses.push(`EXISTS (SELECT 1 FROM ownerships ow
+                              JOIN stands sw ON sw.id = ow.stand_id
+                             WHERE ow.user_id = u.id AND sw.project_id = ?)`);
+      args.push(developmentId);
+    }
+
+    if (term) {
+      const pattern = likePattern(term);
+      clauses.push(`(u.client_number LIKE ? ESCAPE '\\'
+                  OR u.full_name     LIKE ? ESCAPE '\\'
+                  OR COALESCE(u.email, '') LIKE ? ESCAPE '\\')`);
+      args.push(pattern, pattern, pattern);
+    }
+
+    const where = clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
+    return await prepare(`${CLIENTS_SELECT}${where} ORDER BY u.client_number`).all(...args);
   },
 
   clientById: async (id) => await qClientById.get(id),

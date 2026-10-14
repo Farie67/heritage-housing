@@ -156,14 +156,17 @@ function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf
     : '        <tr><td colspan="4">No enquiries yet.</td></tr>';
 
   /* Clients grouped by the development their stand belongs to. A client with
-     no sale is listed last, under "Unassigned". */
-  const clientGroups = clientsByDevelopment.length
-    ? clientsByDevelopment.map((g) => `      <div class="dev-group">
-        <h3>${esc(g.development)} <span class="dev-count">${esc(g.clients.length)}</span></h3>
-        <ul class="dev-clients">
-${g.clients.map((c) => `          <li><a href="/admin/clients/${esc(c.id)}">${esc(c.full_name)}</a> <span class="muted">${esc(c.client_number)}</span></li>`).join('\n')}
-        </ul>
-      </div>`).join('\n')
+     no sale is listed last, under "Unassigned".
+
+     The individual names are deliberately NOT listed here. With a few hundred
+     clients the overview became unreadable, so each group is now a folder tile
+     that links to the filtered client list — the same information, one click
+     away, and the page stays a fixed size however many clients there are. */
+  const folderTiles = clientsByDevelopment.length
+    ? clientsByDevelopment.map((g) => `      <a class="folder-tile" href="/admin/clients?development=${encodeURIComponent(g.projectId)}">
+        <span class="folder-name">${esc(g.development)}</span>
+        <span class="folder-count">${esc(g.clients.length)} client${g.clients.length === 1 ? '' : 's'}</span>
+      </a>`).join('\n')
     : '      <p class="muted">No clients yet.</p>';
 
   return `  <section class="container inner-page">
@@ -204,9 +207,12 @@ ${rows}
 
     <div class="client-card" style="margin-top:20px">
       <h2>Clients by development</h2>
-      <p class="field-hint" style="margin-bottom:14px">Grouped by the development whose stand the
-        client bought. A client with no stand yet is listed under Unassigned.</p>
-${clientGroups}
+      <p class="field-hint" style="margin-bottom:14px">Each folder holds the clients who bought a
+        stand in that development. A client with no stand yet is filed under Unassigned.</p>
+      <div class="folder-grid">
+${folderTiles}
+      </div>
+      <p style="margin-top:16px"><a class="text-btn" href="/admin/clients">View all clients &rarr;</a></p>
     </div>
   </section>`;
 }
@@ -252,7 +258,8 @@ ${cards}
 
 /* ── Clients ────────────────────────────────────────────────────────────── */
 
-function renderClients({ clients, user, csrf, query = '', showArchived = false }) {
+function renderClients({ clients, user, csrf, query = '', showArchived = false,
+  developmentId = null, developmentName = null }) {
   const rows = clients.length ? clients.map((c) => {
     const purchase = c.purchase_price_cents || 0;
     const balance = Math.max(purchase - c.paid_cents, 0);
@@ -304,9 +311,15 @@ function renderClients({ clients, user, csrf, query = '', showArchived = false }
         <p class="field-hint">Archived accounts are filed away, not deleted. Their payments and
           statements are still on record.</p>
       </div>
+      ${developmentId ? `<input type="hidden" name="development" value="${esc(developmentId)}">` : ''}
       <button class="btn primary" type="submit">Search</button>
-      ${query || showArchived ? '<a class="btn outline" href="/admin/clients">Clear</a>' : ''}
+      ${query || showArchived || developmentId
+    ? '<a class="btn outline" href="/admin/clients">Clear</a>' : ''}
     </form>
+
+    ${developmentName ? `<p class="notice info">Showing clients in
+      <strong>${esc(developmentName)}</strong>.
+      <a href="/admin/clients">Show every client</a>.</p>` : ''}
 
     <div class="client-card">
       <table class="portal-table">
