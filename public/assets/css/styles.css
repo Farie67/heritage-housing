@@ -827,6 +827,53 @@ tr.voided td { opacity: .5; text-decoration: line-through; }
 .dev-clients a { color: var(--navy); font-weight: 600; text-decoration: none; }
 .dev-clients a:hover { color: var(--gold); text-decoration: underline; }
 
+/* ── Client folders ──────────────────────────────────────────────────────
+   One tile per development, replacing the flat list of client names on the
+   overview. auto-fit keeps the grid honest at any width: tiles are never
+   stretched to fill a row that has only one, and they wrap as soon as another
+   will not fit. */
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.folder-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  text-decoration: none;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.folder-tile:hover,
+.folder-tile:focus-visible {
+  border-color: var(--navy);
+  box-shadow: 0 6px 18px rgba(20, 23, 43, .10);
+  transform: translateY(-2px);
+}
+
+.folder-name {
+  color: var(--navy);
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.folder-count {
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-tile { transition: none; }
+  .folder-tile:hover,
+  .folder-tile:focus-visible { transform: none; }
+}
+
 /* ── Chief Executive ───────────────────────────────────────────────────── */
 
 .ceo-block {
