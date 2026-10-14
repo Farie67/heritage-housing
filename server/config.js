@@ -62,5 +62,14 @@ module.exports = {
   LOGIN_MAX_ATTEMPTS: int('LOGIN_MAX_ATTEMPTS', 8),
   LOGIN_WINDOW_MS: int('LOGIN_WINDOW_MINUTES', 15) * 60 * 1000,
   ACCOUNT_LOCK_MS: int('ACCOUNT_LOCK_MINUTES', 15) * 60 * 1000,
-  ENQUIRY_MAX_PER_HOUR: int('ENQUIRY_MAX_PER_HOUR', 5)
+  ENQUIRY_MAX_PER_HOUR: int('ENQUIRY_MAX_PER_HOUR', 5),
+
+  /* A ceiling on total traffic from one address, across every route. The
+     limiters above guard specific endpoints; this one stops a single address
+     from working through the whole site — scraping every property page, or
+     hammering the export endpoints.
+     Raise it if the site is used from behind a shared NAT: many visitors can
+     share one public address, and the limit is per address, not per person. */
+  GENERAL_MAX_PER_WINDOW: int('GENERAL_MAX_PER_WINDOW', 200),
+  GENERAL_WINDOW_MS: int('GENERAL_WINDOW_MINUTES', 15) * 60 * 1000
 };

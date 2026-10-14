@@ -23,6 +23,7 @@ const {
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING
 } = require('./security');
 const auth = require('./auth');
+const { logSecurityEvent } = require('./security-log');
 const views = require('./views');
 const adminRoutes = require('./admin');
 const publicSite = require('./public-site');
@@ -137,11 +138,16 @@ function parseBody(raw, contentType) {
 
 const loginLimiter = new RateLimiter(config.LOGIN_MAX_ATTEMPTS, config.LOGIN_WINDOW_MS);
 const enquiryLimiter = new RateLimiter(config.ENQUIRY_MAX_PER_HOUR, 60 * 60 * 1000);
+/* One address may make at most this many requests in the window, whatever the
+   route. Set well above a normal browsing session so it only catches a client
+   working systematically through the site. */
+const generalLimiter = new RateLimiter(config.GENERAL_MAX_PER_WINDOW, config.GENERAL_WINDOW_MS);
 
 // Keep the limiters' maps from growing without bound.
 setInterval(async () => {
   loginLimiter.sweep();
   enquiryLimiter.sweep();
+  generalLimiter.sweep();
   adminRoutes.sweep();
   await sessions.purgeExpired();
 }, 10 * 60 * 1000).unref();
@@ -221,14 +227,24 @@ async function handleLogin(req, res, body, ip) {
   const clientNumber = String(body.clientNumber || '').trim().toUpperCase();
   const password = String(body.password || '');
 
-  if (!clientNumber || !password) {
-    return sendJson(res, 400, { error: 'Client number and password are required.' });
+  /* Format checks first. These say nothing about whether an account exists —
+     they only reject input that could never be a valid credential — so they do
+     not give an attacker an enumeration oracle. */
+  const errors = [];
+  if (clientNumber.length < 3) errors.push('clientNumber');
+  if (password.length < 3) errors.push('password');
+  if (errors.length) {
+    return sendJson(res, 400, {
+      error: 'Client number and password must each be at least 3 characters.',
+      fields: errors
+    });
   }
 
   const limit = loginLimiter.check(ip);
   if (!limit.allowed) {
     const mins = Math.ceil(limit.retryAfterMs / 60000);
     await audit('login', 'rate_limited', { clientNumber, detail: 'per-IP limit', ip });
+    logSecurityEvent('login_rate_limited', req, { clientNumber, retryAfterMs: limit.retryAfterMs });
     return sendJson(res, 429, {
       error: `Too many sign-in attempts. Please try again in ${mins} minute${mins === 1 ? '' : 's'}.`
     }, { 'Retry-After': String(Math.ceil(limit.retryAfterMs / 1000)) });
@@ -247,11 +263,16 @@ async function handleLogin(req, res, body, ip) {
       ? `This account is temporarily locked after repeated failed attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
       : 'Invalid client number or password.';
 
+    logSecurityEvent('login_failed', req, { clientNumber, reason: result.reason });
     return sendJson(res, 401, { error: message });
   }
 
   loginLimiter.reset(ip);
   const token = result.token;
+
+  logSecurityEvent('login_success', req, {
+    clientNumber: result.user.clientNumber, role: result.user.role
+  });
 
   return sendJson(res, 200, {
     ok: true,
@@ -381,6 +402,29 @@ const server = http.createServer(async (req, res) => {
 
     securityHeaders(res, { html: pathname.endsWith('.html') || pathname === '/' });
 
+    /* The global ceiling, checked before any database work so that a flood
+       costs as little as possible.
+       /healthz is exempt: a monitor that gets rate limited looks exactly like
+       an outage, and that is the one signal worth keeping clean. */
+    if (pathname !== '/healthz') {
+      const limit = generalLimiter.check(ip);
+      if (!limit.allowed) {
+        logSecurityEvent('rate_limit_exceeded', req, {
+          scope: 'general', method: req.method, retryAfterMs: limit.retryAfterMs
+        });
+        const headers = { 'Retry-After': String(Math.ceil(limit.retryAfterMs / 1000)) };
+        if (pathname.startsWith('/api/')) {
+          return sendJson(res, 429,
+            { error: 'Too many requests. Please wait a few minutes.' }, headers);
+        }
+        return sendHtml(res, 429, await views.renderError({
+          status: 429,
+          title: 'Too many requests',
+          message: 'Too many requests. Please wait a few minutes.'
+        }), headers);
+      }
+    }
+
     const token = cookies[config.SESSION_COOKIE];
     const user = await auth.sessionUser(token);
 
@@ -477,6 +521,9 @@ const server = http.createServer(async (req, res) => {
 
         if (!me || !(await auth.verifyPassword(current, me.password_hash))) {
           passwordNotice = { kind: 'error', text: 'Your current password is not correct.' };
+          logSecurityEvent('password_change_failed', req, {
+            clientNumber: user.clientNumber, reason: 'current password incorrect'
+          });
         } else if (next !== confirm) {
           passwordNotice = { kind: 'error', text: 'The two new passwords do not match.' };
         } else {
@@ -486,6 +533,9 @@ const server = http.createServer(async (req, res) => {
           } else {
             await admin.setPassword(user.id, await auth.hashPassword(next));
             await audit('client_password_change', 'success', { userId: user.id, ip });
+            logSecurityEvent('password_changed', req, {
+              clientNumber: user.clientNumber, self: true
+            });
             passwordNotice = { kind: 'success', text: 'Your password has been changed.' };
           }
         }
