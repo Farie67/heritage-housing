@@ -34,6 +34,11 @@ const TEST_PUBLIC = path.join(ROOT, 'data', 'check-public');
 const TEST_SERVER_LOG = path.join(ROOT, 'data', 'check-server.log');
 let serverLogFd = null;
 
+/* The password for the seeded demonstration account. scripts/seed.js no longer
+   commits one, so the suite passes its own — and every sign-in check below uses
+   this same value. */
+const TEST_DEMO_PASSWORD = 'check-suite-demo-password';
+
 let BASE = process.env.BASE || `http://127.0.0.1:${TEST_PORT}`;
 let ORIGIN = BASE;
 
@@ -615,7 +620,7 @@ async function adminChecks(clientJar) {
     const r = await req('/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ clientNumber: 'HP-10245', password: 'demo123' }).toString()
+      body: new URLSearchParams({ clientNumber: 'HP-10245', password: TEST_DEMO_PASSWORD }).toString()
     });
     assert.strictEqual(r.status, 403, `client credentials returned ${r.status}`);
     const html = await r.text();
@@ -3272,7 +3277,7 @@ async function httpChecks() {
     const r = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
-      body: JSON.stringify({ clientNumber: 'HP-10245', password: 'demo123' })
+      body: JSON.stringify({ clientNumber: 'HP-10245', password: TEST_DEMO_PASSWORD })
     });
     assert.strictEqual(r.status, 403);
   });
@@ -3281,7 +3286,7 @@ async function httpChecks() {
     const r = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientNumber: 'HP-10245', password: 'demo123' })
+      body: JSON.stringify({ clientNumber: 'HP-10245', password: TEST_DEMO_PASSWORD })
     });
     assert.strictEqual(r.status, 403);
   });
@@ -3290,7 +3295,7 @@ async function httpChecks() {
     const r = await req('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientNumber: 'HP-10245', password: 'demo123' })
+      body: JSON.stringify({ clientNumber: 'HP-10245', password: TEST_DEMO_PASSWORD })
     });
     assert.strictEqual(r.status, 200, `status ${r.status}`);
 
@@ -3513,8 +3518,12 @@ async function httpChecks() {
     removeTestDocs();
     stageTestPublic();
     try {
+      /* The seed no longer carries a committed password, so the suite supplies
+         its own. It must match DEMO_PASSWORD below, which the sign-in checks
+         use. This is a throwaway database on a throwaway port. */
       await runNode(['scripts/seed.js'], {
-        DB_PATH: TEST_DB, PRIVATE_DOCS_DIR: TEST_DOCS, PUBLIC_DIR: TEST_PUBLIC
+        DB_PATH: TEST_DB, PRIVATE_DOCS_DIR: TEST_DOCS, PUBLIC_DIR: TEST_PUBLIC,
+        DEMO_PASSWORD: TEST_DEMO_PASSWORD
       });
 
       /* The child's output goes to a file rather than a pipe: piped stdio is

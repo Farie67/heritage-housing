@@ -21,7 +21,24 @@ const { db, content } = require('../server/db');
 const { hashPassword } = require('../server/auth');
 
 const DEMO_CLIENT_NUMBER = 'HP-10245';
-const DEMO_PASSWORD = 'demo123';
+
+/* No password is committed to the repository.
+   The demonstration account is reachable from the public login page, so a
+   literal here is a working credential in every clone, backup and fork of this
+   code. Supply one instead:
+
+       DEMO_PASSWORD='...' node scripts/seed.js
+
+   and change it before any deployment real clients can reach. */
+const DEMO_PASSWORD = String(process.env.DEMO_PASSWORD || '').trim();
+
+if (!DEMO_PASSWORD || DEMO_PASSWORD.length < 8) {
+  console.error('\n  DEMO_PASSWORD is not set, or is shorter than 8 characters.\n');
+  console.error('  The seed creates a client account that can sign in at the portal, so it');
+  console.error('  needs a password. Supply one rather than relying on a committed default:\n');
+  console.error("      DEMO_PASSWORD='choose-something-longer' node scripts/seed.js\n");
+  process.exit(1);
+}
 
 /* `--fresh` also clears anything the seed does not own: stray accounts (such as
    the second client some checks create), enquiries, sessions and audit rows.
