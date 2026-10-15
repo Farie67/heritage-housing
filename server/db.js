@@ -604,11 +604,19 @@ const qProgress = prepare(`
 
 const qProjects = prepare('SELECT * FROM projects ORDER BY id');
 /* `project_sold_out` travels with each stand so the website can leave a sold-out
-   development out of the available-properties list without a second query. */
+   development out of the available-properties list without a second query.
+
+   `has_ownership` answers "is this stand already sold?" from the ownerships
+   table, which is the authority. It is NOT taken from stands.status: real data
+   has stands marked Available that carry an active sale, and stands.status is
+   the one the office edits by hand. */
 const qStands = prepare(`
   SELECT st.*, p.name AS project_name, p.sold_out AS project_sold_out,
          p.coming_soon AS project_coming_soon,
-         p.image_url AS project_image_url
+         p.image_url AS project_image_url,
+         EXISTS (SELECT 1 FROM ownerships o
+                  WHERE o.stand_id = st.id
+                    AND COALESCE(o.sale_status, 'Active') <> 'Cancelled') AS has_ownership
   FROM stands st JOIN projects p ON p.id = st.project_id
   ORDER BY st.stand_number
 `);
@@ -970,6 +978,23 @@ const qInsertOwnership = prepare(`
 `);
 const qOwnershipById = prepare('SELECT * FROM ownerships WHERE id = ?');
 const qDeleteOwnership = prepare('DELETE FROM ownerships WHERE id = ?');
+
+/* Is this stand already spoken for?
+
+   `sale_status` is the lifecycle column — Active / Completed / Cancelled. Only
+   'Cancelled' frees the stand again, and unlinkOwnership() deletes the row
+   outright; both mean "no longer allocated". COALESCE guards rows written
+   before the sale_status column existed.
+
+   Note it is NOT `status`, which despite the name holds the service progress
+   label the office sets by hand ("Servicing in progress", "Awaiting transfer",
+   "Transferred", "Paid up") and never holds Active or Cancelled. */
+const qStandAllocated = prepare(`
+  SELECT 1 FROM ownerships
+   WHERE stand_id = ? AND COALESCE(sale_status, 'Active') <> 'Cancelled'
+   LIMIT 1
+`);
+
 const qSetStandStatus = prepare('UPDATE stands SET status = ? WHERE id = ?');
 const qCountOwnershipsForUser = prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?');
 
@@ -1166,6 +1191,15 @@ const admin = {
 
   /** Links a stand to a client and marks the stand sold. */
   async linkStand({ userId, standId, priceCents, purchaseDate, status }) {
+    /* Belt and braces. The admin form already offers only free stands and
+       admin.js refuses one that is held by another client, but neither survives
+       a double-click, a stale page left open, or two staff working at once.
+       Checked here, next to the write, so it cannot be bypassed by a caller
+       that forgets. */
+    if (await qStandAllocated.get(standId)) {
+      throw new Error('This stand is already allocated to another client.');
+    }
+
     await qInsertOwnership.run(userId, standId, priceCents, purchaseDate, status);
     await qSetStandStatus.run('Sold', standId);
   },

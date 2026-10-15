@@ -1233,7 +1233,20 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      await admin.linkStand({ userId: clientId, standId, priceCents: cents, purchaseDate, status });
+      /* The guard inside linkStand() throws when the stand was taken between
+         this page being rendered and the form being submitted — a double-click,
+         a stale tab, or another member of staff getting there first. The page
+         is re-rendered with the reason, and its error slot is the same
+         <p class="notice error"> every other failure on this page uses. */
+      try {
+        await admin.linkStand({ userId: clientId, standId, priceCents: cents, purchaseDate, status });
+      } catch (err) {
+        await sendClientPage(res, h, clientId, {
+          user, csrf,
+          error: (err && err.message) || 'That stand could not be linked. Please try again.'
+        });
+        return true;
+      }
       await audit('stand_link', 'success', {
         userId: user.id, clientNumber: client.client_number,
         detail: `stand ${stand.stand_number} to client ${clientId} at ${cents} cents`, ip

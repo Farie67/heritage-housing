@@ -493,7 +493,16 @@ function propertiesPage(c, ctx) {
      out of the available list entirely rather than shown as unavailable. A
      coming-soon one has nothing to offer yet, so it is left out for the same
      reason. */
-  const available = ctx.stands.filter((s) => !s.project_sold_out && !s.project_coming_soon);
+  /* A stand already allocated to a client is left out too, so only genuinely
+     available stands are advertised.
+
+     That is decided from the ownerships table, not from the stand's own status.
+     The two disagree in real data — stands sit at 'Available' while carrying an
+     active sale — and the ownership row is the one that decides who owns what.
+     Only this listing hides them: /development/<name> and /property/<stand>
+     still show everything for anyone following a direct link. */
+  const available = ctx.stands.filter((s) =>
+    !s.project_sold_out && !s.project_coming_soon && !s.has_ownership);
   const soldOut = (ctx.projects || []).filter((p) => p.sold_out && !p.coming_soon);
   const comingSoon = (ctx.projects || []).filter((p) => p.coming_soon);
 
