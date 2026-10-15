@@ -1046,6 +1046,9 @@ td.actions { white-space: nowrap; }
   .detail-image { height: 220px; }
 }
 .project-card-body .status { display: block; margin-bottom: 10px; }
+
+/* How much is left at a development, under its name on the projects page. */
+.dev-inventory { font-size: 13px; color: var(--muted); margin: 6px 0 14px; }
 .property-body { padding: 23px; display: flex; flex-direction: column; flex: 1; }
 .property-body h3 { margin-bottom: 7px; }
 
