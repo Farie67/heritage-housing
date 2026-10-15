@@ -19,12 +19,14 @@ const path = require('node:path');
 const config = require('./config');
 const { PAGES } = require('./content');
 
+/* Buyers browse by development, not by individual stand, so "Properties" is
+   deliberately absent from the nav. properties.html still exists and still
+   resolves at its own URL for direct links and for the sitemap. */
 const NAV = [
   ['index.html', 'Home'],
   ['about.html', 'About'],
   ['services.html', 'Services'],
   ['projects.html', 'Projects'],
-  ['properties.html', 'Properties'],
   ['news.html', 'News'],
   ['contact.html', 'Contact']
 ];
@@ -182,7 +184,24 @@ function pageHero(c, section = 'hero') {
     </div>`;
 }
 
-function projectCards(projects, c) {
+/* Stands in one development that a buyer could actually reserve today.
+
+   "Available" is answered by the stand's own status. linkStand() flips a stand
+   to Sold the moment a sale is recorded and back to Available when it is
+   removed, so status alone settles "has this been sold?" without a second
+   query. The three flags are the other ways a stand can be off the market: the
+   stand announced but not released, or its whole development sold out or not
+   yet open. */
+function availableStandsFor(stands, projectId) {
+  return (stands || []).filter((s) =>
+    s.project_id === projectId &&
+    s.status === 'Available' &&
+    !s.coming_soon &&
+    !s.project_sold_out &&
+    !s.project_coming_soon);
+}
+
+function projectCards(projects, c, stands = []) {
   return projects.map((p) => {
     /* Coming soon wins over sold out: a development that has not been released
        yet cannot also have sold out, so the two are never shown together. */
@@ -190,11 +209,23 @@ function projectCards(projects, c) {
     const soldOut = !comingSoon && Boolean(p.sold_out);
     const href = `/development/${slugify(p.name)}`;
 
+    const available = availableStandsFor(stands, p.id);
+    /* Priced stands only: a blank price means "on request", and letting one
+       through would print "from US$0". */
+    const prices = available.map((s) => s.price_cents).filter((n) => Number.isFinite(n));
+    const fromCents = prices.length ? Math.min(...prices) : null;
+    const currency = available.length ? available[0].currency : 'US$';
+
+    const inventory = available.length
+      ? `<p class="dev-inventory">${available.length} stand${available.length === 1 ? '' : 's'} available${fromCents === null ? '' : ` &middot; from ${esc(moneyIn(fromCents, currency))}`}</p>`
+      : '<p class="dev-inventory">All stands sold</p>';
+
     return `    <article class="project-card${comingSoon ? ' is-coming-soon' : soldOut ? ' is-sold-out' : ''}">
       <div class="project-thumb" role="img" aria-label="${esc(p.type)} development at ${esc(p.name)}, ${esc(p.location)}" style="background-image:url('${esc(assetUrl(p.image_url))}')">${comingSoon ? '<span class="coming-soon-stamp">Coming Soon</span>' : soldOut ? '<span class="sold-out-stamp">Sorry &mdash; sold out</span>' : ''}</div>
       <div class="project-card-body">
         <span class="status">&#9679; ${esc(String(p.status).toUpperCase())}</span>
         <h3><a href="${esc(href)}">${esc(p.name)}</a></h3>
+        ${inventory}
         <p><strong>${esc(p.location)}</strong></p>
         <p>${esc(p.description)}</p>
         ${comingSoon
@@ -205,7 +236,7 @@ function projectCards(projects, c) {
         ? `<p class="sold-out-body">Every stand at ${esc(p.name)} has now been sold. Get in touch and we
           will tell you what is coming next.</p>
         <a class="btn outline" href="/contact.html" data-enquire="${esc(p.name)}">Ask about other developments</a>`
-        : `<a class="btn outline" href="${esc(href)}">View properties in ${esc(p.name)}</a>`}
+        : `<a class="btn primary" href="/contact.html?development=${encodeURIComponent(p.id)}">Enquire about this development</a>`}
       </div>
     </article>`;
   }).join('\n');
@@ -452,7 +483,7 @@ function projectsPage(c, ctx) {
   return `  <section class="container inner-page">
 ${pageHero(c)}
     <div class="cards three">
-${projectCards(ctx.projects, c)}
+${projectCards(ctx.projects, c, ctx.stands)}
     </div>
   </section>`;
 }
@@ -549,6 +580,14 @@ function contact(c, ctx) {
   const options = lines(c.get('card', 'interest_options'))
     .map((o) => `          <option>${esc(o)}</option>`).join('\n');
 
+  /* A hidden id -> name index. The projects page links here as
+     /contact.html?development=<id>, and the prefill script needs the name that
+     id stands for. Baking it into this page's own markup keeps that a pure
+     client-side lookup: no request, and nothing to go stale, because the index
+     is regenerated with the page. */
+  const devIndex = (ctx.projects || []).map((p) =>
+    `        <span data-development-id="${esc(p.id)}" data-development-name="${esc(p.name)}"></span>`).join('\n');
+
   return `  <section class="container inner-page">
 ${pageHero(c)}
     <div class="contact-layout">
@@ -587,6 +626,10 @@ ${options}
 
         <button class="btn primary" type="submit">Send enquiry</button>
       </form>
+
+      <div id="developmentIndex" hidden aria-hidden="true">
+${devIndex}
+      </div>
     </div>
   </section>`;
 }
