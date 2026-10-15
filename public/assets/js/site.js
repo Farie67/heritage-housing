@@ -228,6 +228,24 @@
         message.value = "I would like to enquire about " + link.dataset.enquire + ".";
       });
     });
+
+    /* The projects page sends buyers here with ?development=<id>. The name is
+       read from the hidden index already in this page's markup rather than
+       fetched, so arriving on the page never costs a request. Matched by
+       scanning rather than by building a selector, so an unexpected value in
+       the query string cannot break out of it. */
+    var wanted = new URLSearchParams(window.location.search).get("development");
+    if (!wanted) return;
+
+    var match = null;
+    $$("[data-development-id]").forEach(function (el) {
+      if (!match && el.dataset.developmentId === wanted) match = el;
+    });
+    if (!match) return;
+
+    var message = $("[name=message]");
+    if (!message || message.value.trim()) return;
+    message.value = "I would like to enquire about " + match.dataset.developmentName + ".";
   }
 
   /* ── Portal login page ──────────────────────────────────────────────── */
