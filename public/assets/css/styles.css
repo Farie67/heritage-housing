@@ -1211,6 +1211,37 @@ footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
 .notice.success { background: #ecfdf3; border: 1px solid #a6f4c5; color: #05603a; }
 .notice.info    { background: #eff8ff; border: 1px solid #b2ddff; color: #194185; }
 
+/* ── Critical alert ──────────────────────────────────────────────────────
+   For the overdue follow-up box: a slow red pulse that draws the eye without
+   becoming noise. The cycle is 2 seconds — about one flash every two seconds,
+   well under the three-per-second ceiling in WCAG 2.3.1, which exists because
+   faster flashing can trigger seizures. Only the border and a soft glow move;
+   the text stays still so it remains readable. */
+@keyframes pulse-red {
+  0%, 100% {
+    border-color: #fda29b;
+    box-shadow: 0 0 0 0 rgba(232, 24, 32, 0);
+    background-color: #fef3f2;
+  }
+  50% {
+    border-color: #e81820;
+    box-shadow: 0 0 0 4px rgba(232, 24, 32, .22);
+    background-color: #fee4e2;
+  }
+}
+
+.alert-critical { animation: pulse-red 2s ease-in-out infinite; }
+
+/* Anyone who has asked their system to reduce motion gets the emphasis without
+   the movement: a solid red border instead of a pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .alert-critical {
+    animation: none;
+    border-color: #e81820;
+    box-shadow: 0 0 0 3px rgba(232, 24, 32, .18);
+  }
+}
+
 .dashboard-top {
   display: flex;
   justify-content: space-between;
