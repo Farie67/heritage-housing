@@ -47,7 +47,7 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
   return shell(settings, {
     title: 'Staff Login | Heritage Housing Projects',
     canonicalPath: 'staff/login',
-    body: `  <section class="portal-shell">
+    body: `  <section class="staff-login-bg">
     <div class="portal-panel narrow" style="text-align:center">
       <h1 style="font-size:30px">Staff sign-in</h1>
       <p class="muted">For the Heritage Housing Projects sales team.</p>
