@@ -260,36 +260,78 @@ ${cards}
 
 function renderClients({ clients, user, csrf, query = '', showArchived = false,
   developmentId = null, developmentName = null }) {
-  const rows = clients.length ? clients.map((c) => {
+  /* One row per client — the cells are unchanged; only the table around them is
+     now one table per development. */
+  const clientRow = (c) => {
     const purchase = c.purchase_price_cents || 0;
     const balance = Math.max(purchase - c.paid_cents, 0);
-    return `        <tr>
-          <td><a href="/admin/clients/${esc(c.id)}"><strong>${esc(c.client_number)}</strong></a></td>
-          <td>${esc(c.full_name)}${c.disabled ? ' <span class="status open">DISABLED</span>' : ''}${c.archived ? ' <span class="status open">ARCHIVED</span>' : ''}</td>
-          <td>${c.stand_number ? esc(c.stand_number) + '<br><small class="muted">' + esc(c.project_name) + '</small>' : '<span class="muted">none</span>'}</td>
-          <td>${purchase ? esc(money(purchase)) : '<span class="muted">&mdash;</span>'}</td>
-          <td>${esc(money(c.paid_cents))}</td>
-          <td>${purchase ? esc(money(balance)) : '<span class="muted">&mdash;</span>'}</td>
-          <td>${c.agent_name ? esc(c.agent_name) : '<span class="muted">&mdash;</span>'}</td>
-          <td>${esc(c.email || '')}</td>
-          <td>
-            <form method="post" action="/admin/clients/${esc(c.id)}/reset-password" class="inline-form"
-                  data-confirm="Reset this client's password? Their current one stops working immediately.">
-              <input type="hidden" name="csrf" value="${esc(csrf)}">
-              <button class="text-btn" type="submit">Reset password</button>
-            </form>
-            &middot;
-            <form method="post" action="/admin/clients/${esc(c.id)}/archive" class="inline-form"
-                  ${c.archived ? '' : 'data-confirm="Archive this client? They will be signed out and hidden from this list. Their payments and records are kept."'}>
-              <input type="hidden" name="csrf" value="${esc(csrf)}">
-              <input type="hidden" name="archived" value="${c.archived ? '0' : '1'}">
-              <button class="text-btn" type="submit">${c.archived ? 'Restore' : 'Archive'}</button>
-            </form>
-          </td>
-        </tr>`;
-  }).join('\n') : `        <tr><td colspan="9">${showArchived
-    ? 'No client accounts at all yet.'
-    : 'No active client accounts. Use “Show archived” to see accounts that have been filed away.'}</td></tr>`;
+    return `          <tr>
+            <td><a href="/admin/clients/${esc(c.id)}"><strong>${esc(c.client_number)}</strong></a></td>
+            <td>${esc(c.full_name)}${c.disabled ? ' <span class="status open">DISABLED</span>' : ''}${c.archived ? ' <span class="status open">ARCHIVED</span>' : ''}</td>
+            <td>${c.stand_number ? esc(c.stand_number) + '<br><small class="muted">' + esc(c.project_name) + '</small>' : '<span class="muted">none</span>'}</td>
+            <td>${purchase ? esc(money(purchase)) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${esc(money(c.paid_cents))}</td>
+            <td>${purchase ? esc(money(balance)) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${c.agent_name ? esc(c.agent_name) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${esc(c.email || '')}</td>
+            <td>
+              <form method="post" action="/admin/clients/${esc(c.id)}/reset-password" class="inline-form"
+                    data-confirm="Reset this client's password? Their current one stops working immediately.">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Reset password</button>
+              </form>
+              &middot;
+              <form method="post" action="/admin/clients/${esc(c.id)}/archive" class="inline-form"
+                    ${c.archived ? '' : 'data-confirm="Archive this client? They will be signed out and hidden from this list. Their payments and records are kept."'}>
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <input type="hidden" name="archived" value="${c.archived ? '0' : '1'}">
+                <button class="text-btn" type="submit">${c.archived ? 'Restore' : 'Archive'}</button>
+              </form>
+            </td>
+          </tr>`;
+  };
+
+  const clientHead = `          <tr>
+            <th scope="col">Client no.</th>
+            <th scope="col">Name</th>
+            <th scope="col">Stand</th>
+            <th scope="col">Purchase</th>
+            <th scope="col">Paid</th>
+            <th scope="col">Balance</th>
+            <th scope="col">Closed by</th>
+            <th scope="col">Email</th>
+            <th scope="col">Actions</th>
+          </tr>`;
+
+  /* Grouped by development. The query already orders by development name with
+     the no-stand clients last, so one pass builds the groups in display order
+     and "Unassigned" lands at the bottom without being special-cased. */
+  const groups = [];
+  const byDevelopment = new Map();
+  for (const c of clients) {
+    const name = c.project_name || 'Unassigned';
+    let group = byDevelopment.get(name);
+    if (!group) {
+      group = { name, clients: [] };
+      byDevelopment.set(name, group);
+      groups.push(group);
+    }
+    group.clients.push(c);
+  }
+
+  const tables = groups.length
+    ? groups.map((g) => `      <h3 class="dev-group-heading">${esc(g.name)} (${esc(g.clients.length)} client${g.clients.length === 1 ? '' : 's'})</h3>
+      <table class="portal-table">
+        <thead>
+${clientHead}
+        </thead>
+        <tbody>
+${g.clients.map(clientRow).join('\n')}
+        </tbody>
+      </table>`).join('\n\n')
+    : `      <p class="muted">${showArchived
+      ? 'No client accounts at all yet.'
+      : 'No active client accounts. Use “Show archived” to see accounts that have been filed away.'}</p>`;
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -323,25 +365,7 @@ function renderClients({ clients, user, csrf, query = '', showArchived = false,
       <a href="/admin/clients">Show every client</a>.</p>` : ''}
 
     <div class="client-card">
-      <table class="portal-table">
-        <caption>Every client account, its stand, and its payment position</caption>
-        <thead>
-          <tr>
-            <th scope="col">Client no.</th>
-            <th scope="col">Name</th>
-            <th scope="col">Stand</th>
-            <th scope="col">Purchase</th>
-            <th scope="col">Paid</th>
-            <th scope="col">Balance</th>
-            <th scope="col">Closed by</th>
-            <th scope="col">Email</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-${rows}
-        </tbody>
-      </table>
+${tables}
     </div>
 
     <div class="notice info" style="margin-top:20px">
@@ -773,34 +797,70 @@ function renderProperties({ stands, projects, user, csrf, notice = '', error = '
   const available = stands.filter((s) => s.status === 'Available').length;
   const sold = stands.filter((s) => s.status === 'Sold').length;
 
-  const rows = stands.length ? stands.map((s) => `        <tr>
-          <td><a href="/admin/properties/${esc(s.id)}"><strong>${esc(s.stand_number)}</strong></a></td>
-          <td>${esc(s.project_name)}</td>
-          <td>${esc(s.size_sqm)}m&sup2;</td>
-          <td>${esc(s.type)}</td>
-          <td>${s.price_cents == null
+  /* One row per stand — the cells are unchanged; only the table around them is
+     now one table per development. */
+  const standRow = (s) => `          <tr>
+            <td><a href="/admin/properties/${esc(s.id)}"><strong>${esc(s.stand_number)}</strong></a></td>
+            <td>${esc(s.project_name)}</td>
+            <td>${esc(s.size_sqm)}m&sup2;</td>
+            <td>${esc(s.type)}</td>
+            <td>${s.price_cents == null
     ? '<span class="muted">on request</span>'
     : esc(moneyIn(s.price_cents, s.currency))}</td>
-          <td>${statusTag(s.status)}${s.coming_soon
+            <td>${statusTag(s.status)}${s.coming_soon
     ? ' <span class="tag tag-installment">Coming soon</span>' : ''}</td>
-          <td class="actions">
-            <a class="text-btn" href="/admin/properties/${esc(s.id)}">Edit</a>
-            &middot;
-            <form method="post" action="/admin/properties/${esc(s.id)}/coming-soon" class="inline-form">
-              <input type="hidden" name="csrf" value="${esc(csrf)}">
-              <input type="hidden" name="comingSoon" value="${s.coming_soon ? '0' : '1'}">
-              <button class="text-btn" type="submit">${s.coming_soon ? 'Clear coming soon' : 'Mark coming soon'}</button>
-            </form>
-            ${s.sale_count
+            <td class="actions">
+              <a class="text-btn" href="/admin/properties/${esc(s.id)}">Edit</a>
+              &middot;
+              <form method="post" action="/admin/properties/${esc(s.id)}/coming-soon" class="inline-form">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <input type="hidden" name="comingSoon" value="${s.coming_soon ? '0' : '1'}">
+                <button class="text-btn" type="submit">${s.coming_soon ? 'Clear coming soon' : 'Mark coming soon'}</button>
+              </form>
+              ${s.sale_count
     ? `<span class="muted"> &middot; ${esc(s.sale_count)} sale, locked</span>`
     : ` &middot; <form method="post" action="/admin/properties/${esc(s.id)}/delete" class="inline-form"
-                    data-confirm="Delete ${esc(s.stand_number)}? This cannot be undone.">
-                <input type="hidden" name="csrf" value="${esc(csrf)}">
-                <button class="link-danger" type="submit">Delete</button>
-              </form>`}
-          </td>
-        </tr>`).join('\n')
-    : '        <tr><td colspan="7">No properties yet. Add the first one below.</td></tr>';
+                      data-confirm="Delete ${esc(s.stand_number)}? This cannot be undone.">
+                  <input type="hidden" name="csrf" value="${esc(csrf)}">
+                  <button class="link-danger" type="submit">Delete</button>
+                </form>`}
+            </td>
+          </tr>`;
+
+  const standHead = `          <tr>
+            <th scope="col">Stand No.</th><th scope="col">Development</th><th scope="col">Size</th>
+            <th scope="col">Type</th><th scope="col">Price</th><th scope="col">Status</th>
+            <th scope="col">Actions</th>
+          </tr>`;
+
+  /* Grouped by development. The query already orders by development name then
+     stand number, so one pass builds the groups in display order. Every stand
+     belongs to a development (the query inner-joins projects), so there is no
+     unassigned case to place last. */
+  const groups = [];
+  const byDevelopment = new Map();
+  for (const s of stands) {
+    const name = s.project_name || 'Unassigned';
+    let group = byDevelopment.get(name);
+    if (!group) {
+      group = { name, stands: [] };
+      byDevelopment.set(name, group);
+      groups.push(group);
+    }
+    group.stands.push(s);
+  }
+
+  const tables = groups.length
+    ? groups.map((g) => `      <h3 class="dev-group-heading">${esc(g.name)} (${esc(g.stands.length)} stand${g.stands.length === 1 ? '' : 's'})</h3>
+      <table class="portal-table">
+        <thead>
+${standHead}
+        </thead>
+        <tbody>
+${g.stands.map(standRow).join('\n')}
+        </tbody>
+      </table>`).join('\n\n')
+    : '      <p class="muted">No properties yet. Add the first one below.</p>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -822,19 +882,7 @@ function renderProperties({ stands, projects, user, csrf, notice = '', error = '
     </div>
 
     <div class="client-card">
-      <table class="portal-table">
-        <caption>Every property, by development</caption>
-        <thead>
-          <tr>
-            <th scope="col">Stand No.</th><th scope="col">Development</th><th scope="col">Size</th>
-            <th scope="col">Type</th><th scope="col">Price</th><th scope="col">Status</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-${rows}
-        </tbody>
-      </table>
+${tables}
       <p class="field-hint" style="margin-top:12px">Open a property to edit or delete it.</p>
     </div>
 

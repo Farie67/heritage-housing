@@ -834,10 +834,16 @@ const CLIENTS_SELECT = `
   LEFT JOIN agents     ag ON ag.id = o.agent_id
   WHERE u.role = 'client'`;
 
+/* Grouped by development, so the order is development name first and then the
+   client's own name. `p.name IS NULL` sorts ahead of everything in SQLite, so
+   it is folded in first to push the clients with no stand to the bottom rather
+   than the top — which is where "Unassigned" belongs. */
 const qClientsList = prepare(
-  `${CLIENTS_SELECT} AND u.archived = 0 ORDER BY u.client_number`);
+  `${CLIENTS_SELECT} AND u.archived = 0
+   ORDER BY p.name IS NULL, p.name, u.full_name`);
 const qClientsListAll = prepare(
-  `${CLIENTS_SELECT} ORDER BY u.client_number`);
+  `${CLIENTS_SELECT}
+   ORDER BY p.name IS NULL, p.name, u.full_name`);
 
 /* ── Clients grouped by the development they bought into ────────────────────
    There is no development column on users. The link is three hops:
@@ -1165,7 +1171,9 @@ const admin = {
     }
 
     const where = clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
-    return await prepare(`${CLIENTS_SELECT}${where} ORDER BY u.client_number`).all(...args);
+    return await prepare(
+      `${CLIENTS_SELECT}${where} ORDER BY p.name IS NULL, p.name, u.full_name`
+    ).all(...args);
   },
 
   clientById: async (id) => await qClientById.get(id),
