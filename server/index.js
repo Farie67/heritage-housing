@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 
 const config = require('./config');
 const { audit, users, sessions, portal, enquiries, admin, content, db,
-  leads, staffLogs, agents } = require('./db');
+  leads, staffLogs, leadNotes, agents } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
@@ -32,7 +32,7 @@ const adminRoutes = require('./admin');
 const publicSite = require('./public-site');
 const invoice = require('./invoice');
 const { slugify, todayIso } = require('./format');
-const { readLeadUpdate } = require('./lead-input');
+const { readLeadUpdate, notesByLeadFor } = require('./lead-input');
 const { isMultipart, boundaryFrom, parseMultipart } = require('./multipart');
 const { validateNewPassword } = require('./passwords');
 
@@ -590,11 +590,13 @@ const server = http.createServer(async (req, res) => {
           notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
             : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
               : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
-                : url.searchParams.get('ok') === 'password' ? 'Password changed. Other devices have been signed out.'
+                : url.searchParams.get('ok') === 'noted' ? 'Note added.'
+                  : url.searchParams.get('ok') === 'password' ? 'Password changed. Other devices have been signed out.'
                   : '',
           leads: await leads.forAgent(agent.id),
           followUps: await leads.dueForAgent(agent.id, todayIso()),
-          logs: await staffLogs.forAgent(agent.id, 5)
+          logs: await staffLogs.forAgent(agent.id, 5),
+          notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id))
         }));
       }
 
@@ -617,7 +619,8 @@ const server = http.createServer(async (req, res) => {
             error: 'That lead could not be updated. It may have been reassigned.',
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
-            logs: await staffLogs.forAgent(agent.id, 5)
+            logs: await staffLogs.forAgent(agent.id, 5),
+            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id))
           }));
         }
 
@@ -625,6 +628,48 @@ const server = http.createServer(async (req, res) => {
           detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
         });
         return redirect(res, '/staff?ok=updated');
+      }
+
+      /* Add a note to one of this agent's own leads.
+
+         The ownership check is inside the INSERT's SELECT, so a note cannot be
+         attached to a lead that is not theirs even by a crafted POST. */
+      const staffNoteMatch = pathname.match(/^\/staff\/lead\/(\d+)\/note$/);
+      if (staffNoteMatch) {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const leadId = Number(staffNoteMatch[1]);
+        const noteText = String(body.noteText || '').trim().slice(0, 2000);
+
+        const renderDashboard = async (opts = {}) => viewsStaff.staffDashboard(
+          await content.settings(), {
+            agent, csrf,
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5),
+            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id)),
+            ...opts
+          });
+
+        if (noteText.length < 2) {
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'Please write something before adding the note.'
+          }));
+        }
+
+        const ok = await leadNotes.createForAgent(leadId, agent.id, noteText);
+        if (!ok) {
+          /* Same answer for "no such lead" and "not yours". */
+          return sendHtml(res, 403, await renderDashboard({
+            error: 'That lead could not be updated. It may have been reassigned.'
+          }));
+        }
+
+        await audit('lead_note', 'success', {
+          detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
+        });
+        return redirect(res, '/staff?ok=noted');
       }
 
       /* Add a lead.
@@ -643,6 +688,7 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
+            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id)),
             ...opts
           });
 
@@ -689,6 +735,7 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
+            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id)),
             ...opts
           });
 
@@ -746,7 +793,8 @@ const server = http.createServer(async (req, res) => {
           return sendHtml(res, 400, viewsStaff.staffDashboard(await content.settings(), {
             agent, csrf, error: 'Please write a short update before posting.',
             leads: await leads.forAgent(agent.id),
-            logs: await staffLogs.forAgent(agent.id, 5)
+            logs: await staffLogs.forAgent(agent.id, 5),
+            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id))
           }));
         }
 

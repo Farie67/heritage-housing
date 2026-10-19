@@ -63,10 +63,16 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
 
 /** The dashboard: the agent's leads and their own daily activity log. */
 function staffDashboard(settings, {
-  agent, csrf = '', leads = [], logs = [], followUps = [], notice = '', error = ''
+  agent, csrf = '', leads = [], logs = [], followUps = [], notesByLead = {},
+  notice = '', error = ''
 } = {}) {
   /* One inline form per lead, opened by its Manage summary. <details> keeps this
-     working with no JavaScript, the same way the admin folders do. */
+     working with no JavaScript, the same way the admin folders do.
+
+     The update form and the note form are siblings, never nested: a <form>
+     inside a <form> is invalid HTML and browsers silently drop the inner one. */
+  const notesFor = (l) => (notesByLead && notesByLead[l.id]) || [];
+
   const manageForm = (l) => `            <details>
               <summary class="text-btn">Manage</summary>
               <form method="post" action="/staff/lead/${esc(l.id)}/update" class="stack"
@@ -86,6 +92,26 @@ ${LEAD_STATUSES.map((s) => `                  <option${s === l.status ? ' select
 
                 <button class="btn primary" type="submit">Save changes</button>
               </form>
+
+              <form method="post" action="/staff/lead/${esc(l.id)}/note" class="stack"
+                    style="margin-top:16px;min-width:230px">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+                <label for="nw-${esc(l.id)}">Add a note</label>
+                <textarea id="nw-${esc(l.id)}" name="noteText" rows="2" maxlength="2000" required
+                          placeholder="What was said?"></textarea>
+
+                <button class="btn outline" type="submit">Add note</button>
+              </form>
+
+              <div style="margin-top:16px;min-width:230px">
+                <small class="muted">Conversation (${notesFor(l).length})</small>
+                ${notesFor(l).length
+    ? `<ul style="margin:6px 0 0;padding-left:16px">
+${notesFor(l).map((n) => `                  <li><span class="muted">${esc(formatDate(n.created_at))}</span> &mdash; ${esc(n.note_text)}</li>`).join('\n')}
+                </ul>`
+    : '<p class="muted" style="margin:6px 0 0">No notes yet.</p>'}
+              </div>
             </details>`;
 
   const leadRows = leads.length ? leads.map((l) => `          <tr>

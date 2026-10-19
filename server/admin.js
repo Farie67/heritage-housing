@@ -18,8 +18,8 @@ const crypto = require('node:crypto');
 
 const config = require('./config');
 const { audit, admin, enquiries, users, agents, staffSessions, leads, staffLogs,
-  content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES, STAND_STATUSES,
-  PROJECT_STATUSES } = require('./db');
+  leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
+  STAND_STATUSES, PROJECT_STATUSES } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
@@ -31,7 +31,7 @@ const { generatePassword, generatePasswordWithSymbol } = require('./passwords');
 const { validateUpload, validateLogoUpload } = require('./multipart');
 const { logoPath, logoAbsolute, FALLBACK } = require('./branding');
 const { logSecurityEvent } = require('./security-log');
-const { readLeadUpdate } = require('./lead-input');
+const { readLeadUpdate, notesByLeadFor } = require('./lead-input');
 const invoice = require('./invoice');
 const { buildReference } = require('./references');
 
@@ -1670,7 +1670,9 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
-            leads: await leads.all(), agents: await agents.list(), user, csrf, error: message
+            leads: await leads.all(), agents: await agents.list(),
+            notesByLead: notesByLeadFor(await leadNotes.all()),
+            user, csrf, error: message
           })
         }));
       };
@@ -1701,6 +1703,7 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderLeads({
         leads: await leads.all(),
         agents: await agents.list(),
+        notesByLead: notesByLeadFor(await leadNotes.all()),
         user, csrf,
         notice: url.searchParams.get('ok') === 'added' ? 'Lead added.'
           : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'

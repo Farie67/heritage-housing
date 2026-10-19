@@ -907,7 +907,8 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
 /* The pipeline stages, from the one place they are defined. */
 const { LEAD_STATUSES } = require('./lead-input');
 
-function renderLeads({ leads = [], agents = [], user, csrf, notice = '', error = '' }) {
+function renderLeads({ leads = [], agents = [], notesByLead = {}, user, csrf,
+  notice = '', error = '' }) {
   /* One inline form per lead, opened by its Manage summary — <details> keeps it
      working with no JavaScript. */
   const manageForm = (l) => `            <details>
@@ -931,6 +932,21 @@ ${LEAD_STATUSES.map((s) => `                  <option${s === l.status ? ' select
               </form>
             </details>`;
 
+  /* The agent's conversation on this lead, read-only for the office. Same
+     <details> pattern as Manage, so it needs no JavaScript either. */
+  const notesFor = (l) => (notesByLead && notesByLead[l.id]) || [];
+
+  const notesToggle = (l) => `            <details style="margin-top:8px">
+              <summary class="text-btn">View notes (${notesFor(l).length})</summary>
+              <div style="margin-top:8px;min-width:250px">
+                ${notesFor(l).length
+    ? `<ul style="margin:0;padding-left:16px">
+${notesFor(l).map((n) => `                  <li><span class="muted">${esc(formatDate(n.created_at))} &middot; ${esc(n.agent_name)}</span><br>${esc(n.note_text)}</li>`).join('\n')}
+                </ul>`
+    : '<p class="muted" style="margin:0">No notes yet.</p>'}
+              </div>
+            </details>`;
+
   const rows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
@@ -943,7 +959,7 @@ ${LEAD_STATUSES.map((s) => `                  <option${s === l.status ? ' select
     ? esc(l.agent_name)
     : '<span class="muted">Unassigned</span>'}</td>
             <td>${esc(formatDate(l.created_at))}</td>
-            <td class="actions">${manageForm(l)}</td>
+            <td class="actions">${manageForm(l)}${notesToggle(l)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="10">No leads yet. Add the first one below.</td></tr>';
 

@@ -343,6 +343,24 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 CREATE INDEX IF NOT EXISTS idx_leads_agent ON leads(assigned_agent_id);
 
+/* The conversation history on a lead — what was said, when, and by whom.
+
+   Kept apart from staff_logs: that is the agent's own diary (one row per day,
+   about their whole day), while a lead note belongs to one lead and is read by
+   the office alongside it. A note is also never edited or deleted, so the column
+   set is deliberately just text and provenance.
+
+   ON DELETE CASCADE on both sides: a note is meaningless without its lead, and
+   an agent's notes go with the agent. */
+CREATE TABLE IF NOT EXISTS lead_notes (
+  id         INTEGER PRIMARY KEY,
+  lead_id    INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  note_text  TEXT    NOT NULL,
+  created_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lead_notes_lead ON lead_notes(lead_id);
+
 /* What a sales agent did today, in their own words. Deliberately free text and
    nothing more: phase 2 may add structure, but a single note per entry is what
    the team actually keeps. agent_id cascades so removing an agent clears their
@@ -765,6 +783,46 @@ const qUpdateLeadAny = prepare(`
    WHERE id = ?
 `);
 
+/* ── Lead notes ─────────────────────────────────────────────────────────── */
+
+/* The ownership guard lives inside the INSERT. The SELECT yields a row only
+   when the lead is assigned to this agent, so a note cannot be attached to
+   somebody else's lead even by a crafted POST — there is no separate check to
+   forget, and no window between checking and writing. `changes` then says
+   whether it happened. */
+const qInsertLeadNote = prepare(`
+  INSERT INTO lead_notes (lead_id, agent_id, note_text, created_at)
+  SELECT ?, ?, ?, ?
+   WHERE EXISTS (
+     SELECT 1 FROM leads l WHERE l.id = ? AND l.assigned_agent_id = ?
+   )
+`);
+const qLeadNotesForLead = prepare(`
+  SELECT n.id, n.lead_id, n.note_text, n.created_at, n.agent_id, a.name AS agent_name
+    FROM lead_notes n
+    JOIN agents a ON a.id = n.agent_id
+   WHERE n.lead_id = ?
+   ORDER BY n.created_at, n.id
+`);
+/* Every note for leads currently assigned to one agent — one query for the whole
+   staff dashboard rather than one per lead. Keyed on the LEAD's owner, not on
+   who wrote the note, so a reassigned lead brings its history with it. */
+const qLeadNotesForAgentLeads = prepare(`
+  SELECT n.id, n.lead_id, n.note_text, n.created_at, a.name AS agent_name
+    FROM lead_notes n
+    JOIN leads  l ON l.id = n.lead_id
+    JOIN agents a ON a.id = n.agent_id
+   WHERE l.assigned_agent_id = ?
+   ORDER BY n.created_at, n.id
+`);
+/* Everything, for the admin leads page. */
+const qLeadNotesAll = prepare(`
+  SELECT n.id, n.lead_id, n.note_text, n.created_at, a.name AS agent_name
+    FROM lead_notes n
+    JOIN agents a ON a.id = n.agent_id
+   ORDER BY n.created_at, n.id
+`);
+
 const qInsertStaffLog = prepare(
   'INSERT INTO staff_logs (agent_id, log_text, created_at) VALUES (?, ?, ?)');
 /* LIMIT is bound rather than interpolated, so it cannot become a way to inject
@@ -822,6 +880,29 @@ const leads = {
       status, budget || null, followUpDate || null, notes || null, id);
     return Number(info.changes) > 0;
   }
+};
+
+/* ── Lead notes (the conversation history on a lead) ─────────────────────── */
+
+const leadNotes = {
+  /**
+   * Adds a note, but only to a lead assigned to `agentId`.
+   *
+   * Returns true when the note was written. False means the lead does not exist
+   * or belongs to somebody else — the two are deliberately indistinguishable,
+   * so this cannot be used to discover other agents' lead ids.
+   */
+  async createForAgent(leadId, agentId, text) {
+    const info = await qInsertLeadNote.run(
+      leadId, agentId, text, nowIso(), leadId, agentId);
+    return Number(info.changes) > 0;
+  },
+  /** One lead's history, oldest first. */
+  forLead: async (leadId) => await qLeadNotesForLead.all(leadId),
+  /** Every note across the leads currently assigned to one agent. */
+  forAgentLeads: async (agentId) => await qLeadNotesForAgentLeads.all(agentId),
+  /** Everything — for the admin leads page. */
+  all: async () => await qLeadNotesAll.all()
 };
 
 const staffLogs = {
@@ -1726,7 +1807,7 @@ const admin = {
 
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
-  leads, staffLogs,
+  leads, staffLogs, leadNotes,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
   SALE_STATUSES, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES

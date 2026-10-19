@@ -39,4 +39,19 @@ function readLeadUpdate(body) {
   };
 }
 
-module.exports = { LEAD_STATUSES, readLeadUpdate };
+module.exports = { LEAD_STATUSES, readLeadUpdate, notesByLeadFor };
+
+/**
+ * Groups lead-note rows by lead id.
+ *
+ * Both the staff dashboard and the admin leads page show a conversation under
+ * each lead, and both fetch every note in one query rather than one query per
+ * row — this turns that flat list into a lookup keyed by lead.
+ */
+function notesByLeadFor(rows) {
+  const out = {};
+  for (const n of rows) {
+    (out[n.lead_id] = out[n.lead_id] || []).push(n);
+  }
+  return out;
+}
