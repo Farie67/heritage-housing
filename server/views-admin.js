@@ -320,15 +320,17 @@ function renderClients({ clients, user, csrf, query = '', showArchived = false,
   }
 
   const tables = groups.length
-    ? groups.map((g) => `      <h3 class="dev-group-heading">${esc(g.name)} (${esc(g.clients.length)} client${g.clients.length === 1 ? '' : 's'})</h3>
-      <table class="portal-table">
-        <thead>
+    ? groups.map((g) => `      <details class="dev-folder" open>
+        <summary class="dev-group-heading">${esc(g.name)} (${esc(g.clients.length)} client${g.clients.length === 1 ? '' : 's'})</summary>
+        <table class="portal-table">
+          <thead>
 ${clientHead}
-        </thead>
-        <tbody>
+          </thead>
+          <tbody>
 ${g.clients.map(clientRow).join('\n')}
-        </tbody>
-      </table>`).join('\n\n')
+          </tbody>
+        </table>
+      </details>`).join('\n\n')
     : `      <p class="muted">${showArchived
       ? 'No client accounts at all yet.'
       : 'No active client accounts. Use “Show archived” to see accounts that have been filed away.'}</p>`;
@@ -851,15 +853,17 @@ function renderProperties({ stands, projects, user, csrf, notice = '', error = '
   }
 
   const tables = groups.length
-    ? groups.map((g) => `      <h3 class="dev-group-heading">${esc(g.name)} (${esc(g.stands.length)} stand${g.stands.length === 1 ? '' : 's'})</h3>
-      <table class="portal-table">
-        <thead>
+    ? groups.map((g) => `      <details class="dev-folder" open>
+        <summary class="dev-group-heading">${esc(g.name)} (${esc(g.stands.length)} stand${g.stands.length === 1 ? '' : 's'})</summary>
+        <table class="portal-table">
+          <thead>
 ${standHead}
-        </thead>
-        <tbody>
+          </thead>
+          <tbody>
 ${g.stands.map(standRow).join('\n')}
-        </tbody>
-      </table>`).join('\n\n')
+          </tbody>
+        </table>
+      </details>`).join('\n\n')
     : '      <p class="muted">No properties yet. Add the first one below.</p>';
 
   return `  <section class="container inner-page">
