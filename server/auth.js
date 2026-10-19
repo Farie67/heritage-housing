@@ -32,7 +32,12 @@ async function hashPassword(password) {
 /** Verifies a password against a stored hash. Never throws on bad input. */
 async function verifyPassword(password, stored) {
   try {
-    const parts = String(stored).split('$');
+    /* Trimmed before parsing. A hash pasted in by hand — through a Turso
+       console, a .sql file or a spreadsheet — often arrives with a trailing
+       newline or stray spaces, and the only symptom is that the correct
+       password silently never works. A valid hash never carries surrounding
+       whitespace, so trimming cannot break a good one. */
+    const parts = String(stored).trim().split('$');
     if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
 
     const [, N, r, p, saltB64, hashB64] = parts;
@@ -189,7 +194,18 @@ async function staffSignIn(identifier, password, { ip, userAgent }) {
   if (!agent.password_hash) {
     await verifyPassword(password, await dummyHash());
     await audit('staff_login', 'failure', {
-      detail: `agent ${agent.id} (${agent.name}) has no password set`, ip
+      detail: `agent ${agent.id} (${agent.name}) has NO PASSWORD SET — run scripts/create-agent.js --reset`, ip
+    });
+    return { ok: false, reason: 'invalid' };
+  }
+
+  /* Checked after the lookup, not inside it, so a deactivated agent is audited
+     as deactivated rather than as an unknown identifier. The user still sees
+     one generic message, so nothing is leaked to a caller. */
+  if (!agent.active) {
+    await verifyPassword(password, await dummyHash());
+    await audit('staff_login', 'failure', {
+      detail: `agent ${agent.id} (${agent.name}) is DEACTIVATED`, ip
     });
     return { ok: false, reason: 'invalid' };
   }

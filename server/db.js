@@ -601,13 +601,16 @@ const qSetAgentPassword = prepare('UPDATE agents SET password_hash = ? WHERE id 
 
 /* Staff sign in with their email or, when no email is on file, their name.
    Neither is a secret — both are already shown on the website and in analytics
-   — so accepting either leaks nothing. `active = 1` is enforced here rather
-   than after the password check, so a deactivated agent is refused the same way
-   a wrong password is. */
+   — so accepting either leaks nothing.
+
+   Deliberately does NOT filter on `active`. A deactivated agent has to be
+   distinguishable from one that does not exist, because otherwise the audit
+   log says "unknown agent" for both and there is no way to tell an operator
+   why a real person cannot get in. The active check happens in staffSignIn,
+   the same way the client sign-in checks `disabled` after the lookup. */
 const qAgentByLogin = prepare(`
   SELECT * FROM agents
-   WHERE active = 1
-     AND (lower(email) = lower(?) OR lower(name) = lower(?))
+   WHERE lower(email) = lower(?) OR lower(name) = lower(?)
    LIMIT 1
 `);
 
