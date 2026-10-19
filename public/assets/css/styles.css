@@ -1196,6 +1196,32 @@ footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
   padding: 35px;
 }
 .portal-panel.narrow { width: min(480px, 92%); }
+
+/* ── Staff sign-in backdrop ──────────────────────────────────────────────
+   A photograph behind the login card, dimmed with the brand navy so the white
+   panel stays the focus and the text on it remains legible. The gradient is in
+   the same declaration as the image, so the picture can never load without the
+   wash that makes the card readable.
+
+   background-color is the safety net: if the photograph is ever missing the
+   page still shows a deliberate solid navy rather than an 85%-transparent wash
+   over whatever the body colour happens to be.
+
+   Flex rather than .portal-shell's grid, because this is its own layout. */
+.staff-login-bg {
+  min-height: calc(100vh - var(--header-h));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  background-color: #171c56;
+  background-image:
+    linear-gradient(rgba(23, 28, 86, .85), rgba(23, 28, 86, .85)),
+    url('/assets/img/staff-team.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
 .portal-brand { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; }
 .portal-brand .brand-logo { height: 52px; }
 .login-form { max-width: 440px; margin: 25px auto 0; }
