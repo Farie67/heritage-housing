@@ -270,6 +270,7 @@ function renderClients({ clients, user, csrf, query = '', showArchived = false,
           <td>${purchase ? esc(money(purchase)) : '<span class="muted">&mdash;</span>'}</td>
           <td>${esc(money(c.paid_cents))}</td>
           <td>${purchase ? esc(money(balance)) : '<span class="muted">&mdash;</span>'}</td>
+          <td>${c.agent_name ? esc(c.agent_name) : '<span class="muted">&mdash;</span>'}</td>
           <td>${esc(c.email || '')}</td>
           <td>
             <form method="post" action="/admin/clients/${esc(c.id)}/reset-password" class="inline-form"
@@ -286,7 +287,7 @@ function renderClients({ clients, user, csrf, query = '', showArchived = false,
             </form>
           </td>
         </tr>`;
-  }).join('\n') : `        <tr><td colspan="8">${showArchived
+  }).join('\n') : `        <tr><td colspan="9">${showArchived
     ? 'No client accounts at all yet.'
     : 'No active client accounts. Use “Show archived” to see accounts that have been filed away.'}</td></tr>`;
 
@@ -332,6 +333,7 @@ function renderClients({ clients, user, csrf, query = '', showArchived = false,
             <th scope="col">Purchase</th>
             <th scope="col">Paid</th>
             <th scope="col">Balance</th>
+            <th scope="col">Closed by</th>
             <th scope="col">Email</th>
             <th scope="col">Actions</th>
           </tr>
@@ -352,7 +354,7 @@ ${rows}
 /* ── One client ─────────────────────────────────────────────────────────── */
 
 function renderClientDetail({
-  client, payments, stands, documents = [], basePath, user, csrf,
+  client, payments, stands, agents = [], documents = [], basePath, user, csrf,
   notice = '', error = '', generatedPassword = ''
 }) {
   const purchase = client.purchase_price_cents || 0;
@@ -530,6 +532,12 @@ ${standOptions}
             <option>Awaiting transfer</option>
             <option>Transferred</option>
             <option>Paid up</option>
+          </select>
+
+          <label for="agentId">Sales agent</label>
+          <select id="agentId" name="agentId">
+            <option value="">Not recorded</option>
+            ${agents.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('\n            ')}
           </select>
 
           <button class="btn primary" type="submit">Link stand</button>

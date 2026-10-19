@@ -227,6 +227,7 @@ async function loadClient(id) {
     client,
     payments: await admin.paymentsFor(id),
     stands: await admin.stands(),
+    agents: await admin.agents(),
     documents: await admin.documentsFor(id)
   };
 }
@@ -1233,13 +1234,30 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
+      /* The sales agent is optional — an old sale being re-keyed may have no
+         agent recorded — but a value that is not a live agent is a mistake, so
+         it is refused rather than silently dropped. */
+      let agentId = null;
+      const rawAgent = String(body.agentId || '').trim();
+      if (rawAgent) {
+        agentId = Number.parseInt(rawAgent, 10);
+        if (!(await admin.agents()).some((a) => a.id === agentId)) {
+          await sendClientPage(res, h, clientId, {
+            user, csrf, error: 'Please choose a sales agent from the list.'
+          });
+          return true;
+        }
+      }
+
       /* The guard inside linkStand() throws when the stand was taken between
          this page being rendered and the form being submitted — a double-click,
          a stale tab, or another member of staff getting there first. The page
          is re-rendered with the reason, and its error slot is the same
          <p class="notice error"> every other failure on this page uses. */
       try {
-        await admin.linkStand({ userId: clientId, standId, priceCents: cents, purchaseDate, status });
+        await admin.linkStand({
+          userId: clientId, standId, priceCents: cents, purchaseDate, status, agentId
+        });
       } catch (err) {
         await sendClientPage(res, h, clientId, {
           user, csrf,

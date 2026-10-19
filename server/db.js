@@ -814,17 +814,24 @@ const qAdminCounts = prepare(`
 
 /* One row per client, with their stand and how much they have paid.
    Archived accounts are left out unless the office asks for them, so the list
-   stays the list of live accounts. */
+   stays the list of live accounts.
+
+   agent_name is the sales agent credited with the sale. It is joined through
+   the ownership rather than the user, and LEFT joined because agent_id is
+   nullable — every sale recorded before the column was used has no agent, and
+   those rows must still list. */
 const CLIENTS_SELECT = `
   SELECT u.id, u.client_number, u.full_name, u.email, u.disabled, u.archived, u.created_at,
          st.stand_number, p.name AS project_name,
          o.purchase_price_cents, o.status AS ownership_status,
+         ag.name AS agent_name,
          (SELECT COALESCE(SUM(amount_cents), 0)
             FROM payments WHERE user_id = u.id AND status = 'Confirmed') AS paid_cents
   FROM users u
   LEFT JOIN ownerships o ON o.user_id = u.id
   LEFT JOIN stands     st ON st.id = o.stand_id
   LEFT JOIN projects   p  ON p.id = st.project_id
+  LEFT JOIN agents     ag ON ag.id = o.agent_id
   WHERE u.role = 'client'`;
 
 const qClientsList = prepare(
@@ -973,8 +980,9 @@ const qProjectNameTaken = prepare(
   'SELECT id FROM projects WHERE lower(name) = lower(?) AND id <> ?');
 
 const qInsertOwnership = prepare(`
-  INSERT INTO ownerships (user_id, stand_id, purchase_price_cents, purchase_date, status)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO ownerships
+    (user_id, stand_id, purchase_price_cents, purchase_date, status, agent_id)
+  VALUES (?, ?, ?, ?, ?, ?)
 `);
 const qOwnershipById = prepare('SELECT * FROM ownerships WHERE id = ?');
 const qDeleteOwnership = prepare('DELETE FROM ownerships WHERE id = ?');
@@ -997,6 +1005,12 @@ const qStandAllocated = prepare(`
 
 const qSetStandStatus = prepare('UPDATE stands SET status = ? WHERE id = ?');
 const qCountOwnershipsForUser = prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?');
+
+/* The sales agents a sale can be credited to. Inactive agents are left out of
+   the picker, but a sale they already closed still shows its agent name —
+   that name is joined in CLIENTS_SELECT, not read from this list. Same query
+   the analytics filters use. */
+const qAgents = prepare('SELECT id, name FROM agents WHERE active = 1 ORDER BY name');
 
 /* ── Admin: payments ────────────────────────────────────────────────────── */
 
@@ -1186,11 +1200,15 @@ const admin = {
   async unlock(id) { await qUnlockClient.run(id); },
 
   stands: async () => await qStandsAll.all(),
+  /* Sales agents, for the "who closed this sale?" picker. */
+  agents: async () => await qAgents.all(),
   ownershipById: async (id) => await qOwnershipById.get(id),
   ownershipCountFor: async (userId) => (await qCountOwnershipsForUser.get(userId)).c,
 
-  /** Links a stand to a client and marks the stand sold. */
-  async linkStand({ userId, standId, priceCents, purchaseDate, status }) {
+  /** Links a stand to a client and marks the stand sold.
+      `agentId` is the sales agent credited with the deal, or null when the
+      office has not recorded one. */
+  async linkStand({ userId, standId, priceCents, purchaseDate, status, agentId = null }) {
     /* Belt and braces. The admin form already offers only free stands and
        admin.js refuses one that is held by another client, but neither survives
        a double-click, a stale page left open, or two staff working at once.
@@ -1200,7 +1218,8 @@ const admin = {
       throw new Error('This stand is already allocated to another client.');
     }
 
-    await qInsertOwnership.run(userId, standId, priceCents, purchaseDate, status);
+    await qInsertOwnership.run(userId, standId, priceCents, purchaseDate, status,
+      agentId === undefined ? null : agentId);
     await qSetStandStatus.run('Sold', standId);
   },
 
