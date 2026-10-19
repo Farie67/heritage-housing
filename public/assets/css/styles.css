@@ -1216,7 +1216,7 @@ footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
   padding: 60px 0;
   background-color: #171c56;
   background-image:
-    linear-gradient(rgba(23, 28, 86, .85), rgba(23, 28, 86, .85)),
+    linear-gradient(rgba(23, 28, 86, .45), rgba(23, 28, 86, .45)),
     url('/assets/img/staff-team.jpg');
   background-size: cover;
   background-position: center;
