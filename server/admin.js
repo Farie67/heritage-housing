@@ -31,7 +31,7 @@ const { generatePassword, generatePasswordWithSymbol } = require('./passwords');
 const { validateUpload, validateLogoUpload } = require('./multipart');
 const { logoPath, logoAbsolute, FALLBACK } = require('./branding');
 const { logSecurityEvent } = require('./security-log');
-const { readLeadUpdate, notesByLeadFor } = require('./lead-input');
+const { readLeadUpdate } = require('./lead-input');
 const invoice = require('./invoice');
 const { buildReference } = require('./references');
 
@@ -1671,7 +1671,6 @@ async function handleAdmin(req, res, ctx) {
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
             leads: await leads.all(), agents: await agents.list(),
-            notesByLead: notesByLeadFor(await leadNotes.all()),
             user, csrf, error: message
           })
         }));
@@ -1703,11 +1702,52 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderLeads({
         leads: await leads.all(),
         agents: await agents.list(),
-        notesByLead: notesByLeadFor(await leadNotes.all()),
         user, csrf,
-        notice: url.searchParams.get('ok') === 'added' ? 'Lead added.'
-          : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
-            : ''
+        notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
+      })
+    }));
+    return true;
+  }
+
+  /* ── Leads: one lead ──
+     Read, update and reassign. Unlike the staff page this is the office view:
+     the budget is editable and the lead can be handed to another agent. */
+  const leadDetailMatch = pathname.match(/^\/admin\/leads\/(\d+)$/);
+  if (leadDetailMatch) {
+    if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
+
+    const leadId = Number(leadDetailMatch[1]);
+    const lead = await leads.byId(leadId);
+
+    if (!lead) {
+      h.sendHtml(res, 404, await views.adminLayout({
+        title: 'Not found', active: '/admin/leads', user, csrf,
+        body: '<section class="container inner-page"><h1>Lead not found</h1><p><a class="btn primary" href="/admin/leads">Back to leads</a></p></section>'
+      }));
+      return true;
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+    /* The row's agent_name comes from the list query; a single-lead lookup does
+       not join agents, so it is filled in here for the header. */
+    const owner = lead.assigned_agent_id
+      ? (await agents.list()).find((a) => a.id === lead.assigned_agent_id)
+      : null;
+
+    await audit('admin_view', 'success', {
+      userId: user.id, detail: `lead ${leadId}`, ip
+    });
+
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: lead.full_name, active: '/admin/leads', user, csrf,
+      body: views.renderAdminLeadDetail({
+        lead: { ...lead, agent_name: owner ? owner.name : null },
+        notes: await leadNotes.forLead(leadId),
+        agents: await agents.list(),
+        user, csrf,
+        notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.' : '',
+        error: url.searchParams.get('error') || ''
       })
     }));
     return true;
@@ -1721,7 +1761,19 @@ async function handleAdmin(req, res, ctx) {
 
     const leadId = Number(leadUpdateMatch[1]);
     const fields = readLeadUpdate(body);
-    const ok = await leads.update(leadId, fields);
+
+    /* Reassignment is admin-only, so it is read here rather than in
+       readLeadUpdate — the staff route must never see it. An empty value means
+       "unassign", which is a real state, so it maps to null rather than being
+       dropped. */
+    const rawAgent = String(body.assignedAgentId || '').trim();
+    const assignedAgentId = rawAgent ? Number.parseInt(rawAgent, 10) : null;
+
+    if (rawAgent && !(await agents.list()).some((a) => a.id === assignedAgentId)) {
+      return h.redirect(res, `/admin/leads/${leadId}?error=${encodeURIComponent('Please choose an agent from the list.')}`), true;
+    }
+
+    const ok = await leads.update(leadId, { ...fields, assignedAgentId });
 
     if (!ok) {
       h.sendHtml(res, 404, await views.adminLayout({
@@ -1734,7 +1786,7 @@ async function handleAdmin(req, res, ctx) {
     await audit('lead_update', 'success', {
       userId: user.id, detail: `lead ${leadId} (${fields.status})`, ip
     });
-    return h.redirect(res, '/admin/leads?ok=updated'), true;
+    return h.redirect(res, `/admin/leads/${leadId}?ok=updated`), true;
   }
 
   /* ── Staff (sales agents) ──

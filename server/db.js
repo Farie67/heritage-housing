@@ -779,7 +779,8 @@ const qUpdateLeadForAgent = prepare(`
 `);
 const qUpdateLeadAny = prepare(`
   UPDATE leads
-     SET status = ?, budget = COALESCE(?, budget), follow_up_date = ?, notes = ?
+     SET status = ?, budget = COALESCE(?, budget), follow_up_date = ?, notes = ?,
+         assigned_agent_id = ?
    WHERE id = ?
 `);
 
@@ -874,10 +875,21 @@ const leads = {
     return Number(info.changes) > 0;
   },
 
-  /** Admin: any lead, whoever owns it. */
-  async update(id, { status, budget, followUpDate, notes }) {
+  /**
+   * Admin: any lead, whoever owns it.
+   *
+   * `assignedAgentId` is written too, so the office can reassign a lead. It is
+   * undefined when the caller did not supply one — in that case the existing
+   * owner is preserved rather than silently cleared. Pass null explicitly to
+   * unassign.
+   */
+  async update(id, { status, budget, followUpDate, notes, assignedAgentId }) {
+    const owner = assignedAgentId === undefined
+      ? ((await qLeadById.get(id)) || {}).assigned_agent_id ?? null
+      : assignedAgentId;
+
     const info = await qUpdateLeadAny.run(
-      status, budget || null, followUpDate || null, notes || null, id);
+      status, budget || null, followUpDate || null, notes || null, owner, id);
     return Number(info.changes) > 0;
   }
 };

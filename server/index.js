@@ -32,7 +32,7 @@ const adminRoutes = require('./admin');
 const publicSite = require('./public-site');
 const invoice = require('./invoice');
 const { slugify, todayIso } = require('./format');
-const { readLeadUpdate, notesByLeadFor } = require('./lead-input');
+const { readLeadUpdate } = require('./lead-input');
 const { isMultipart, boundaryFrom, parseMultipart } = require('./multipart');
 const { validateNewPassword } = require('./passwords');
 
@@ -596,8 +596,44 @@ const server = http.createServer(async (req, res) => {
           leads: await leads.forAgent(agent.id),
           followUps: await leads.dueForAgent(agent.id, todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5),
-          notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id))
         }));
+      }
+
+      /* One lead, in full.
+
+         The ownership test is the important line here: a lead that is not
+         assigned to this agent answers 404, exactly as a lead that does not
+         exist would. Returning 403 would confirm the id is real, which lets an
+         agent map out colleagues' leads one id at a time. */
+      const staffLeadDetail = pathname.match(/^\/staff\/lead\/(\d+)$/);
+      if (staffLeadDetail) {
+        if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const leadId = Number(staffLeadDetail[1]);
+        const lead = await leads.byId(leadId);
+
+        if (!lead || lead.assigned_agent_id !== agent.id) {
+          return sendHtml(res, 404, viewsStaff.staffDashboard(await content.settings(), {
+            agent, csrf,
+            error: 'That lead could not be found. It may have been reassigned.',
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5)
+          }));
+        }
+
+        return sendHtml(res, 200, viewsStaff.renderStaffLeadDetail(
+          await content.settings(), {
+            agent, lead,
+            notes: await leadNotes.forLead(leadId),
+            csrf,
+            notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
+              : url.searchParams.get('ok') === 'noted' ? 'Note added.'
+                : '',
+            error: url.searchParams.get('error') || ''
+          }
+        ));
       }
 
       /* Update one of this agent's own leads. Ownership is enforced inside the
@@ -614,20 +650,19 @@ const server = http.createServer(async (req, res) => {
         if (!ok) {
           /* Deliberately the same answer for "no such lead" and "not yours", so
              the form cannot be used to discover other agents' lead ids. */
-          return sendHtml(res, 403, viewsStaff.staffDashboard(await content.settings(), {
+          return sendHtml(res, 404, viewsStaff.staffDashboard(await content.settings(), {
             agent, csrf,
             error: 'That lead could not be updated. It may have been reassigned.',
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
-            logs: await staffLogs.forAgent(agent.id, 5),
-            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id))
+            logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
 
         await audit('lead_update', 'success', {
           detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
         });
-        return redirect(res, '/staff?ok=updated');
+        return redirect(res, `/staff/lead/${leadId}?ok=updated`);
       }
 
       /* Add a note to one of this agent's own leads.
@@ -642,34 +677,46 @@ const server = http.createServer(async (req, res) => {
         const leadId = Number(staffNoteMatch[1]);
         const noteText = String(body.noteText || '').trim().slice(0, 2000);
 
-        const renderDashboard = async (opts = {}) => viewsStaff.staffDashboard(
-          await content.settings(), {
-            agent, csrf,
-            leads: await leads.forAgent(agent.id),
-            followUps: await leads.dueForAgent(agent.id, todayIso()),
-            logs: await staffLogs.forAgent(agent.id, 5),
-            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id)),
-            ...opts
+        /* Re-renders the detail page with a message — the agent was on the
+           lead's page and should stay there. */
+        const renderDetail = async (opts = {}) => {
+          const lead = await leads.byId(leadId);
+          if (!lead || lead.assigned_agent_id !== agent.id) return null;
+          return viewsStaff.renderStaffLeadDetail(await content.settings(), {
+            agent, lead, notes: await leadNotes.forLead(leadId), csrf, ...opts
           });
+        };
 
         if (noteText.length < 2) {
-          return sendHtml(res, 400, await renderDashboard({
+          const page = await renderDetail({
             error: 'Please write something before adding the note.'
+          });
+          if (page) return sendHtml(res, 400, page);
+          return sendHtml(res, 404, viewsStaff.staffDashboard(await content.settings(), {
+            agent, csrf,
+            error: 'That lead could not be found. It may have been reassigned.',
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
 
         const ok = await leadNotes.createForAgent(leadId, agent.id, noteText);
         if (!ok) {
           /* Same answer for "no such lead" and "not yours". */
-          return sendHtml(res, 403, await renderDashboard({
-            error: 'That lead could not be updated. It may have been reassigned.'
+          return sendHtml(res, 404, viewsStaff.staffDashboard(await content.settings(), {
+            agent, csrf,
+            error: 'That lead could not be updated. It may have been reassigned.',
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
 
         await audit('lead_note', 'success', {
           detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
         });
-        return redirect(res, '/staff?ok=noted');
+        return redirect(res, `/staff/lead/${leadId}?ok=noted`);
       }
 
       /* Add a lead.
@@ -688,7 +735,6 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
-            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id)),
             ...opts
           });
 
@@ -735,7 +781,6 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
-            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id)),
             ...opts
           });
 
@@ -794,7 +839,6 @@ const server = http.createServer(async (req, res) => {
             agent, csrf, error: 'Please write a short update before posting.',
             leads: await leads.forAgent(agent.id),
             logs: await staffLogs.forAgent(agent.id, 5),
-            notesByLead: notesByLeadFor(await leadNotes.forAgentLeads(agent.id))
           }));
         }
 

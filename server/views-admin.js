@@ -907,46 +907,8 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
 /* The pipeline stages, from the one place they are defined. */
 const { LEAD_STATUSES } = require('./lead-input');
 
-function renderLeads({ leads = [], agents = [], notesByLead = {}, user, csrf,
+function renderLeads({ leads = [], agents = [], user, csrf,
   notice = '', error = '' }) {
-  /* One inline form per lead, opened by its Manage summary — <details> keeps it
-     working with no JavaScript. */
-  const manageForm = (l) => `            <details>
-              <summary class="text-btn">Manage</summary>
-              <form method="post" action="/admin/leads/${esc(l.id)}/update" class="stack"
-                    style="margin-top:10px;min-width:230px">
-                <input type="hidden" name="csrf" value="${esc(csrf)}">
-
-                <label for="st-${esc(l.id)}">Status</label>
-                <select id="st-${esc(l.id)}" name="status">
-${LEAD_STATUSES.map((s) => `                  <option${s === l.status ? ' selected' : ''}>${esc(s)}</option>`).join('\n')}
-                </select>
-
-                <label for="fu-${esc(l.id)}">Follow-up date</label>
-                <input id="fu-${esc(l.id)}" name="followUpDate" type="date" value="${esc(l.follow_up_date || '')}">
-
-                <label for="nt-${esc(l.id)}">Notes</label>
-                <textarea id="nt-${esc(l.id)}" name="notes" rows="3" maxlength="2000">${esc(l.notes || '')}</textarea>
-
-                <button class="btn primary" type="submit">Save changes</button>
-              </form>
-            </details>`;
-
-  /* The agent's conversation on this lead, read-only for the office. Same
-     <details> pattern as Manage, so it needs no JavaScript either. */
-  const notesFor = (l) => (notesByLead && notesByLead[l.id]) || [];
-
-  const notesToggle = (l) => `            <details style="margin-top:8px">
-              <summary class="text-btn">View notes (${notesFor(l).length})</summary>
-              <div style="margin-top:8px;min-width:250px">
-                ${notesFor(l).length
-    ? `<ul style="margin:0;padding-left:16px">
-${notesFor(l).map((n) => `                  <li><span class="muted">${esc(formatDate(n.created_at))} &middot; ${esc(n.agent_name)}</span><br>${esc(n.note_text)}</li>`).join('\n')}
-                </ul>`
-    : '<p class="muted" style="margin:0">No notes yet.</p>'}
-              </div>
-            </details>`;
-
   const rows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
@@ -959,7 +921,7 @@ ${notesFor(l).map((n) => `                  <li><span class="muted">${esc(format
     ? esc(l.agent_name)
     : '<span class="muted">Unassigned</span>'}</td>
             <td>${esc(formatDate(l.created_at))}</td>
-            <td class="actions">${manageForm(l)}${notesToggle(l)}</td>
+            <td class="actions"><a class="text-btn" href="/admin/leads/${esc(l.id)}">View</a></td>
           </tr>`).join('\n')
     : '          <tr><td colspan="10">No leads yet. Add the first one below.</td></tr>';
 
@@ -1037,6 +999,95 @@ ${agentOptions}
 }
 
 /* ── Staff (sales agents) ───────────────────────────────────────────────── */
+
+/**
+ * One lead, in full, for the office.
+ *
+ * Unlike the staff version this can edit the budget and reassign the lead, so
+ * it takes the agent list as well as the lead.
+ */
+function renderAdminLeadDetail({ lead, notes = [], agents = [], user, csrf,
+  notice = '', error = '' }) {
+  const noteItems = notes.length ? notes.map((n) => `        <li>
+          <span class="muted">${esc(formatDate(n.created_at))} &middot; ${esc(n.agent_name)}</span><br>
+          ${esc(n.note_text)}
+        </li>`).join('\n')
+    : '        <li class="muted">No notes on this lead yet.</li>';
+
+  const field = (label, value) => `          <div><small>${esc(label)}</small><strong>${value
+    ? esc(value) : '&mdash;'}</strong></div>`;
+
+  const agentOptions = [
+    `          <option value=""${lead.assigned_agent_id ? '' : ' selected'}>Unassigned</option>`,
+    ...agents.map((a) => `          <option value="${esc(a.id)}"${a.id === lead.assigned_agent_id ? ' selected' : ''}>${esc(a.name)}</option>`)
+  ].join('\n');
+
+  return `  <section class="container inner-page">
+    <p><a class="text-btn" href="/admin/leads">&larr; All leads</a></p>
+
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">LEAD</span>
+        <h1>${esc(lead.full_name)}</h1>
+        <p class="muted">${esc(lead.status)}${lead.agent_name
+      ? ` &middot; assigned to ${esc(lead.agent_name)}` : ' &middot; unassigned'}</p>
+      </div>
+    </div>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <div class="client-card">
+      <h2>Details</h2>
+      <div class="mini-grid">
+${field('Phone', lead.phone)}
+${field('Email', lead.email)}
+${field('Source', lead.source)}
+${field('Status', lead.status)}
+${field('Budget', lead.budget)}
+${field('Follow-up date', lead.follow_up_date)}
+${field('Added', formatDate(lead.created_at))}
+      </div>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Update this lead</h2>
+      <form method="post" action="/admin/leads/${esc(lead.id)}/update">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="status">Status</label>
+        <select id="status" name="status">
+${LEAD_STATUSES.map((s) => `          <option${s === lead.status ? ' selected' : ''}>${esc(s)}</option>`).join('\n')}
+        </select>
+
+        <label for="budget">Budget</label>
+        <input id="budget" name="budget" type="text" maxlength="60" value="${esc(lead.budget || '')}">
+
+        <label for="followUpDate">Follow-up date</label>
+        <input id="followUpDate" name="followUpDate" type="date" value="${esc(lead.follow_up_date || '')}">
+
+        <label for="assignedAgentId">Assigned to</label>
+        <select id="assignedAgentId" name="assignedAgentId">
+${agentOptions}
+        </select>
+
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" rows="3" maxlength="2000">${esc(lead.notes || '')}</textarea>
+
+        <button class="btn primary" type="submit">Save changes</button>
+      </form>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Timeline (${notes.length})</h2>
+      <p class="field-hint" style="margin-bottom:14px">Read-only. Notes are written by the
+        sales agent from their staff dashboard.</p>
+      <ul style="margin:0;padding-left:18px">
+${noteItems}
+      </ul>
+    </div>
+  </section>`;
+}
 
 function renderStaff({ agents = [], logs = [], user, csrf, notice = '', error = '',
   generatedPassword = '', generatedFor = '' }) {
@@ -1735,5 +1786,5 @@ module.exports = {
   adminLayout, renderLogin, renderDashboard, renderEnquiries, renderClients,
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
-  renderProperties, renderPropertyEdit, renderStaff, renderLeads
+  renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail
 };
