@@ -827,6 +827,22 @@ tr.voided td { opacity: .5; text-decoration: line-through; }
 .dev-clients a { color: var(--navy); font-weight: 600; text-decoration: none; }
 .dev-clients a:hover { color: var(--gold); text-decoration: underline; }
 
+/* ── Grouped admin tables ────────────────────────────────────────────────
+   The heading that separates one development's table from the next on the
+   admin clients and properties lists. The first heading follows the page
+   intro, so a top margin would push it away from the content it introduces;
+   :first-of-type pulls it back up without needing a utility class. */
+.dev-group-heading {
+  margin-top: 40px;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--navy);
+  color: var(--navy);
+  font-size: 1.2rem;
+}
+
+.client-card .dev-group-heading:first-of-type { margin-top: 8px; }
+
 /* ── Client folders ──────────────────────────────────────────────────────
    One tile per development, replacing the flat list of client names on the
    overview. auto-fit keeps the grid honest at any width: tiles are never
