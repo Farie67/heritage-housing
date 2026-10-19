@@ -827,21 +827,32 @@ tr.voided td { opacity: .5; text-decoration: line-through; }
 .dev-clients a { color: var(--navy); font-weight: 600; text-decoration: none; }
 .dev-clients a:hover { color: var(--gold); text-decoration: underline; }
 
-/* ── Grouped admin tables ────────────────────────────────────────────────
-   The heading that separates one development's table from the next on the
-   admin clients and properties lists. The first heading follows the page
-   intro, so a top margin would push it away from the content it introduces;
-   :first-of-type pulls it back up without needing a utility class. */
+/* ── Collapsible development folders ─────────────────────────────────────
+   Each development is a <details> whose <summary> is this heading. A summary
+   is the click target, so it needs the three things that make one readable as
+   a control: a pointer cursor, room to hit, and a hover state. The native
+   disclosure triangle is deliberately left alone — it is the affordance that
+   says the folder opens. */
 .dev-group-heading {
+  cursor: pointer;
   margin-top: 40px;
   margin-bottom: 15px;
-  padding-bottom: 8px;
+  padding: 8px 6px;
   border-bottom: 2px solid var(--navy);
   color: var(--navy);
   font-size: 1.2rem;
+  transition: color .15s ease;
 }
 
-.client-card .dev-group-heading:first-of-type { margin-top: 8px; }
+.dev-group-heading:hover,
+.dev-group-heading:focus-visible { color: var(--gold); }
+
+/* The first folder follows the page intro, so 40px would push it away from the
+   content it introduces. Keyed on the folder, not the summary: every summary is
+   the first (and only) of its type inside its own <details>, so a
+   :first-of-type on .dev-group-heading would flatten the spacing of all of
+   them. */
+.client-card .dev-folder:first-of-type .dev-group-heading { margin-top: 8px; }
 
 /* ── Client folders ──────────────────────────────────────────────────────
    One tile per development, replacing the flat list of client names on the
