@@ -20,11 +20,13 @@ const config = require('./config');
 const { audit, users, sessions, portal, enquiries, admin, content, db } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
-  securityHeaders, csrfOk, RateLimiter, STATE_CHANGING
+  securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
+  staffSessionCookie, clearStaffSessionCookie
 } = require('./security');
 const auth = require('./auth');
 const { logSecurityEvent } = require('./security-log');
 const views = require('./views');
+const viewsStaff = require('./views-staff');
 const adminRoutes = require('./admin');
 const publicSite = require('./public-site');
 const invoice = require('./invoice');
@@ -142,12 +144,16 @@ const enquiryLimiter = new RateLimiter(config.ENQUIRY_MAX_PER_HOUR, 60 * 60 * 10
    route. Set well above a normal browsing session so it only catches a client
    working systematically through the site. */
 const generalLimiter = new RateLimiter(config.GENERAL_MAX_PER_WINDOW, config.GENERAL_WINDOW_MS);
+/* Staff sign-in gets its own bucket for the same reason the admin one does:
+   hammering one portal must not lock out the other. */
+const staffLoginLimiter = new RateLimiter(config.LOGIN_MAX_ATTEMPTS, config.LOGIN_WINDOW_MS);
 
 // Keep the limiters' maps from growing without bound.
 setInterval(async () => {
   loginLimiter.sweep();
   enquiryLimiter.sweep();
   generalLimiter.sweep();
+  staffLoginLimiter.sweep();
   adminRoutes.sweep();
   await sessions.purgeExpired();
 }, 10 * 60 * 1000).unref();
@@ -400,7 +406,11 @@ const server = http.createServer(async (req, res) => {
     const pathname = url.pathname;
     const cookies = parseCookies(req);
 
-    securityHeaders(res, { html: pathname.endsWith('.html') || pathname === '/' });
+    securityHeaders(res, {
+      /* The staff pages are authenticated, so they must never be cached. */
+      html: pathname.endsWith('.html') || pathname === '/'
+        || pathname === '/staff' || pathname.startsWith('/staff/')
+    });
 
     /* The global ceiling, checked before any database work so that a flood
        costs as little as possible.
@@ -499,6 +509,85 @@ const server = http.createServer(async (req, res) => {
         files,
         h: { send, sendHtml, sendJson, redirect }
       });
+    }
+
+    /* ── Staff portal (sales agents) ──
+       Phase 1 is the login shell only. Agents are rows in `agents`, not in
+       `users`, so they carry their own cookie and their own session table; the
+       requireStaff guard below is the single gate every staff page goes
+       through. The CSRF check above already covers the POSTs here. */
+    if (pathname === '/staff' || pathname.startsWith('/staff/')) {
+      const staffToken = cookies[config.STAFF_COOKIE];
+      const agent = await auth.requireStaff(staffToken);
+
+      /* Sign in. */
+      if (pathname === '/staff/login') {
+        if (method === 'GET') {
+          if (agent) return redirect(res, '/staff');
+          return sendHtml(res, 200, viewsStaff.staffLogin(await content.settings(), { csrf }));
+        }
+        if (method !== 'POST') return send(res, 405, 'Method not allowed');
+
+        const limit = staffLoginLimiter.check(ip);
+        if (!limit.allowed) {
+          const mins = Math.ceil(limit.retryAfterMs / 60000);
+          logSecurityEvent('staff_login_rate_limited', req, { retryAfterMs: limit.retryAfterMs });
+          return sendHtml(res, 429, viewsStaff.staffLogin(await content.settings(), {
+            csrf,
+            error: `Too many sign-in attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
+          }), { 'Retry-After': String(Math.ceil(limit.retryAfterMs / 1000)) });
+        }
+
+        const identifier = String(body.identifier || '').trim();
+        const password = String(body.password || '');
+
+        if (identifier.length < 2 || password.length < 3) {
+          return sendHtml(res, 400, viewsStaff.staffLogin(await content.settings(), {
+            csrf, error: 'Please enter your email or name and your password.'
+          }));
+        }
+
+        const result = await auth.staffSignIn(identifier, password, {
+          ip, userAgent: req.headers['user-agent']
+        });
+
+        if (!result.ok) {
+          logSecurityEvent('staff_login_failed', req, { identifier: identifier.slice(0, 80) });
+          return sendHtml(res, 401, viewsStaff.staffLogin(await content.settings(), {
+            csrf, error: 'Invalid email, name or password.'
+          }));
+        }
+
+        staffLoginLimiter.reset(ip);
+        logSecurityEvent('staff_login_success', req, { agent: result.agent.name });
+        return sendHtml(res, 302, '', {
+          Location: '/staff',
+          'Set-Cookie': staffSessionCookie(result.token, config.SESSION_TTL_MS)
+        });
+      }
+
+      /* Sign out. */
+      if (pathname === '/staff/logout') {
+        if (method !== 'POST') return send(res, 405, 'Method not allowed');
+        await auth.destroyStaffSession(staffToken);
+        return sendHtml(res, 302, '', {
+          Location: '/staff/login',
+          'Set-Cookie': clearStaffSessionCookie()
+        });
+      }
+
+      /* Dashboard — the protected page. */
+      if (pathname === '/staff') {
+        if (method !== 'GET') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+        return sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
+          agent, csrf
+        }));
+      }
+
+      return sendHtml(res, 404, await views.renderError({
+        status: 404, title: 'Not found', message: 'That page could not be found.'
+      }));
     }
 
     /* ── Client portal ── */

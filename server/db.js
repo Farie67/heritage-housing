@@ -325,6 +325,40 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at TEXT    NOT NULL
 );
 
+/* CRM, phase 1. An enquiry that has not yet become a client.
+
+   assigned_agent_id is nullable on purpose: a lead can sit unowned until
+   someone claims it, and nothing in phase 1 assigns one automatically. Status
+   is free text with a default so phase 2 can add stages without a migration;
+   the values are not constrained yet. */
+CREATE TABLE IF NOT EXISTS leads (
+  id                INTEGER PRIMARY KEY,
+  full_name         TEXT    NOT NULL,
+  phone             TEXT,
+  email             TEXT,
+  source            TEXT,
+  status            TEXT    NOT NULL DEFAULT 'New',
+  assigned_agent_id INTEGER REFERENCES agents(id),
+  created_at        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_leads_agent ON leads(assigned_agent_id);
+
+/* Staff sessions live apart from the sessions table for a hard reason: that
+   table's user_id is a foreign key to users(id), and an agent is an agents row.
+   With foreign keys enforced an agent id could never be stored there. Keeping
+   the two apart also means a client session can never be mistaken for a staff
+   one, which matters once both portals exist. Same shape as sessions
+   otherwise: only the SHA-256 digest of the token is stored. */
+CREATE TABLE IF NOT EXISTS staff_sessions (
+  token_hash  TEXT    PRIMARY KEY,
+  agent_id    INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  created_at  TEXT    NOT NULL,
+  expires_at  TEXT    NOT NULL,
+  ip          TEXT,
+  user_agent  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_staff_sessions_agent ON staff_sessions(agent_id);
+
 /* A financial audit trail, separate from the general audit_log: this one
    records what a value changed FROM and TO, which is what an accountant
    needs and what audit_log's free-text detail cannot express. */
@@ -355,6 +389,11 @@ await ensureColumn('ownerships', 'sale_status', "TEXT DEFAULT 'Active'");
 await ensureColumn('ownerships', 'sale_date', 'TEXT');
 await ensureColumn('ownerships', 'closed_at', 'TEXT');
 await ensureColumn('ownerships', 'sale_notes', 'TEXT');
+
+/* Staff sign-in. Nullable: an agent can exist as a sales credit on a sale
+   without ever being given a login. An agent with no hash simply cannot sign
+   in, which is a safer default than creating one with a guessable password. */
+await ensureColumn('agents', 'password_hash', 'TEXT');
 
 /* The transaction side. `status` (Confirmed/Pending) already existed and keeps
    its meaning — whether the money has been verified. `voided_at` is a separate
@@ -553,6 +592,57 @@ const sessions = {
   destroy: async (tokenHash) => await qDeleteSession.run(tokenHash),
   destroyAllForUser: async (userId) => await qDeleteUserSessions.run(userId),
   purgeExpired: async () => await qDeleteExpired.run(nowIso())
+};
+
+/* ── Staff (agents) ─────────────────────────────────────────────────────── */
+
+const qAgentById = prepare('SELECT * FROM agents WHERE id = ?');
+const qSetAgentPassword = prepare('UPDATE agents SET password_hash = ? WHERE id = ?');
+
+/* Staff sign in with their email or, when no email is on file, their name.
+   Neither is a secret — both are already shown on the website and in analytics
+   — so accepting either leaks nothing. `active = 1` is enforced here rather
+   than after the password check, so a deactivated agent is refused the same way
+   a wrong password is. */
+const qAgentByLogin = prepare(`
+  SELECT * FROM agents
+   WHERE active = 1
+     AND (lower(email) = lower(?) OR lower(name) = lower(?))
+   LIMIT 1
+`);
+
+/* Staff sessions. Same discipline as client sessions: only the digest of the
+   token is ever stored. */
+const qInsertStaffSession = prepare(`
+  INSERT INTO staff_sessions (token_hash, agent_id, created_at, expires_at, ip, user_agent)
+  VALUES (?, ?, ?, ?, ?, ?)
+`);
+const qFindStaffSession = prepare(`
+  SELECT s.token_hash, s.agent_id, s.expires_at,
+         a.name, a.email, a.active
+  FROM staff_sessions s
+  JOIN agents a ON a.id = s.agent_id
+  WHERE s.token_hash = ?
+`);
+const qDeleteStaffSession = prepare('DELETE FROM staff_sessions WHERE token_hash = ?');
+const qDeleteAgentStaffSessions = prepare('DELETE FROM staff_sessions WHERE agent_id = ?');
+const qDeleteExpiredStaffSessions = prepare('DELETE FROM staff_sessions WHERE expires_at < ?');
+
+const agents = {
+  byId: async (id) => await qAgentById.get(id),
+  byLogin: async (identifier) => await qAgentByLogin.get(identifier, identifier),
+  /** Hashes are produced by auth.hashPassword, the same as every other login. */
+  setPassword: async (id, hash) => await qSetAgentPassword.run(hash, id)
+};
+
+const staffSessions = {
+  async create({ tokenHash, agentId, expiresAt, ip, userAgent }) {
+    await qInsertStaffSession.run(tokenHash, agentId, nowIso(), expiresAt, ip, userAgent);
+  },
+  find: async (tokenHash) => await qFindStaffSession.get(tokenHash),
+  destroy: async (tokenHash) => await qDeleteStaffSession.run(tokenHash),
+  destroyAllForAgent: async (agentId) => await qDeleteAgentStaffSessions.run(agentId),
+  purgeExpired: async () => await qDeleteExpiredStaffSessions.run(nowIso())
 };
 
 /* ── Client portal reads ────────────────────────────────────────────────── */
@@ -1448,7 +1538,8 @@ const admin = {
 
 
 module.exports = {
-  db, ready, driver, audit, users, sessions, portal, enquiries, admin, content, nowIso,
+  db, ready, driver, audit, users, sessions, agents, staffSessions,
+  portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
   SALE_STATUSES, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES
 };

@@ -7,7 +7,7 @@
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const config = require('./config');
-const { users, sessions, audit } = require('./db');
+const { users, sessions, agents, staffSessions, audit } = require('./db');
 const { safeEqual, sessionCookie, clearSessionCookie } = require('./security');
 
 const scrypt = promisify(crypto.scrypt);
@@ -104,6 +104,114 @@ async function sessionUser(token) {
 
 async function destroySession(token) {
   if (token) await sessions.destroy(hashToken(token));
+}
+
+/* ── Staff (agents) ─────────────────────────────────────────────────────── */
+
+/**
+ * Issues a staff session.
+ *
+ * Deliberately a separate table from client sessions: sessions.user_id is a
+ * foreign key to users(id) and an agent is an agents row, so an agent id could
+ * never be stored there with foreign keys enforced.
+ */
+async function createStaffSession(agentId, { ip, userAgent }) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + config.SESSION_TTL_MS).toISOString();
+
+  await staffSessions.create({
+    tokenHash: hashToken(token),
+    agentId,
+    expiresAt,
+    ip: ip || null,
+    userAgent: (userAgent || '').slice(0, 255)
+  });
+
+  return { token, expiresAt };
+}
+
+/** Returns the agent behind a staff session token, or null. */
+async function staffSession(token) {
+  if (!token) return null;
+  const row = await staffSessions.find(hashToken(token));
+  if (!row) return null;
+
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    await staffSessions.destroy(row.token_hash);
+    return null;
+  }
+  /* A deactivated agent loses their session immediately, without waiting for
+     it to expire. */
+  if (!row.active) {
+    await staffSessions.destroy(row.token_hash);
+    return null;
+  }
+
+  return { id: row.agent_id, name: row.name, email: row.email };
+}
+
+async function destroyStaffSession(token) {
+  if (token) await staffSessions.destroy(hashToken(token));
+}
+
+/**
+ * The staff guard.
+ *
+ * There is no middleware stack to hang this off, so it is a plain check that
+ * every /staff route calls first. Returns the agent, or null when the request
+ * carries no valid staff session — the caller turns that into a redirect to
+ * /staff/login.
+ */
+async function requireStaff(token) {
+  return await staffSession(token);
+}
+
+/**
+ * Attempts a staff sign-in against the agents table.
+ *
+ * Returns { ok: true, token, expiresAt, agent } or
+ *         { ok: false, reason: 'invalid' }.
+ *
+ * Every failure returns the same reason, and an unknown identifier still pays
+ * for a scrypt verification, so neither the response nor the timing says
+ * whether an agent exists.
+ */
+async function staffSignIn(identifier, password, { ip, userAgent }) {
+  const agent = await agents.byLogin(identifier);
+
+  if (!agent) {
+    await verifyPassword(password, await dummyHash());
+    await audit('staff_login', 'failure', { detail: 'unknown agent identifier', ip });
+    return { ok: false, reason: 'invalid' };
+  }
+
+  /* An agent can exist as a sales credit without ever being given a login. */
+  if (!agent.password_hash) {
+    await verifyPassword(password, await dummyHash());
+    await audit('staff_login', 'failure', {
+      detail: `agent ${agent.id} (${agent.name}) has no password set`, ip
+    });
+    return { ok: false, reason: 'invalid' };
+  }
+
+  if (!(await verifyPassword(password, agent.password_hash))) {
+    await audit('staff_login', 'failure', {
+      detail: `agent ${agent.id} (${agent.name}) bad password`, ip
+    });
+    return { ok: false, reason: 'invalid' };
+  }
+
+  const session = await createStaffSession(agent.id, { ip, userAgent });
+  await audit('staff_login', 'success', {
+    detail: `agent ${agent.id} (${agent.name})`, ip
+  });
+
+  return {
+    ok: true,
+    token: session.token,
+    expiresAt: session.expiresAt,
+    agent: { id: agent.id, name: agent.name, email: agent.email }
+  };
 }
 
 /* ── Sign-in ────────────────────────────────────────────────────────────── */
@@ -204,6 +312,12 @@ module.exports = {
   sessionUser,
   destroySession,
   signIn,
+  /* Staff */
+  createStaffSession,
+  staffSession,
+  destroyStaffSession,
+  requireStaff,
+  staffSignIn,
   sessionCookie,
   clearSessionCookie
 };

@@ -68,6 +68,27 @@ function clearSessionCookie() {
   });
 }
 
+/* Staff session cookie. Same attributes as the client one — HttpOnly,
+   SameSite=Strict, Secure behind HTTPS — but a different name, because the two
+   portals keep separate session tables and must not evict one another. */
+function staffSessionCookie(token, maxAgeMs) {
+  return serializeCookie(config.STAFF_COOKIE, token, {
+    httpOnly: true,
+    secure: config.BEHIND_HTTPS,
+    sameSite: 'Strict',
+    maxAge: maxAgeMs
+  });
+}
+
+function clearStaffSessionCookie() {
+  return serializeCookie(config.STAFF_COOKIE, '', {
+    httpOnly: true,
+    secure: config.BEHIND_HTTPS,
+    sameSite: 'Strict',
+    maxAge: 0
+  });
+}
+
 /* CSRF cookie: deliberately NOT HttpOnly, because the double-submit pattern
    requires the page's own JavaScript to read it and echo it back in a header.
    It carries no authority on its own. */
@@ -212,6 +233,8 @@ module.exports = {
   serializeCookie,
   sessionCookie,
   clearSessionCookie,
+  staffSessionCookie,
+  clearStaffSessionCookie,
   csrfCookie,
   newCsrfToken,
   securityHeaders,

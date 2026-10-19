@@ -154,6 +154,7 @@ ${body}
       <h4>Clients</h4>
       <a href="/portal.html">Client Login</a>
       <a href="/contact.html">Support</a>
+      <a href="/staff/login">Staff Login</a>
     </div>
     <div>
       <h4>Contact</h4>

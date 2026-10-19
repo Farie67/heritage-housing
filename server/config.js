@@ -51,6 +51,11 @@ module.exports = {
   MAX_UPLOAD_BYTES: int('MAX_UPLOAD_BYTES', 8 * 1024 * 1024),
 
   SESSION_COOKIE: 'heritage_session',
+  /* Staff sessions get their own cookie rather than sharing the client one.
+     They live in a different table, and someone can legitimately be signed in
+     as a client and as an agent at the same time — sharing a cookie name would
+     make one sign-in silently evict the other. */
+  STAFF_COOKIE: 'heritage_staff',
   CSRF_COOKIE: 'csrf',
   SESSION_TTL_MS: int('SESSION_TTL_HOURS', 8) * 60 * 60 * 1000,
 
