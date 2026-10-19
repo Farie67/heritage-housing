@@ -30,6 +30,15 @@ function shell(settings, { title, canonicalPath, body }) {
 /**
  * The sign-in page.
  *
+ * Laid out like the Client Portal login: a centred .portal-shell holding a
+ * .portal-panel.narrow. The shell is what puts the panel in the middle of the
+ * viewport (display:grid; place-items:center) rather than letting it hug the
+ * left edge inside a .container.
+ *
+ * The form itself is left-aligned on purpose: labels above inputs read badly
+ * when centred, and the client page does the same. Only the heading and the
+ * intro line are centred.
+ *
  * The form posts back to /staff/login and carries the same CSRF token as every
  * other form on the site — the check in index.js is global and applies here
  * too, so it cannot be omitted.
@@ -38,25 +47,24 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
   return shell(settings, {
     title: 'Staff Login | Heritage Housing Projects',
     canonicalPath: 'staff/login',
-    body: `  <section class="container inner-page">
-    <span class="eyebrow dark">STAFF</span>
-    <h1>Staff sign-in</h1>
-    <p class="muted">For the Heritage Housing Projects sales team.</p>
+    body: `  <section class="portal-shell">
+    <div class="portal-panel narrow" style="text-align:center">
+      <h1 style="font-size:30px">Staff sign-in</h1>
+      <p class="muted">For the Heritage Housing Projects sales team.</p>
 
-    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+      ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
-    <div class="client-card" style="max-width:460px">
-      <form method="post" action="/staff/login" class="stack">
+      <form method="post" action="/staff/login" class="login-form" style="text-align:left">
         <input type="hidden" name="csrf" value="${esc(csrf)}">
         <label for="identifier">Email or name</label>
         <input id="identifier" name="identifier" type="text" autocomplete="username" required>
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <button class="btn primary" type="submit">Sign in</button>
+        <button class="btn primary full" type="submit">Sign in</button>
       </form>
-    </div>
 
-    <p class="muted" style="margin-top:18px"><a class="text-btn" href="/">Back to the website</a></p>
+      <p class="muted" style="margin-top:18px"><a class="text-btn" href="/">Back to the website</a></p>
+    </div>
   </section>`
   });
 }
