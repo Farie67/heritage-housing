@@ -121,6 +121,37 @@ ${leadRows}
     </div>
 
     <div class="client-card" style="margin-top:20px">
+      <h2>Add a Lead</h2>
+      <p class="field-hint" style="margin-bottom:14px">Someone you have spoken to who has not
+        become a client yet. The lead is filed against you automatically.</p>
+
+      <form method="post" action="/staff/lead">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="leadName">Name</label>
+        <input id="leadName" name="fullName" type="text" required maxlength="120">
+
+        <label for="leadPhone">Phone</label>
+        <input id="leadPhone" name="phone" type="tel" maxlength="40">
+
+        <label for="leadEmail">Email</label>
+        <input id="leadEmail" name="email" type="email" maxlength="160">
+
+        <label for="leadSource">Source</label>
+        <select id="leadSource" name="source">
+          <option>Walk-in</option>
+          <option>WhatsApp</option>
+          <option>Referral</option>
+          <option>Phone call</option>
+          <option>Website</option>
+          <option>Other</option>
+        </select>
+
+        <button class="btn primary" type="submit">Save Lead</button>
+      </form>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
       <h2>Daily Activity Log</h2>
       <p class="field-hint" style="margin-bottom:14px">A short note about what you did today.
         The office sees these too.</p>

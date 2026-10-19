@@ -586,10 +586,57 @@ const server = http.createServer(async (req, res) => {
            id from the request, so there is no id to tamper with. */
         return sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
           agent, csrf,
-          notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.' : '',
+          notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
+            : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
+              : '',
           leads: await leads.forAgent(agent.id),
           logs: await staffLogs.forAgent(agent.id, 5)
         }));
+      }
+
+      /* Add a lead.
+
+         The owning agent comes from the session and nowhere else. There is no
+         assignedAgentId field in the form and none is read from the body, so an
+         agent can only ever file a lead against themselves — a hidden input
+         would have been editable in devtools. */
+      if (pathname === '/staff/lead') {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const renderDashboard = async (opts = {}) => viewsStaff.staffDashboard(
+          await content.settings(), {
+            agent, csrf,
+            leads: await leads.forAgent(agent.id),
+            logs: await staffLogs.forAgent(agent.id, 5),
+            ...opts
+          });
+
+        const fullName = String(body.fullName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const phone = String(body.phone || '').trim().slice(0, 40);
+        const email = String(body.email || '').trim().slice(0, 160);
+        const source = String(body.source || '').trim().slice(0, 60);
+
+        if (fullName.length < 2) {
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'Please enter the lead\'s name.'
+          }));
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'That does not look like a valid email address.'
+          }));
+        }
+
+        const id = await leads.create({
+          fullName, phone, email, source, status: 'New', assignedAgentId: agent.id
+        });
+        await audit('lead_create', 'success', {
+          detail: `lead ${id} (${fullName}) by agent ${agent.id} (${agent.name})`, ip
+        });
+
+        /* Redirect after post, so a refresh does not file the same lead twice. */
+        return redirect(res, '/staff?ok=lead');
       }
 
       /* Post a daily update. */
