@@ -21,6 +21,7 @@ const NAV = [
   ['/admin', 'Overview'],
   ['/admin/analytics', 'Sales'],
   ['/admin/enquiries', 'Enquiries'],
+  ['/admin/leads', 'Leads'],
   ['/admin/clients', 'Clients'],
   ['/admin/properties', 'Properties'],
   ['/admin/projects', 'Projects'],
@@ -901,9 +902,92 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
   </section>`;
 }
 
+/* ── Leads ──────────────────────────────────────────────────────────────── */
+
+function renderLeads({ leads = [], agents = [], user, csrf, notice = '', error = '' }) {
+  const rows = leads.length ? leads.map((l) => `          <tr>
+            <td><strong>${esc(l.full_name)}</strong></td>
+            <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${esc(l.status)}</td>
+            <td>${l.agent_name
+    ? esc(l.agent_name)
+    : '<span class="muted">Unassigned</span>'}</td>
+            <td>${esc(formatDate(l.created_at))}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="7">No leads yet. Add the first one below.</td></tr>';
+
+  /* The picker is every active agent; the value is the id the route stores. */
+  const agentOptions = agents
+    .map((a) => `            <option value="${esc(a.id)}">${esc(a.name)}</option>`)
+    .join('\n');
+
+  return `  <section class="container inner-page">
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">LEADS</span>
+        <h1>Leads</h1>
+        <p class="muted">Enquiries that have not become clients yet. A lead can be assigned to
+          one sales agent, or left unowned.</p>
+      </div>
+    </div>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <div class="client-card">
+      <table class="portal-table">
+        <caption>Every lead</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Phone</th>
+            <th scope="col">Email</th>
+            <th scope="col">Source</th>
+            <th scope="col">Status</th>
+            <th scope="col">Assigned to</th>
+            <th scope="col">Added</th>
+          </tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Add a lead</h2>
+      <form method="post" action="/admin/leads">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="l-name">Name</label>
+        <input id="l-name" name="fullName" type="text" required maxlength="120">
+
+        <label for="l-phone">Phone</label>
+        <input id="l-phone" name="phone" type="tel" maxlength="40">
+
+        <label for="l-email">Email</label>
+        <input id="l-email" name="email" type="email" maxlength="160">
+
+        <label for="l-source">Source</label>
+        <input id="l-source" name="source" type="text" maxlength="60" placeholder="Walk-in, referral, website…">
+
+        <label for="l-agent">Assign to agent</label>
+        <select id="l-agent" name="assignedAgentId">
+          <option value="">Unassigned</option>
+${agentOptions}
+        </select>
+
+        <button class="btn primary" type="submit">Add lead</button>
+      </form>
+    </div>
+  </section>`;
+}
+
 /* ── Staff (sales agents) ───────────────────────────────────────────────── */
 
-function renderStaff({ agents = [], user, csrf, notice = '', error = '',
+function renderStaff({ agents = [], logs = [], user, csrf, notice = '', error = '',
   generatedPassword = '', generatedFor = '' }) {
   const rows = agents.length ? agents.map((a) => `          <tr>
             <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">DISABLED</span>'}</td>
@@ -921,6 +1005,13 @@ function renderStaff({ agents = [], user, csrf, notice = '', error = '',
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No agents yet. Add the first one below.</td></tr>';
+
+  const logRows = logs.length ? logs.map((g) => `          <tr>
+            <td>${esc(g.agent_name)}</td>
+            <td>${esc(formatDate(g.created_at))}</td>
+            <td>${esc(g.log_text)}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="3">No activity posted yet.</td></tr>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -978,6 +1069,25 @@ ${rows}
 
         <button class="btn primary" type="submit">Add agent</button>
       </form>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Recent activity</h2>
+      <p class="field-hint" style="margin-bottom:14px">The latest updates the team has posted
+        from their staff dashboard, newest first.</p>
+      <table class="portal-table">
+        <caption>Staff activity log</caption>
+        <thead>
+          <tr>
+            <th scope="col">Agent</th>
+            <th scope="col">Date</th>
+            <th scope="col">Update</th>
+          </tr>
+        </thead>
+        <tbody>
+${logRows}
+        </tbody>
+      </table>
     </div>
   </section>`;
 }
@@ -1574,5 +1684,5 @@ module.exports = {
   adminLayout, renderLogin, renderDashboard, renderEnquiries, renderClients,
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
-  renderProperties, renderPropertyEdit, renderStaff
+  renderProperties, renderPropertyEdit, renderStaff, renderLeads
 };

@@ -343,6 +343,18 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 CREATE INDEX IF NOT EXISTS idx_leads_agent ON leads(assigned_agent_id);
 
+/* What a sales agent did today, in their own words. Deliberately free text and
+   nothing more: phase 2 may add structure, but a single note per entry is what
+   the team actually keeps. agent_id cascades so removing an agent clears their
+   notes rather than leaving orphans pointing at nothing. */
+CREATE TABLE IF NOT EXISTS staff_logs (
+  id         INTEGER PRIMARY KEY,
+  agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  log_text   TEXT    NOT NULL,
+  created_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_staff_logs_agent ON staff_logs(agent_id);
+
 /* Staff sessions live apart from the sessions table for a hard reason: that
    table's user_id is a foreign key to users(id), and an agent is an agents row.
    With foreign keys enforced an agent id could never be stored there. Keeping
@@ -676,6 +688,69 @@ const staffSessions = {
   destroy: async (tokenHash) => await qDeleteStaffSession.run(tokenHash),
   destroyAllForAgent: async (agentId) => await qDeleteAgentStaffSessions.run(agentId),
   purgeExpired: async () => await qDeleteExpiredStaffSessions.run(nowIso())
+};
+
+/* ── CRM: leads and activity logs ───────────────────────────────────────── */
+
+const qInsertLead = prepare(`
+  INSERT INTO leads (full_name, phone, email, source, status, assigned_agent_id, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+/* LEFT JOIN, because a lead can sit unowned — an inner join would hide exactly
+   the leads the office most needs to see. */
+const qLeadsAll = prepare(`
+  SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status,
+         l.assigned_agent_id, l.created_at, a.name AS agent_name
+    FROM leads l
+    LEFT JOIN agents a ON a.id = l.assigned_agent_id
+   ORDER BY l.created_at DESC, l.id DESC
+`);
+const qLeadsForAgent = prepare(`
+  SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status, l.created_at
+    FROM leads l
+   WHERE l.assigned_agent_id = ?
+   ORDER BY l.created_at DESC, l.id DESC
+`);
+
+const qInsertStaffLog = prepare(
+  'INSERT INTO staff_logs (agent_id, log_text, created_at) VALUES (?, ?, ?)');
+/* LIMIT is bound rather than interpolated, so it cannot become a way to inject
+   SQL if a caller ever passes something other than a number. */
+const qStaffLogsForAgent = prepare(`
+  SELECT id, log_text, created_at
+    FROM staff_logs
+   WHERE agent_id = ?
+   ORDER BY created_at DESC, id DESC
+   LIMIT ?
+`);
+const qRecentStaffLogs = prepare(`
+  SELECT s.id, s.log_text, s.created_at, s.agent_id, a.name AS agent_name
+    FROM staff_logs s
+    JOIN agents a ON a.id = s.agent_id
+   ORDER BY s.created_at DESC, s.id DESC
+   LIMIT ?
+`);
+
+const leads = {
+  /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
+  async create({ fullName, phone, email, source, status = 'New', assignedAgentId = null }) {
+    const info = await qInsertLead.run(
+      fullName, phone || null, email || null, source || null, status,
+      assignedAgentId || null, nowIso());
+    return Number(info.lastInsertRowid);
+  },
+  /** Every lead, with the owning agent's name, newest first. */
+  all: async () => await qLeadsAll.all(),
+  /** Just the leads assigned to one agent — what the staff dashboard shows. */
+  forAgent: async (agentId) => await qLeadsForAgent.all(agentId)
+};
+
+const staffLogs = {
+  async create({ agentId, text }) {
+    await qInsertStaffLog.run(agentId, text, nowIso());
+  },
+  forAgent: async (agentId, limit = 5) => await qStaffLogsForAgent.all(agentId, limit),
+  recent: async (limit = 50) => await qRecentStaffLogs.all(limit)
 };
 
 /* ── Client portal reads ────────────────────────────────────────────────── */
@@ -1572,6 +1647,7 @@ const admin = {
 
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
+  leads, staffLogs,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
   SALE_STATUSES, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES

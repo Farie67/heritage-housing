@@ -17,8 +17,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const config = require('./config');
-const { audit, admin, enquiries, users, agents, staffSessions, content, db,
-  PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES, STAND_STATUSES,
+const { audit, admin, enquiries, users, agents, staffSessions, leads, staffLogs,
+  content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES, STAND_STATUSES,
   PROJECT_STATUSES } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
@@ -1651,6 +1651,61 @@ async function handleAdmin(req, res, ctx) {
     return true;
   }
 
+  /* ── Leads ── */
+  if (pathname === '/admin/leads') {
+    if (method === 'POST') {
+      const fullName = String(body.fullName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const phone = String(body.phone || '').trim().slice(0, 40);
+      const email = String(body.email || '').trim().slice(0, 160);
+      const source = String(body.source || '').trim().slice(0, 60);
+
+      /* Empty means unassigned, which is a valid state — a lead can sit
+         unowned until someone picks it up. */
+      const rawAgent = String(body.assignedAgentId || '').trim();
+      const assignedAgentId = rawAgent ? Number.parseInt(rawAgent, 10) : null;
+
+      const refuse = async (message) => {
+        h.sendHtml(res, 200, await views.adminLayout({
+          title: 'Leads', active: '/admin/leads', user, csrf,
+          body: views.renderLeads({
+            leads: await leads.all(), agents: await agents.list(), user, csrf, error: message
+          })
+        }));
+      };
+
+      if (fullName.length < 2) { await refuse('Please enter the lead\'s name.'); return true; }
+      if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+        await refuse('That does not look like a valid email address.');
+        return true;
+      }
+      if (assignedAgentId && !(await agents.list()).some((a) => a.id === assignedAgentId)) {
+        await refuse('Please choose an agent from the list.');
+        return true;
+      }
+
+      const id = await leads.create({ fullName, phone, email, source, assignedAgentId });
+      await audit('lead_create', 'success', {
+        userId: user.id, detail: `lead ${id} (${fullName})`, ip
+      });
+      return h.redirect(res, '/admin/leads?ok=added'), true;
+    }
+
+    if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    await audit('admin_view', 'success', { userId: user.id, detail: 'leads', ip });
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: 'Leads', active: '/admin/leads', user, csrf,
+      body: views.renderLeads({
+        leads: await leads.all(),
+        agents: await agents.list(),
+        user, csrf,
+        notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
+      })
+    }));
+    return true;
+  }
+
   /* ── Staff (sales agents) ──
      Agents are not clients: they never appear in the clients list, and they
      sign in at /staff/login with their own cookie and session table. This page
@@ -1664,7 +1719,10 @@ async function handleAdmin(req, res, ctx) {
       const refuse = async (message) => {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Staff', active: '/admin/staff', user, csrf,
-          body: views.renderStaff({ agents: await agents.list(), user, csrf, error: message })
+          body: views.renderStaff({
+            agents: await agents.list(), logs: await staffLogs.recent(25),
+            user, csrf, error: message
+          })
         }));
       };
 
@@ -1693,7 +1751,8 @@ async function handleAdmin(req, res, ctx) {
       h.sendHtml(res, 200, await views.adminLayout({
         title: 'Staff', active: '/admin/staff', user, csrf,
         body: views.renderStaff({
-          agents: await agents.list(), user, csrf,
+          agents: await agents.list(), logs: await staffLogs.recent(25),
+          user, csrf,
           notice: `${name} added.`,
           generatedPassword: password,
           generatedFor: name
@@ -1707,7 +1766,9 @@ async function handleAdmin(req, res, ctx) {
     await audit('admin_view', 'success', { userId: user.id, detail: 'staff', ip });
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
-      body: views.renderStaff({ agents: await agents.list(), user, csrf })
+      body: views.renderStaff({
+        agents: await agents.list(), logs: await staffLogs.recent(25), user, csrf
+      })
     }));
     return true;
   }
@@ -1742,7 +1803,8 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
       body: views.renderStaff({
-        agents: await agents.list(), user, csrf,
+        agents: await agents.list(), logs: await staffLogs.recent(25),
+        user, csrf,
         notice: `Password reset for ${agent.name}.`,
         generatedPassword: password,
         generatedFor: agent.name

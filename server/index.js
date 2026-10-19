@@ -17,7 +17,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const config = require('./config');
-const { audit, users, sessions, portal, enquiries, admin, content, db } = require('./db');
+const { audit, users, sessions, portal, enquiries, admin, content, db,
+  leads, staffLogs } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
@@ -580,9 +581,40 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/staff') {
         if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
         if (!agent) return redirect(res, '/staff/login');
+
+        /* Only this agent's own leads and own updates. Nothing here takes an
+           id from the request, so there is no id to tamper with. */
         return sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
-          agent, csrf
+          agent, csrf,
+          notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.' : '',
+          leads: await leads.forAgent(agent.id),
+          logs: await staffLogs.forAgent(agent.id, 5)
         }));
+      }
+
+      /* Post a daily update. */
+      if (pathname === '/staff/log') {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const text = String(body.logText || '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+
+        if (text.length < 3) {
+          return sendHtml(res, 400, viewsStaff.staffDashboard(await content.settings(), {
+            agent, csrf, error: 'Please write a short update before posting.',
+            leads: await leads.forAgent(agent.id),
+            logs: await staffLogs.forAgent(agent.id, 5)
+          }));
+        }
+
+        await staffLogs.create({ agentId: agent.id, text });
+        await audit('staff_log', 'success', {
+          detail: `agent ${agent.id} (${agent.name})`, ip
+        });
+
+        /* Redirect after post, so a refresh does not file the same update
+           twice. */
+        return redirect(res, '/staff?ok=logged');
       }
 
       return sendHtml(res, 404, await views.renderError({

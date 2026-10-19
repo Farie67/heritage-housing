@@ -11,7 +11,7 @@
    pages need no CSS of their own and pick up the site header and footer.
    ========================================================================== */
 
-const { esc } = require('./views');
+const { esc, formatDate } = require('./views');
 const publicViews = require('./views-public');
 
 /** Wraps a staff page in the public shell. */
@@ -60,8 +60,26 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
   });
 }
 
-/** The dashboard. Phase 1: a greeting, a way out, and the leads placeholder. */
-function staffDashboard(settings, { agent, csrf = '' } = {}) {
+/** The dashboard: the agent's leads and their own daily activity log. */
+function staffDashboard(settings, {
+  agent, csrf = '', leads = [], logs = [], notice = '', error = ''
+} = {}) {
+  const leadRows = leads.length ? leads.map((l) => `          <tr>
+            <td><strong>${esc(l.full_name)}</strong></td>
+            <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${esc(l.status)}</td>
+            <td>${esc(formatDate(l.created_at))}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="6">No leads assigned to you yet.</td></tr>';
+
+  const logRows = logs.length ? logs.map((g) => `          <tr>
+            <td>${esc(formatDate(g.created_at))}</td>
+            <td>${esc(g.log_text)}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="2">You have not posted an update yet.</td></tr>';
+
   return shell(settings, {
     title: 'My Leads | Heritage Housing Projects',
     canonicalPath: 'staff',
@@ -78,10 +96,55 @@ function staffDashboard(settings, { agent, csrf = '' } = {}) {
       </form>
     </div>
 
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
     <div class="client-card">
       <h2>My Leads</h2>
-      <p class="muted">Lead management is not switched on yet. Leads assigned to
-        you will appear here once it is.</p>
+      <p class="field-hint" style="margin-bottom:14px">Leads the office has assigned to you.</p>
+      <table class="portal-table">
+        <caption>Your leads</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Phone</th>
+            <th scope="col">Email</th>
+            <th scope="col">Source</th>
+            <th scope="col">Status</th>
+            <th scope="col">Added</th>
+          </tr>
+        </thead>
+        <tbody>
+${leadRows}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Daily Activity Log</h2>
+      <p class="field-hint" style="margin-bottom:14px">A short note about what you did today.
+        The office sees these too.</p>
+
+      <form method="post" action="/staff/log">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+        <label for="logText">Today's update</label>
+        <textarea id="logText" name="logText" rows="3" maxlength="2000" required
+                  placeholder="Who did you visit? What moved forward?"></textarea>
+        <button class="btn primary" type="submit">Post Update</button>
+      </form>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Your last 5 updates</h2>
+      <table class="portal-table">
+        <caption>Your recent activity</caption>
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Update</th></tr>
+        </thead>
+        <tbody>
+${logRows}
+        </tbody>
+      </table>
     </div>
   </section>`
   });
