@@ -17,8 +17,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const config = require('./config');
-const { audit, admin, enquiries, users, content, db, PAYMENT_STATUSES, PAYMENT_METHODS,
-  PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES } = require('./db');
+const { audit, admin, enquiries, users, agents, staffSessions, content, db,
+  PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES, STAND_STATUSES,
+  PROJECT_STATUSES } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
@@ -1645,6 +1646,106 @@ async function handleAdmin(req, res, ctx) {
           : url.searchParams.get('ok') === 'comingsoon'
             ? 'Coming-soon flag updated. The website now reflects this.' : '',
         error: url.searchParams.get('error') || ''
+      })
+    }));
+    return true;
+  }
+
+  /* ── Staff (sales agents) ──
+     Agents are not clients: they never appear in the clients list, and they
+     sign in at /staff/login with their own cookie and session table. This page
+     is the office side of that — who exists, and who can get in. */
+  if (pathname === '/admin/staff') {
+    if (method === 'POST') {
+      const name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const email = String(body.email || '').trim().slice(0, 160);
+      const phone = String(body.phone || '').trim().slice(0, 40);
+
+      const refuse = async (message) => {
+        h.sendHtml(res, 200, await views.adminLayout({
+          title: 'Staff', active: '/admin/staff', user, csrf,
+          body: views.renderStaff({ agents: await agents.list(), user, csrf, error: message })
+        }));
+      };
+
+      if (name.length < 2) { await refuse('Please enter the agent\'s name.'); return true; }
+      if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+        await refuse('That does not look like a valid email address.');
+        return true;
+      }
+      if (await agents.nameTaken(name)) {
+        await refuse(`An agent called "${name}" already exists.`);
+        return true;
+      }
+
+      /* The same generator and the same scrypt hash as every other login in
+         the system — a staff password is not a second class of credential. */
+      const password = generatePassword(20);
+      const id = await agents.create({
+        name, email, phone, passwordHash: await auth.hashPassword(password)
+      });
+      await audit('agent_create', 'success', {
+        userId: user.id, detail: `agent ${id} (${name})`, ip
+      });
+
+      /* Rendered, not redirected. The password has to be shown exactly once,
+         and a redirect would put it in the browser history. */
+      h.sendHtml(res, 200, await views.adminLayout({
+        title: 'Staff', active: '/admin/staff', user, csrf,
+        body: views.renderStaff({
+          agents: await agents.list(), user, csrf,
+          notice: `${name} added.`,
+          generatedPassword: password,
+          generatedFor: name
+        })
+      }));
+      return true;
+    }
+
+    if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
+
+    await audit('admin_view', 'success', { userId: user.id, detail: 'staff', ip });
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: 'Staff', active: '/admin/staff', user, csrf,
+      body: views.renderStaff({ agents: await agents.list(), user, csrf })
+    }));
+    return true;
+  }
+
+  /* ── Staff: reset a password ── */
+  const agentResetMatch = pathname.match(/^\/admin\/staff\/(\d+)\/reset-password$/);
+  if (agentResetMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const agentId = Number(agentResetMatch[1]);
+    const agent = (await agents.list()).find((a) => a.id === agentId);
+
+    if (!agent) {
+      h.sendHtml(res, 404, await views.adminLayout({
+        title: 'Not found', active: '/admin/staff', user, csrf,
+        body: '<section class="container inner-page"><h1>Agent not found</h1><p><a class="btn primary" href="/admin/staff">Back to staff</a></p></section>'
+      }));
+      return true;
+    }
+
+    const password = generatePassword(20);
+    await agents.setPassword(agentId, await auth.hashPassword(password));
+
+    /* A new password must end every session the old one had opened, exactly as
+       it does for a client or an admin. */
+    await staffSessions.destroyAllForAgent(agentId);
+
+    await audit('agent_password_reset', 'success', {
+      userId: user.id, detail: `agent ${agentId} (${agent.name})`, ip
+    });
+
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: 'Staff', active: '/admin/staff', user, csrf,
+      body: views.renderStaff({
+        agents: await agents.list(), user, csrf,
+        notice: `Password reset for ${agent.name}.`,
+        generatedPassword: password,
+        generatedFor: agent.name
       })
     }));
     return true;

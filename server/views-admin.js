@@ -24,6 +24,7 @@ const NAV = [
   ['/admin/clients', 'Clients'],
   ['/admin/properties', 'Properties'],
   ['/admin/projects', 'Projects'],
+  ['/admin/staff', 'Staff'],
   ['/admin/content', 'Content']
 ];
 
@@ -900,6 +901,87 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
   </section>`;
 }
 
+/* ── Staff (sales agents) ───────────────────────────────────────────────── */
+
+function renderStaff({ agents = [], user, csrf, notice = '', error = '',
+  generatedPassword = '', generatedFor = '' }) {
+  const rows = agents.length ? agents.map((a) => `          <tr>
+            <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">DISABLED</span>'}</td>
+            <td>${a.email ? esc(a.email) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${a.phone ? esc(a.phone) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${a.has_password
+    ? '<span class="status">Can sign in</span>'
+    : '<span class="status open">No login</span>'}</td>
+            <td class="actions">
+              <form method="post" action="/admin/staff/${esc(a.id)}/reset-password" class="inline-form"
+                    data-confirm="Reset this agent's password? Their current one stops working and they are signed out.">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Reset password</button>
+              </form>
+            </td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="5">No agents yet. Add the first one below.</td></tr>';
+
+  return `  <section class="container inner-page">
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">STAFF</span>
+        <h1>Staff</h1>
+        <p class="muted">The sales agents. They sign in at /staff/login and can be credited as the
+          person who closed a sale.</p>
+      </div>
+    </div>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    ${generatedPassword ? `
+    <div class="notice info">
+      <strong>Give this password to ${esc(generatedFor)}.</strong>
+      <p style="font-family:monospace;font-size:1.1rem;margin:8px 0;word-break:break-all">${esc(generatedPassword)}</p>
+      <p style="margin:0">It is shown once and is not stored anywhere. If it is lost, use
+        Reset password.</p>
+    </div>` : ''}
+
+    <div class="client-card">
+      <table class="portal-table">
+        <caption>Every sales agent</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Email</th>
+            <th scope="col">Phone</th>
+            <th scope="col">Login</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Add an agent</h2>
+      <p class="field-hint">A password is generated and shown once after saving.</p>
+      <form method="post" action="/admin/staff">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="s-name">Name</label>
+        <input id="s-name" name="name" type="text" required maxlength="120">
+
+        <label for="s-email">Email</label>
+        <input id="s-email" name="email" type="email" maxlength="160">
+
+        <label for="s-phone">Phone</label>
+        <input id="s-phone" name="phone" type="tel" maxlength="40">
+
+        <button class="btn primary" type="submit">Add agent</button>
+      </form>
+    </div>
+  </section>`;
+}
+
 function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '' }) {
   const canDelete = stand.sale_count === 0;
 
@@ -1492,5 +1574,5 @@ module.exports = {
   adminLayout, renderLogin, renderDashboard, renderEnquiries, renderClients,
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
-  renderProperties, renderPropertyEdit
+  renderProperties, renderPropertyEdit, renderStaff
 };

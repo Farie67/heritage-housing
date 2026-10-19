@@ -599,6 +599,22 @@ const sessions = {
 const qAgentById = prepare('SELECT * FROM agents WHERE id = ?');
 const qSetAgentPassword = prepare('UPDATE agents SET password_hash = ? WHERE id = ?');
 
+/* The staff table on /admin/staff. `has_password` is returned rather than the
+   hash itself: the page only needs to know whether a login exists, and sending
+   a hash to a template invites it into the HTML one day. */
+const qAgentsForAdmin = prepare(`
+  SELECT a.id, a.name, a.email, a.phone, a.active, a.created_at,
+         CASE WHEN a.password_hash IS NULL THEN 0 ELSE 1 END AS has_password,
+         (SELECT COUNT(*) FROM leads l WHERE l.assigned_agent_id = a.id) AS lead_count
+    FROM agents a
+   ORDER BY a.active DESC, a.name
+`);
+const qAgentNameTaken = prepare('SELECT id FROM agents WHERE lower(name) = lower(?)');
+const qInsertAgent = prepare(`
+  INSERT INTO agents (name, email, phone, password_hash, active, created_at)
+  VALUES (?, ?, ?, ?, 1, ?)
+`);
+
 /* Staff sign in with their email or, when no email is on file, their name.
    Neither is a secret — both are already shown on the website and in analytics
    — so accepting either leaks nothing.
@@ -635,7 +651,21 @@ const agents = {
   byId: async (id) => await qAgentById.get(id),
   byLogin: async (identifier) => await qAgentByLogin.get(identifier, identifier),
   /** Hashes are produced by auth.hashPassword, the same as every other login. */
-  setPassword: async (id, hash) => await qSetAgentPassword.run(hash, id)
+  setPassword: async (id, hash) => await qSetAgentPassword.run(hash, id),
+
+  /** Every agent, for the staff table on /admin/staff. */
+  list: async () => await qAgentsForAdmin.all(),
+
+  /** `agents.name` is UNIQUE; checked before the insert so the office gets a
+      readable message instead of a raw constraint error. */
+  nameTaken: async (name) => Boolean(await qAgentNameTaken.get(name)),
+
+  /** Creates an agent with a login and returns the new id. */
+  async create({ name, email, phone, passwordHash }) {
+    const info = await qInsertAgent.run(
+      name, email || null, phone || null, passwordHash || null, nowIso());
+    return Number(info.lastInsertRowid);
+  }
 };
 
 const staffSessions = {
