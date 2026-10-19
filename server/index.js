@@ -522,11 +522,11 @@ const server = http.createServer(async (req, res) => {
 
       /* Sign in. */
       if (pathname === '/staff/login') {
-        if (method === 'GET') {
+        if (req.method === 'GET') {
           if (agent) return redirect(res, '/staff');
           return sendHtml(res, 200, viewsStaff.staffLogin(await content.settings(), { csrf }));
         }
-        if (method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
 
         const limit = staffLoginLimiter.check(ip);
         if (!limit.allowed) {
@@ -568,7 +568,7 @@ const server = http.createServer(async (req, res) => {
 
       /* Sign out. */
       if (pathname === '/staff/logout') {
-        if (method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
         await auth.destroyStaffSession(staffToken);
         return sendHtml(res, 302, '', {
           Location: '/staff/login',
@@ -578,7 +578,7 @@ const server = http.createServer(async (req, res) => {
 
       /* Dashboard — the protected page. */
       if (pathname === '/staff') {
-        if (method !== 'GET') return send(res, 405, 'Method not allowed');
+        if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
         if (!agent) return redirect(res, '/staff/login');
         return sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
           agent, csrf
