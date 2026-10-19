@@ -160,6 +160,19 @@ async function destroyStaffSession(token) {
 }
 
 /**
+ * Ends every staff session for this agent apart from the one making the
+ * request.
+ *
+ * Used after a password change: the device that changed the password stays
+ * signed in (so the user is not thrown out mid-flow), every other device is
+ * evicted. If no token is supplied there is nothing to keep, so all go.
+ */
+async function destroyOtherStaffSessions(token, agentId) {
+  if (!token) return await staffSessions.destroyAllForAgent(agentId);
+  return await staffSessions.destroyOthersForAgent(agentId, hashToken(token));
+}
+
+/**
  * The staff guard.
  *
  * There is no middleware stack to hang this off, so it is a plain check that
@@ -332,6 +345,7 @@ module.exports = {
   createStaffSession,
   staffSession,
   destroyStaffSession,
+  destroyOtherStaffSessions,
   requireStaff,
   staffSignIn,
   sessionCookie,

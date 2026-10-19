@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 
 const config = require('./config');
 const { audit, users, sessions, portal, enquiries, admin, content, db,
-  leads, staffLogs } = require('./db');
+  leads, staffLogs, agents } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
@@ -590,7 +590,8 @@ const server = http.createServer(async (req, res) => {
           notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
             : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
               : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
-                : '',
+                : url.searchParams.get('ok') === 'password' ? 'Password changed. Other devices have been signed out.'
+                  : '',
           leads: await leads.forAgent(agent.id),
           followUps: await leads.dueForAgent(agent.id, todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5)
@@ -671,6 +672,67 @@ const server = http.createServer(async (req, res) => {
 
         /* Redirect after post, so a refresh does not file the same lead twice. */
         return redirect(res, '/staff?ok=lead');
+      }
+
+      /* Change your own password.
+
+         The current password is required even though the session is already
+         authenticated: it is what stops a borrowed, unlocked browser from being
+         turned into permanent access to the account. */
+      if (pathname === '/staff/password') {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const renderDashboard = async (opts = {}) => viewsStaff.staffDashboard(
+          await content.settings(), {
+            agent, csrf,
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5),
+            ...opts
+          });
+
+        const current = String(body.currentPassword || '');
+        const next = String(body.newPassword || '');
+        const confirm = String(body.confirmPassword || '');
+        const me = await agents.byId(agent.id);
+
+        if (!me || !me.password_hash || !(await auth.verifyPassword(current, me.password_hash))) {
+          logSecurityEvent('staff_password_change_failed', req, {
+            agent: agent.name, reason: 'current password incorrect'
+          });
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'Your current password is not correct.'
+          }));
+        }
+        if (next !== confirm) {
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'The two new passwords do not match.'
+          }));
+        }
+        if (next.length < 8) {
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'Your new password must be at least 8 characters long.'
+          }));
+        }
+        if (next === current) {
+          return sendHtml(res, 400, await renderDashboard({
+            error: 'Your new password must be different from your current one.'
+          }));
+        }
+
+        await agents.setPassword(agent.id, await auth.hashPassword(next));
+
+        /* Every other device is signed out. This one is deliberately kept, so
+           the agent is not thrown out of the page they just used. */
+        await auth.destroyOtherStaffSessions(staffToken, agent.id);
+
+        await audit('staff_password_change', 'success', {
+          detail: `agent ${agent.id} (${agent.name})`, ip
+        });
+        logSecurityEvent('staff_password_changed', req, { agent: agent.name });
+
+        return redirect(res, '/staff?ok=password');
       }
 
       /* Post a daily update. */

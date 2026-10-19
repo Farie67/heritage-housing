@@ -133,7 +133,7 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
-    <div class="notice ${followUps.length ? 'error' : ''}">
+    <div class="notice ${followUps.length ? 'error alert-critical' : ''}">
       <strong>My Follow-ups</strong>
 ${followUpItems}
     </div>
@@ -221,6 +221,30 @@ ${leadRows}
 ${logRows}
         </tbody>
       </table>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Change Password</h2>
+      <p class="field-hint" style="margin-bottom:14px">Changing this signs you out on every
+        other device.</p>
+
+      <form method="post" action="/staff/password">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="currentPassword">Current password</label>
+        <input id="currentPassword" name="currentPassword" type="password"
+               autocomplete="current-password" required>
+
+        <label for="newPassword">New password</label>
+        <input id="newPassword" name="newPassword" type="password"
+               autocomplete="new-password" minlength="8" required>
+
+        <label for="confirmPassword">Confirm new password</label>
+        <input id="confirmPassword" name="confirmPassword" type="password"
+               autocomplete="new-password" minlength="8" required>
+
+        <button class="btn primary" type="submit">Update Password</button>
+      </form>
     </div>
   </section>`
   });

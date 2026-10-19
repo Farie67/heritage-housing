@@ -667,6 +667,10 @@ const qFindStaffSession = prepare(`
 const qDeleteStaffSession = prepare('DELETE FROM staff_sessions WHERE token_hash = ?');
 const qDeleteAgentStaffSessions = prepare('DELETE FROM staff_sessions WHERE agent_id = ?');
 const qDeleteExpiredStaffSessions = prepare('DELETE FROM staff_sessions WHERE expires_at < ?');
+/* Every session for an agent except one. Used after a password change: the
+   device making the change stays signed in, everything else is evicted. */
+const qDeleteOtherAgentStaffSessions = prepare(
+  'DELETE FROM staff_sessions WHERE agent_id = ? AND token_hash <> ?');
 
 const agents = {
   byId: async (id) => await qAgentById.get(id),
@@ -696,6 +700,9 @@ const staffSessions = {
   find: async (tokenHash) => await qFindStaffSession.get(tokenHash),
   destroy: async (tokenHash) => await qDeleteStaffSession.run(tokenHash),
   destroyAllForAgent: async (agentId) => await qDeleteAgentStaffSessions.run(agentId),
+  /** Ends every session for an agent except the one whose digest is given. */
+  destroyOthersForAgent: async (agentId, keepHash) =>
+    await qDeleteOtherAgentStaffSessions.run(agentId, keepHash),
   purgeExpired: async () => await qDeleteExpiredStaffSessions.run(nowIso())
 };
 
