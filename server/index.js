@@ -31,7 +31,8 @@ const viewsStaff = require('./views-staff');
 const adminRoutes = require('./admin');
 const publicSite = require('./public-site');
 const invoice = require('./invoice');
-const { slugify } = require('./format');
+const { slugify, todayIso } = require('./format');
+const { readLeadUpdate } = require('./lead-input');
 const { isMultipart, boundaryFrom, parseMultipart } = require('./multipart');
 const { validateNewPassword } = require('./passwords');
 
@@ -588,10 +589,41 @@ const server = http.createServer(async (req, res) => {
           agent, csrf,
           notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
             : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
-              : '',
+              : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
+                : '',
           leads: await leads.forAgent(agent.id),
+          followUps: await leads.dueForAgent(agent.id, todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5)
         }));
+      }
+
+      /* Update one of this agent's own leads. Ownership is enforced inside the
+         UPDATE itself, so a lead id belonging to someone else changes nothing. */
+      const staffLeadMatch = pathname.match(/^\/staff\/lead\/(\d+)\/update$/);
+      if (staffLeadMatch) {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const leadId = Number(staffLeadMatch[1]);
+        const fields = readLeadUpdate(body);
+
+        const ok = await leads.updateForAgent(leadId, agent.id, fields);
+        if (!ok) {
+          /* Deliberately the same answer for "no such lead" and "not yours", so
+             the form cannot be used to discover other agents' lead ids. */
+          return sendHtml(res, 403, viewsStaff.staffDashboard(await content.settings(), {
+            agent, csrf,
+            error: 'That lead could not be updated. It may have been reassigned.',
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5)
+          }));
+        }
+
+        await audit('lead_update', 'success', {
+          detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
+        });
+        return redirect(res, '/staff?ok=updated');
       }
 
       /* Add a lead.
@@ -608,6 +640,7 @@ const server = http.createServer(async (req, res) => {
           await content.settings(), {
             agent, csrf,
             leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
             ...opts
           });
@@ -616,6 +649,7 @@ const server = http.createServer(async (req, res) => {
         const phone = String(body.phone || '').trim().slice(0, 40);
         const email = String(body.email || '').trim().slice(0, 160);
         const source = String(body.source || '').trim().slice(0, 60);
+        const budget = String(body.budget || '').trim().slice(0, 60);
 
         if (fullName.length < 2) {
           return sendHtml(res, 400, await renderDashboard({
@@ -629,7 +663,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const id = await leads.create({
-          fullName, phone, email, source, status: 'New', assignedAgentId: agent.id
+          fullName, phone, email, source, budget, status: 'New', assignedAgentId: agent.id
         });
         await audit('lead_create', 'success', {
           detail: `lead ${id} (${fullName}) by agent ${agent.id} (${agent.name})`, ip

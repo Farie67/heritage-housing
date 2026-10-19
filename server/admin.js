@@ -31,6 +31,7 @@ const { generatePassword, generatePasswordWithSymbol } = require('./passwords');
 const { validateUpload, validateLogoUpload } = require('./multipart');
 const { logoPath, logoAbsolute, FALLBACK } = require('./branding');
 const { logSecurityEvent } = require('./security-log');
+const { readLeadUpdate } = require('./lead-input');
 const invoice = require('./invoice');
 const { buildReference } = require('./references');
 
@@ -1658,6 +1659,7 @@ async function handleAdmin(req, res, ctx) {
       const phone = String(body.phone || '').trim().slice(0, 40);
       const email = String(body.email || '').trim().slice(0, 160);
       const source = String(body.source || '').trim().slice(0, 60);
+      const budget = String(body.budget || '').trim().slice(0, 60);
 
       /* Empty means unassigned, which is a valid state — a lead can sit
          unowned until someone picks it up. */
@@ -1683,7 +1685,7 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      const id = await leads.create({ fullName, phone, email, source, assignedAgentId });
+      const id = await leads.create({ fullName, phone, email, source, budget, assignedAgentId });
       await audit('lead_create', 'success', {
         userId: user.id, detail: `lead ${id} (${fullName})`, ip
       });
@@ -1700,10 +1702,36 @@ async function handleAdmin(req, res, ctx) {
         leads: await leads.all(),
         agents: await agents.list(),
         user, csrf,
-        notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
+        notice: url.searchParams.get('ok') === 'added' ? 'Lead added.'
+          : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
+            : ''
       })
     }));
     return true;
+  }
+
+  /* ── Leads: update one ──
+     The admin can edit any lead, whoever owns it. */
+  const leadUpdateMatch = pathname.match(/^\/admin\/leads\/(\d+)\/update$/);
+  if (leadUpdateMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const leadId = Number(leadUpdateMatch[1]);
+    const fields = readLeadUpdate(body);
+    const ok = await leads.update(leadId, fields);
+
+    if (!ok) {
+      h.sendHtml(res, 404, await views.adminLayout({
+        title: 'Not found', active: '/admin/leads', user, csrf,
+        body: '<section class="container inner-page"><h1>Lead not found</h1><p><a class="btn primary" href="/admin/leads">Back to leads</a></p></section>'
+      }));
+      return true;
+    }
+
+    await audit('lead_update', 'success', {
+      userId: user.id, detail: `lead ${leadId} (${fields.status})`, ip
+    });
+    return h.redirect(res, '/admin/leads?ok=updated'), true;
   }
 
   /* ── Staff (sales agents) ──

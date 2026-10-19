@@ -402,6 +402,15 @@ await ensureColumn('ownerships', 'sale_date', 'TEXT');
 await ensureColumn('ownerships', 'closed_at', 'TEXT');
 await ensureColumn('ownerships', 'sale_notes', 'TEXT');
 
+/* The sales pipeline on a lead. All three nullable: a lead can be captured with
+   nothing but a name and filled in as it moves along. follow_up_date is a plain
+   ISO date ('2026-10-25'), not a timestamp, so a string comparison against
+   today's date is what "due" means — which is why it is TEXT rather than
+   DATETIME. */
+await ensureColumn('leads', 'budget', 'TEXT');
+await ensureColumn('leads', 'follow_up_date', 'TEXT');
+await ensureColumn('leads', 'notes', 'TEXT');
+
 /* Staff sign-in. Nullable: an agent can exist as a sales credit on a sale
    without ever being given a login. An agent with no hash simply cannot sign
    in, which is a safer default than creating one with a guessable password. */
@@ -693,23 +702,60 @@ const staffSessions = {
 /* ── CRM: leads and activity logs ───────────────────────────────────────── */
 
 const qInsertLead = prepare(`
-  INSERT INTO leads (full_name, phone, email, source, status, assigned_agent_id, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO leads (full_name, phone, email, source, status, budget,
+                     follow_up_date, notes, assigned_agent_id, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 /* LEFT JOIN, because a lead can sit unowned — an inner join would hide exactly
    the leads the office most needs to see. */
 const qLeadsAll = prepare(`
   SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status,
+         l.budget, l.follow_up_date, l.notes,
          l.assigned_agent_id, l.created_at, a.name AS agent_name
     FROM leads l
     LEFT JOIN agents a ON a.id = l.assigned_agent_id
    ORDER BY l.created_at DESC, l.id DESC
 `);
 const qLeadsForAgent = prepare(`
-  SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status, l.created_at
+  SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status,
+         l.budget, l.follow_up_date, l.notes, l.created_at
     FROM leads l
    WHERE l.assigned_agent_id = ?
    ORDER BY l.created_at DESC, l.id DESC
+`);
+
+/* Due or overdue for one agent. ISO dates sort and compare as plain strings, so
+   `follow_up_date <= today` needs no date parsing. A closed lead is never due —
+   'Won' and 'Lost' are the two ends of the pipeline. */
+const qLeadsDueForAgent = prepare(`
+  SELECT l.id, l.full_name, l.phone, l.status, l.budget, l.follow_up_date
+    FROM leads l
+   WHERE l.assigned_agent_id = ?
+     AND l.follow_up_date IS NOT NULL
+     AND l.follow_up_date <> ''
+     AND l.follow_up_date <= ?
+     AND l.status NOT IN ('Won', 'Lost')
+   ORDER BY l.follow_up_date, l.id
+`);
+
+const qLeadById = prepare('SELECT * FROM leads WHERE id = ?');
+
+/* The agent_id predicate is part of the UPDATE, not a separate SELECT before
+   it. That way "not yours" and "does not exist" are the same zero-row result,
+   and there is no window between the check and the write.
+
+   budget uses COALESCE so that passing null PRESERVES the stored value. The
+   Manage form only edits status, follow-up date and notes, so a plain
+   `budget = ?` would silently wipe the budget on every save. */
+const qUpdateLeadForAgent = prepare(`
+  UPDATE leads
+     SET status = ?, budget = COALESCE(?, budget), follow_up_date = ?, notes = ?
+   WHERE id = ? AND assigned_agent_id = ?
+`);
+const qUpdateLeadAny = prepare(`
+  UPDATE leads
+     SET status = ?, budget = COALESCE(?, budget), follow_up_date = ?, notes = ?
+   WHERE id = ?
 `);
 
 const qInsertStaffLog = prepare(
@@ -733,16 +779,42 @@ const qRecentStaffLogs = prepare(`
 
 const leads = {
   /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
-  async create({ fullName, phone, email, source, status = 'New', assignedAgentId = null }) {
+  async create({ fullName, phone, email, source, status = 'New', budget = null,
+    followUpDate = null, notes = null, assignedAgentId = null }) {
     const info = await qInsertLead.run(
       fullName, phone || null, email || null, source || null, status,
+      budget || null, followUpDate || null, notes || null,
       assignedAgentId || null, nowIso());
     return Number(info.lastInsertRowid);
   },
   /** Every lead, with the owning agent's name, newest first. */
   all: async () => await qLeadsAll.all(),
   /** Just the leads assigned to one agent — what the staff dashboard shows. */
-  forAgent: async (agentId) => await qLeadsForAgent.all(agentId)
+  forAgent: async (agentId) => await qLeadsForAgent.all(agentId),
+  byId: async (id) => await qLeadById.get(id),
+
+  /** Follow-ups due or overdue for one agent. `today` is an ISO date. */
+  dueForAgent: async (agentId, today) => await qLeadsDueForAgent.all(agentId, today),
+
+  /**
+   * Updates a lead, but only if it belongs to `agentId`.
+   *
+   * Returns true when a row changed. False means the lead does not exist OR is
+   * somebody else's — the caller must not distinguish the two, or it becomes a
+   * way to probe which lead ids exist.
+   */
+  async updateForAgent(id, agentId, { status, budget, followUpDate, notes }) {
+    const info = await qUpdateLeadForAgent.run(
+      status, budget || null, followUpDate || null, notes || null, id, agentId);
+    return Number(info.changes) > 0;
+  },
+
+  /** Admin: any lead, whoever owns it. */
+  async update(id, { status, budget, followUpDate, notes }) {
+    const info = await qUpdateLeadAny.run(
+      status, budget || null, followUpDate || null, notes || null, id);
+    return Number(info.changes) > 0;
+  }
 };
 
 const staffLogs = {

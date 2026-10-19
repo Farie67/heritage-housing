@@ -904,19 +904,48 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
 
 /* ── Leads ──────────────────────────────────────────────────────────────── */
 
+/* The pipeline stages, from the one place they are defined. */
+const { LEAD_STATUSES } = require('./lead-input');
+
 function renderLeads({ leads = [], agents = [], user, csrf, notice = '', error = '' }) {
+  /* One inline form per lead, opened by its Manage summary — <details> keeps it
+     working with no JavaScript. */
+  const manageForm = (l) => `            <details>
+              <summary class="text-btn">Manage</summary>
+              <form method="post" action="/admin/leads/${esc(l.id)}/update" class="stack"
+                    style="margin-top:10px;min-width:230px">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+                <label for="st-${esc(l.id)}">Status</label>
+                <select id="st-${esc(l.id)}" name="status">
+${LEAD_STATUSES.map((s) => `                  <option${s === l.status ? ' selected' : ''}>${esc(s)}</option>`).join('\n')}
+                </select>
+
+                <label for="fu-${esc(l.id)}">Follow-up date</label>
+                <input id="fu-${esc(l.id)}" name="followUpDate" type="date" value="${esc(l.follow_up_date || '')}">
+
+                <label for="nt-${esc(l.id)}">Notes</label>
+                <textarea id="nt-${esc(l.id)}" name="notes" rows="3" maxlength="2000">${esc(l.notes || '')}</textarea>
+
+                <button class="btn primary" type="submit">Save changes</button>
+              </form>
+            </details>`;
+
   const rows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
             <td>${esc(l.status)}</td>
+            <td>${l.budget ? esc(l.budget) : '<span class="muted">&mdash;</span>'}</td>
+            <td>${l.follow_up_date ? esc(l.follow_up_date) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.agent_name
     ? esc(l.agent_name)
     : '<span class="muted">Unassigned</span>'}</td>
             <td>${esc(formatDate(l.created_at))}</td>
+            <td class="actions">${manageForm(l)}</td>
           </tr>`).join('\n')
-    : '          <tr><td colspan="7">No leads yet. Add the first one below.</td></tr>';
+    : '          <tr><td colspan="10">No leads yet. Add the first one below.</td></tr>';
 
   /* The picker is every active agent; the value is the id the route stores. */
   const agentOptions = agents
@@ -946,8 +975,11 @@ function renderLeads({ leads = [], agents = [], user, csrf, notice = '', error =
             <th scope="col">Email</th>
             <th scope="col">Source</th>
             <th scope="col">Status</th>
+            <th scope="col">Budget</th>
+            <th scope="col">Follow-up</th>
             <th scope="col">Assigned to</th>
             <th scope="col">Added</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -972,6 +1004,9 @@ ${rows}
 
         <label for="l-source">Source</label>
         <input id="l-source" name="source" type="text" maxlength="60" placeholder="Walk-in, referral, website…">
+
+        <label for="l-budget">Budget</label>
+        <input id="l-budget" name="budget" type="text" maxlength="60" placeholder="US$5,000">
 
         <label for="l-agent">Assign to agent</label>
         <select id="l-agent" name="assignedAgentId">

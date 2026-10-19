@@ -52,6 +52,20 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+/**
+ * Today as an ISO date, in the server's own time zone.
+ *
+ * Deliberately not `new Date().toISOString().slice(0, 10)`: that is the UTC
+ * date, which in Harare (UTC+2) is still yesterday for the first two hours of
+ * every morning — so an agent starting early would see yesterday's follow-ups
+ * as "today" and today's as "not due yet".
+ */
+function todayIso() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function formatBytes(n) {
   const b = Number(n) || 0;
   if (b < 1024) return b + ' B';
@@ -80,4 +94,4 @@ function slugify(text) {
     .replace(/^-+|-+$/g, '');
 }
 
-module.exports = { money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify };
+module.exports = { money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify, todayIso };
