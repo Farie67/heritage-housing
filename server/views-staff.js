@@ -72,8 +72,11 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
 /** The dashboard: the agent's leads and their own daily activity log. */
 function staffDashboard(settings, {
   agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
-  topSales = [], topOverdue = [], notice = '', error = ''
+  topSales = [], topOverdue = [], values = {}, notice = '', error = ''
 } = {}) {
+  /* What the agent typed, so a rejected form comes back filled in rather than
+     blank. Every field falls back to empty on a first render. */
+  const v = (key) => esc(values[key] == null ? '' : values[key]);
   /* Both leaderboards share one shape: a numbered list, or "No data yet."
      The first place is bolded and coloured — --gold is the darkened brand red,
      which the stylesheet already uses for exactly this reason (small coloured
@@ -197,31 +200,26 @@ ${leadRows}
         <input type="hidden" name="csrf" value="${esc(csrf)}">
 
         <label for="leadName">Name</label>
-        <input id="leadName" name="fullName" type="text" required maxlength="120">
+        <input id="leadName" name="fullName" type="text" required maxlength="120" value="${v('fullName')}">
 
         <label for="leadPhone">Phone</label>
-        <input id="leadPhone" name="phone" type="tel" maxlength="40">
+        <input id="leadPhone" name="phone" type="tel" maxlength="40" value="${v('phone')}">
 
         <label for="leadEmail">Email</label>
-        <input id="leadEmail" name="email" type="email" maxlength="160">
+        <input id="leadEmail" name="email" type="email" maxlength="160" value="${v('email')}">
 
         <label for="leadBudget">Budget</label>
-        <input id="leadBudget" name="budget" type="text" maxlength="60" placeholder="US$5,000">
+        <input id="leadBudget" name="budget" type="text" maxlength="60" placeholder="US$5,000" value="${v('budget')}">
 
         <label for="leadSource">Source</label>
         <select id="leadSource" name="source">
-          <option>Walk-in</option>
-          <option>WhatsApp</option>
-          <option>Referral</option>
-          <option>Phone call</option>
-          <option>Website</option>
-          <option>Other</option>
+${['Walk-in', 'WhatsApp', 'Referral', 'Phone call', 'Website', 'Other'].map((s) => `          <option${values.source === s ? ' selected' : ''}>${s}</option>`).join('\n')}
         </select>
 
         <label for="leadProject">Location of interest</label>
         <select id="leadProject" name="projectId">
           <option value="">Not decided yet</option>
-${projects.map((p) => `          <option value="${esc(p.id)}">${esc(p.name)}</option>`).join('\n')}
+${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.projectId) === String(p.id) ? ' selected' : ''}>${esc(p.name)}</option>`).join('\n')}
         </select>
 
         <button class="btn primary" type="submit">Save Lead</button>

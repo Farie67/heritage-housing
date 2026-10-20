@@ -18,7 +18,8 @@ const crypto = require('node:crypto');
 
 const config = require('./config');
 const { audit, users, sessions, portal, enquiries, admin, content, db,
-  leads, staffLogs, leadNotes, agents, getTopSalesAgents, getTopOverdueAgents } = require('./db');
+  leads, staffLogs, leadNotes, agents, getTopSalesAgents, getTopOverdueAgents,
+  findLeadByPhone } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
@@ -774,8 +775,29 @@ const server = http.createServer(async (req, res) => {
         }
         if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
           return sendHtml(res, 400, await renderDashboard({
+            values: { fullName, phone, email, source, budget, projectId },
             error: 'That does not look like a valid email address.'
           }));
+        }
+
+        /* Duplicate guard. A number already on file means this person is
+           already somebody's lead — a second copy would put two agents on the
+           same client and split the history between them.
+
+           A blank phone is allowed through: leads without a number cannot be
+           matched to anyone, and SQLite treats NULLs as distinct anyway. */
+        if (phone) {
+          const existing = await findLeadByPhone(phone);
+
+          if (existing) {
+            const mine = existing.assigned_agent_id === agent.id;
+            return sendHtml(res, mine ? 200 : 409, await renderDashboard({
+              values: { fullName, phone, email, source, budget, projectId },
+              ...(mine
+                ? { notice: `A lead with this phone number is already on your list as ${existing.full_name} — no duplicate was created.` }
+                : { error: 'A lead with this phone number already exists. It is assigned to another agent.' })
+            }));
+          }
         }
 
         const id = await leads.create({

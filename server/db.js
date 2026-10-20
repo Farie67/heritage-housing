@@ -998,6 +998,53 @@ async function getTopOverdueAgents(today, limit = 3) {
   return await qTopOverdueAgents.all(today, n);
 }
 
+/* ── Duplicate leads ────────────────────────────────────────────────────── */
+
+/**
+ * Reduces a phone number to digits, and spells a Zimbabwean country code the
+ * way the office writes it locally.
+ *
+ * "+263 771 234 567", "+263771234567", "0771 234 567" and "0771234567" are all
+ * the same line. Comparing the raw strings would treat them as four different
+ * people, which is exactly the duplicate this is here to stop.
+ */
+function normalisePhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  /* 263 followed by 8 or 9 digits is the international form of a local number:
+     263 771 234 567 -> 0771 234 567 (mobile), 263 54 222 697 -> 054 222 697
+     (landline). Anything outside that range is left as-is so a short extension
+     or a foreign number is not mangled. */
+  if (digits.startsWith('263') && digits.length >= 11 && digits.length <= 13) {
+    return '0' + digits.slice(3);
+  }
+  return digits;
+}
+
+/**
+ * Finds the lead holding this phone number, or null.
+ *
+ * The comparison happens in JS rather than SQL because the stored column holds
+ * whatever the agent typed — an equality test on the raw column would miss the
+ * "+263" versus "0" spelling above. That means reading the leads that have a
+ * phone; at this system's scale (hundreds, not millions) that is cheap, and it
+ * is obviously correct, which matters more here.
+ */
+async function findLeadByPhone(phone) {
+  const wanted = normalisePhone(phone);
+  if (!wanted) return null;
+
+  const rows = await prepare(`
+    SELECT l.id, l.full_name, l.phone, l.email, l.assigned_agent_id, a.name AS agent_name
+      FROM leads l
+      LEFT JOIN agents a ON a.id = l.assigned_agent_id
+     WHERE l.phone IS NOT NULL AND l.phone <> ''
+     ORDER BY l.id
+  `).all();
+
+  return rows.find((row) => normalisePhone(row.phone) === wanted) || null;
+}
+
 /* ── Client portal reads ────────────────────────────────────────────────── */
 
 const qOwnership = prepare(`
@@ -2010,6 +2057,7 @@ const admin = {
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
   leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents,
+  findLeadByPhone, normalisePhone,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
   SALE_STATUSES, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES

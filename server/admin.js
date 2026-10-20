@@ -19,7 +19,7 @@ const crypto = require('node:crypto');
 const config = require('./config');
 const { audit, admin, enquiries, users, agents, staffSessions, leads, staffLogs,
   leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
-  STAND_STATUSES, PROJECT_STATUSES } = require('./db');
+  STAND_STATUSES, PROJECT_STATUSES, findLeadByPhone } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
@@ -1671,25 +1671,40 @@ async function handleAdmin(req, res, ctx) {
       const rawProject = String(body.projectId || '').trim();
       const projectId = rawProject ? Number.parseInt(rawProject, 10) : null;
 
-      const refuse = async (message) => {
+      const refuse = async (message, typed = {}) => {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
             leads: await leads.all(), agents: await agents.list(),
             projects: await admin.projectsWithCounts(),
-            user, csrf, error: message
+            user, csrf, error: message, values: typed
           })
         }));
       };
 
-      if (fullName.length < 2) { await refuse('Please enter the lead\'s name.'); return true; }
+      /* Everything typed so far, so a refused submission comes back filled in. */
+      const typed = { fullName, phone, email, source, budget, projectId, assignedAgentId };
+
+      if (fullName.length < 2) { await refuse('Please enter the lead\'s name.', typed); return true; }
       if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
-        await refuse('That does not look like a valid email address.');
+        await refuse('That does not look like a valid email address.', typed);
         return true;
       }
       if (assignedAgentId && !(await agents.list()).some((a) => a.id === assignedAgentId)) {
-        await refuse('Please choose an agent from the list.');
+        await refuse('Please choose an agent from the list.', typed);
         return true;
+      }
+
+      /* Duplicate guard. A blank phone is allowed through — two leads with no
+         number cannot be told apart, and SQLite treats NULLs as distinct. */
+      if (phone) {
+        const existing = await findLeadByPhone(phone);
+        if (existing) {
+          await refuse(
+            `A lead with this phone number already exists (Assigned to: ${existing.agent_name || 'Unassigned'}).`,
+            typed);
+          return true;
+        }
       }
 
       const id = await leads.create({

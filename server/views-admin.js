@@ -909,7 +909,9 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
 const { LEAD_STATUSES } = require('./lead-input');
 
 function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
-  notice = '', error = '' }) {
+  values = {}, notice = '', error = '' }) {
+  /* What was typed, so a rejected form comes back filled in rather than blank. */
+  const v = (key) => esc(values[key] == null ? '' : values[key]);
   const rows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
@@ -925,11 +927,6 @@ function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
             <td class="actions"><a class="text-btn" href="/admin/leads/${esc(l.id)}">View</a></td>
           </tr>`).join('\n')
     : '          <tr><td colspan="10">No leads yet. Add the first one below.</td></tr>';
-
-  /* The picker is every active agent; the value is the id the route stores. */
-  const agentOptions = agents
-    .map((a) => `            <option value="${esc(a.id)}">${esc(a.name)}</option>`)
-    .join('\n');
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -973,30 +970,30 @@ ${rows}
         <input type="hidden" name="csrf" value="${esc(csrf)}">
 
         <label for="l-name">Name</label>
-        <input id="l-name" name="fullName" type="text" required maxlength="120">
+        <input id="l-name" name="fullName" type="text" required maxlength="120" value="${v('fullName')}">
 
         <label for="l-phone">Phone</label>
-        <input id="l-phone" name="phone" type="tel" maxlength="40">
+        <input id="l-phone" name="phone" type="tel" maxlength="40" value="${v('phone')}">
 
         <label for="l-email">Email</label>
-        <input id="l-email" name="email" type="email" maxlength="160">
+        <input id="l-email" name="email" type="email" maxlength="160" value="${v('email')}">
 
         <label for="l-source">Source</label>
-        <input id="l-source" name="source" type="text" maxlength="60" placeholder="Walk-in, referral, website…">
+        <input id="l-source" name="source" type="text" maxlength="60" placeholder="Walk-in, referral, website…" value="${v('source')}">
 
         <label for="l-budget">Budget</label>
-        <input id="l-budget" name="budget" type="text" maxlength="60" placeholder="US$5,000">
+        <input id="l-budget" name="budget" type="text" maxlength="60" placeholder="US$5,000" value="${v('budget')}">
 
         <label for="l-project">Location of interest</label>
         <select id="l-project" name="projectId">
           <option value="">Not decided yet</option>
-${projects.map((p) => `          <option value="${esc(p.id)}">${esc(p.name)}</option>`).join('\n')}
+${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.projectId) === String(p.id) ? ' selected' : ''}>${esc(p.name)}</option>`).join('\n')}
         </select>
 
         <label for="l-agent">Assign to agent</label>
         <select id="l-agent" name="assignedAgentId">
           <option value="">Unassigned</option>
-${agentOptions}
+${agents.map((a) => `          <option value="${esc(a.id)}"${String(values.assignedAgentId) === String(a.id) ? ' selected' : ''}>${esc(a.name)}</option>`).join('\n')}
         </select>
 
         <button class="btn primary" type="submit">Add lead</button>
