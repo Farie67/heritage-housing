@@ -213,6 +213,7 @@ ${projects.map((p) => `          <option value="${esc(p.id)}">${esc(p.name)}</op
 ${logRows}
         </tbody>
       </table>
+      <p style="margin-top:14px"><a class="text-btn" href="/staff/activity-logs">View full history &rarr;</a></p>
     </div>
 
     <div class="client-card" style="margin-top:20px">
@@ -337,4 +338,46 @@ ${logItems}
   });
 }
 
-module.exports = { staffLogin, staffDashboard, renderStaffLeadDetail };
+/**
+ * The agent's own full activity history.
+ *
+ * The route passes only this agent's rows, so there is no filter here and no id
+ * in the page — a signed-in agent simply cannot ask for anyone else's.
+ */
+function renderStaffActivityLogs(settings, { agent, logs = [] } = {}) {
+  const rows = logs.length ? logs.map((g) => `          <tr>
+            <td>${esc(formatDate(g.created_at))}</td>
+            <td>${esc(g.log_text)}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="2">You have not posted any updates yet.</td></tr>';
+
+  return shell(settings, {
+    title: 'My Activity | Heritage Housing Projects',
+    canonicalPath: 'staff/activity-logs',
+    body: `  <section class="container inner-page">
+    <p><a class="text-btn" href="/staff">&larr; Back to my dashboard</a></p>
+
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">ACTIVITY</span>
+        <h1>My activity</h1>
+        <p class="muted">Every update you have posted, newest first.</p>
+      </div>
+    </div>
+
+    <div class="client-card">
+      <table class="portal-table">
+        <caption>${esc(logs.length)} ${logs.length === 1 ? 'update' : 'updates'}</caption>
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Update</th></tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+    </div>
+  </section>`
+  });
+}
+
+module.exports = { staffLogin, staffDashboard, renderStaffLeadDetail, renderStaffActivityLogs };

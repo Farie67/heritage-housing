@@ -867,6 +867,22 @@ const server = http.createServer(async (req, res) => {
         return redirect(res, '/staff?ok=logged');
       }
 
+      /* The agent's own full activity history.
+
+         The agent id comes from the session and nowhere else — there is no
+         parameter here to tamper with, so one agent cannot read another's log. */
+      if (pathname === '/staff/activity-logs') {
+        if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        return sendHtml(res, 200, viewsStaff.renderStaffActivityLogs(
+          await content.settings(), {
+            agent,
+            logs: await staffLogs.recent({ agentId: agent.id, limit: 500 })
+          }
+        ));
+      }
+
       return sendHtml(res, 404, await views.renderError({
         status: 404, title: 'Not found', message: 'That page could not be found.'
       }));

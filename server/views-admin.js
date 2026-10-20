@@ -26,6 +26,7 @@ const NAV = [
   ['/admin/properties', 'Properties'],
   ['/admin/projects', 'Projects'],
   ['/admin/staff', 'Staff'],
+  ['/admin/activity-logs', 'Activity Logs'],
   ['/admin/content', 'Content']
 ];
 
@@ -1134,7 +1135,7 @@ ${noteItems}
   </section>`;
 }
 
-function renderStaff({ agents = [], logs = [], user, csrf, notice = '', error = '',
+function renderStaff({ agents = [], user, csrf, notice = '', error = '',
   generatedPassword = '', generatedFor = '' }) {
   const rows = agents.length ? agents.map((a) => `          <tr>
             <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">DISABLED</span>'}</td>
@@ -1152,13 +1153,6 @@ function renderStaff({ agents = [], logs = [], user, csrf, notice = '', error = 
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No agents yet. Add the first one below.</td></tr>';
-
-  const logRows = logs.length ? logs.map((g) => `          <tr>
-            <td>${esc(g.agent_name)}</td>
-            <td>${esc(formatDate(g.created_at))}</td>
-            <td>${esc(g.log_text)}</td>
-          </tr>`).join('\n')
-    : '          <tr><td colspan="3">No activity posted yet.</td></tr>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -1217,30 +1211,71 @@ ${rows}
         <button class="btn primary" type="submit">Add agent</button>
       </form>
     </div>
+  </section>`;
+}
 
-    <div class="client-card" style="margin-top:20px">
-      <h2>Recent activity</h2>
-      <p class="field-hint" style="margin-bottom:14px">The latest updates the team has posted
-        from their staff dashboard, newest first.</p>
+/* ── Activity logs ──────────────────────────────────────────────────────── */
+
+function renderActivityLogs({ logs = [], agents = [], user, csrf,
+  agentId = null, sortOrder = 'DESC' }) {
+  const rows = logs.length ? logs.map((g) => `          <tr>
+            <td>${esc(formatDate(g.created_at))}</td>
+            <td>${esc(g.agent_name)}</td>
+            <td>${esc(g.log_text)}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="3">No activity posted yet.</td></tr>';
+
+  const agentOptions = agents.map((a) =>
+    `          <option value="${esc(a.id)}"${String(a.id) === String(agentId) ? ' selected' : ''}>${esc(a.name)}</option>`).join('\n');
+
+  return `  <section class="container inner-page">
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">ACTIVITY</span>
+        <h1>Activity Logs</h1>
+        <p class="muted">Every update the sales team has posted from their staff dashboard.</p>
+      </div>
+    </div>
+
+    <form method="get" action="/admin/activity-logs" class="filters">
+      <div class="field">
+        <label for="f-agent">Agent</label>
+        <select id="f-agent" name="agent">
+          <option value="">All agents</option>
+${agentOptions}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-sort">Sort by date</label>
+        <select id="f-sort" name="sort">
+          <option value="desc"${sortOrder === 'ASC' ? '' : ' selected'}>Newest first</option>
+          <option value="asc"${sortOrder === 'ASC' ? ' selected' : ''}>Oldest first</option>
+        </select>
+      </div>
+      <button class="btn primary" type="submit">Apply</button>
+      ${agentId || sortOrder === 'ASC'
+    ? '<a class="btn outline" href="/admin/activity-logs">Clear</a>' : ''}
+    </form>
+
+    <div class="client-card">
       <table class="portal-table">
-        <caption>Staff activity log</caption>
+        <caption>Activity log — ${esc(logs.length)} ${logs.length === 1 ? 'entry' : 'entries'}</caption>
         <thead>
           <tr>
-            <th scope="col">Agent</th>
             <th scope="col">Date</th>
+            <th scope="col">Agent</th>
             <th scope="col">Update</th>
           </tr>
         </thead>
         <tbody>
-${logRows}
+${rows}
         </tbody>
       </table>
     </div>
   </section>`;
 }
 
-function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '' }) {
-  const canDelete = stand.sale_count === 0;
+function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '' }) {  const canDelete = stand.sale_count === 0;
 
   return `  <section class="container inner-page">
     <p><a class="text-btn" href="/admin/properties">&larr; All properties</a></p>
@@ -1831,5 +1866,6 @@ module.exports = {
   adminLayout, renderLogin, renderDashboard, renderEnquiries, renderClients,
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
-  renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail
+  renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
+  renderActivityLogs
 };

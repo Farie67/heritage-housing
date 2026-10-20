@@ -838,13 +838,25 @@ const qStaffLogsForAgent = prepare(`
    ORDER BY created_at DESC, id DESC
    LIMIT ?
 `);
-const qRecentStaffLogs = prepare(`
+/* The activity log, with the agent's name joined in.
+   `? IS NULL OR s.agent_id = ?` filters by agent without needing a second
+   statement for the unfiltered case: both placeholders get the same value, and
+   when it is null the first test is true and the comparison is ignored. */
+const STAFF_LOG_SELECT = `
   SELECT s.id, s.log_text, s.created_at, s.agent_id, a.name AS agent_name
     FROM staff_logs s
     JOIN agents a ON a.id = s.agent_id
+   WHERE (? IS NULL OR s.agent_id = ?)`;
+
+/* Two statements rather than one, because ORDER BY cannot be a bound parameter
+   and building it from a query string would be an injection point. The caller
+   picks between these two; it never composes SQL. */
+const qStaffLogsNewest = prepare(`${STAFF_LOG_SELECT}
    ORDER BY s.created_at DESC, s.id DESC
-   LIMIT ?
-`);
+   LIMIT ?`);
+const qStaffLogsOldest = prepare(`${STAFF_LOG_SELECT}
+   ORDER BY s.created_at ASC, s.id ASC
+   LIMIT ?`);
 
 const leads = {
   /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
@@ -924,8 +936,21 @@ const staffLogs = {
   async create({ agentId, text }) {
     await qInsertStaffLog.run(agentId, text, nowIso());
   },
+  /** The dashboard's "last 5" — one agent, newest first. */
   forAgent: async (agentId, limit = 5) => await qStaffLogsForAgent.all(agentId, limit),
-  recent: async (limit = 50) => await qRecentStaffLogs.all(limit)
+
+  /**
+   * The full activity log, with agent names.
+   *
+   * `sortOrder` is 'DESC' (newest first) or 'ASC'; anything else falls back to
+   * DESC, since the value arrives from a query string. `agentId` narrows to one
+   * agent; null returns everyone.
+   */
+  async recent({ limit = 200, sortOrder = 'DESC', agentId = null } = {}) {
+    const stmt = sortOrder === 'ASC' ? qStaffLogsOldest : qStaffLogsNewest;
+    const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 1000) : 200;
+    return await stmt.all(agentId, agentId, safeLimit);
+  }
 };
 
 /* ── Client portal reads ────────────────────────────────────────────────── */

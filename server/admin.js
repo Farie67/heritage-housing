@@ -1890,7 +1890,7 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Staff', active: '/admin/staff', user, csrf,
           body: views.renderStaff({
-            agents: await agents.list(), logs: await staffLogs.recent(25),
+            agents: await agents.list(),
             user, csrf, error: message
           })
         }));
@@ -1921,7 +1921,7 @@ async function handleAdmin(req, res, ctx) {
       h.sendHtml(res, 200, await views.adminLayout({
         title: 'Staff', active: '/admin/staff', user, csrf,
         body: views.renderStaff({
-          agents: await agents.list(), logs: await staffLogs.recent(25),
+          agents: await agents.list(),
           user, csrf,
           notice: `${name} added.`,
           generatedPassword: password,
@@ -1937,7 +1937,7 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
       body: views.renderStaff({
-        agents: await agents.list(), logs: await staffLogs.recent(25), user, csrf
+        agents: await agents.list(), user, csrf
       })
     }));
     return true;
@@ -1973,11 +1973,37 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
       body: views.renderStaff({
-        agents: await agents.list(), logs: await staffLogs.recent(25),
+        agents: await agents.list(),
         user, csrf,
         notice: `Password reset for ${agent.name}.`,
         generatedPassword: password,
         generatedFor: agent.name
+      })
+    }));
+    return true;
+  }
+
+  /* ── Activity logs ──
+     Every agent's updates, optionally narrowed to one agent and sortable. The
+     sort value is read here and passed through staffLogs.recent, which will only
+     ever accept 'ASC' or 'DESC' — the SQL keyword is never built from input. */
+  if (pathname === '/admin/activity-logs') {
+    if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const rawAgent = (url.searchParams.get('agent') || '').trim();
+    const agentId = rawAgent ? Number.parseInt(rawAgent, 10) : null;
+    const sortOrder = url.searchParams.get('sort') === 'asc' ? 'ASC' : 'DESC';
+
+    await audit('admin_view', 'success', { userId: user.id, detail: 'activity logs', ip });
+
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: 'Activity Logs', active: '/admin/activity-logs', user, csrf,
+      body: views.renderActivityLogs({
+        logs: await staffLogs.recent({ sortOrder, agentId }),
+        agents: await agents.list(),
+        user, csrf,
+        agentId, sortOrder
       })
     }));
     return true;
