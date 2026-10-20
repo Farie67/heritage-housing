@@ -1745,11 +1745,89 @@ async function handleAdmin(req, res, ctx) {
         lead: { ...lead, agent_name: owner ? owner.name : null },
         notes: await leadNotes.forLead(leadId),
         agents: await agents.list(),
+        availableStands: await admin.availableStands(),
         user, csrf,
         notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.' : '',
         error: url.searchParams.get('error') || ''
       })
     }));
+    return true;
+  }
+
+  /* ── Leads: convert to client ──
+     Creates the portal account, links the stand and closes the lead, all in one
+     transaction inside admin.convertLeadToClient. */
+  const leadConvertMatch = pathname.match(/^\/admin\/leads\/(\d+)\/convert$/);
+  if (leadConvertMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const leadId = Number(leadConvertMatch[1]);
+    const lead = await leads.byId(leadId);
+
+    if (!lead) {
+      h.sendHtml(res, 404, await views.adminLayout({
+        title: 'Not found', active: '/admin/leads', user, csrf,
+        body: '<section class="container inner-page"><h1>Lead not found</h1><p><a class="btn primary" href="/admin/leads">Back to leads</a></p></section>'
+      }));
+      return true;
+    }
+
+    /* Re-renders the lead page with the reason, so the admin stays where they
+       were instead of being bounced to a list. */
+    const refuse = async (message) => {
+      const owner = lead.assigned_agent_id
+        ? (await agents.list()).find((a) => a.id === lead.assigned_agent_id)
+        : null;
+      h.sendHtml(res, 400, await views.adminLayout({
+        title: lead.full_name, active: '/admin/leads', user, csrf,
+        body: views.renderAdminLeadDetail({
+          lead: { ...lead, agent_name: owner ? owner.name : null },
+          notes: await leadNotes.forLead(leadId),
+          agents: await agents.list(),
+          availableStands: await admin.availableStands(),
+          user, csrf, error: message
+        })
+      }));
+    };
+
+    const standId = Number.parseInt(String(body.standId || ''), 10);
+    const cents = parseMoneyToCents(body.price);
+
+    if (!Number.isInteger(standId) || standId <= 0) {
+      await refuse('Please choose a stand.'); return true;
+    }
+    if (cents === null) {
+      await refuse('Purchase price must be a positive amount, for example 5500 or 5500.00.');
+      return true;
+    }
+
+    const result = await admin.convertLeadToClient(leadId, standId, cents, lead.assigned_agent_id);
+
+    if (!result.ok) {
+      const reasons = {
+        leadNotFound: 'That lead no longer exists.',
+        alreadyWon: 'This lead has already been converted.',
+        standNotFound: 'That stand no longer exists.',
+        standTaken: 'That stand has just been taken by someone else. Choose another.'
+      };
+      await refuse(reasons[result.reason] || 'That conversion could not be completed.');
+      return true;
+    }
+
+    await audit('lead_convert', 'success', {
+      userId: user.id,
+      detail: `lead ${leadId} (${lead.full_name}) -> client ${result.clientId} (${result.clientNumber})`, ip
+    });
+
+    /* Rendered, not redirected. The generated password has to be shown exactly
+       once, and putting it in a redirect URL would write it into the browser
+       history, the Referer header and the server access log. Same approach as
+       the client password reset. */
+    await sendClientPage(res, h, result.clientId, {
+      user, csrf,
+      notice: `Lead converted successfully. Client portal account created. Password: ${result.password}`,
+      generatedPassword: result.password
+    });
     return true;
   }
 

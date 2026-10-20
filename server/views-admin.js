@@ -1006,8 +1006,8 @@ ${agentOptions}
  * Unlike the staff version this can edit the budget and reassign the lead, so
  * it takes the agent list as well as the lead.
  */
-function renderAdminLeadDetail({ lead, notes = [], agents = [], user, csrf,
-  notice = '', error = '' }) {
+function renderAdminLeadDetail({ lead, notes = [], agents = [], availableStands = [],
+  user, csrf, notice = '', error = '' }) {
   const noteItems = notes.length ? notes.map((n) => `        <li>
           <span class="muted">${esc(formatDate(n.created_at))} &middot; ${esc(n.agent_name)}</span><br>
           ${esc(n.note_text)}
@@ -1021,6 +1021,43 @@ function renderAdminLeadDetail({ lead, notes = [], agents = [], user, csrf,
     `          <option value=""${lead.assigned_agent_id ? '' : ' selected'}>Unassigned</option>`,
     ...agents.map((a) => `          <option value="${esc(a.id)}"${a.id === lead.assigned_agent_id ? ' selected' : ''}>${esc(a.name)}</option>`)
   ].join('\n');
+
+  /* Only free stands, already filtered by the query. A lead that has been won
+     gets a note instead of a second conversion form — the route refuses a
+     repeat anyway, but offering the button would be a trap. */
+  const standOptions = availableStands.map((s) =>
+    `          <option value="${esc(s.id)}">${esc(s.stand_number)} &mdash; ${esc(s.project_name)}</option>`).join('\n');
+
+  const convertCard = lead.status === 'Won' ? `
+    <div class="client-card" style="margin-top:20px">
+      <h2>Converted</h2>
+      <p class="muted" style="margin:0">This lead is marked Won, so a client account has already
+        been created from it.</p>
+    </div>` : `
+    <div class="client-card" style="margin-top:20px">
+      <h2>Convert to Client</h2>
+      <p class="field-hint" style="margin-bottom:14px">Creates a client portal account for this
+        lead, links the stand, marks the stand Sold and the lead Won. The password is shown once
+        on the next screen.</p>
+
+      ${availableStands.length ? `
+      <form method="post" action="/admin/leads/${esc(lead.id)}/convert"
+            data-confirm="Convert this lead? A client account is created and the stand is marked sold.">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="standId">Stand</label>
+        <select id="standId" name="standId" required>
+          <option value="">Choose a stand&hellip;</option>
+${standOptions}
+        </select>
+
+        <label for="price">Purchase price (US$)</label>
+        <input id="price" name="price" type="text" inputmode="decimal" placeholder="5500.00" required>
+
+        <button class="btn primary" type="submit">Confirm Conversion</button>
+      </form>` : `<p class="notice">There are no free stands to convert onto. Add a property, or
+        free one up, then come back.</p>`}
+    </div>`;
 
   return `  <section class="container inner-page">
     <p><a class="text-btn" href="/admin/leads">&larr; All leads</a></p>
@@ -1049,6 +1086,7 @@ ${field('Follow-up date', lead.follow_up_date)}
 ${field('Added', formatDate(lead.created_at))}
       </div>
     </div>
+${convertCard}
 
     <div class="client-card" style="margin-top:20px">
       <h2>Update this lead</h2>

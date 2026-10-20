@@ -13,7 +13,9 @@
 const config = require('./config');
 const driver = require('./driver');
 /* format.js has no dependencies of its own, so this cannot create a cycle. */
-const { slugify } = require('./format');
+const { slugify, todayIso } = require('./format');
+/* passwords.js also has no dependencies beyond node:crypto. */
+const { generatePassword } = require('./passwords');
 
 /* Every statement returns a Promise, whichever engine is underneath. */
 const db = { exec: driver.exec, prepare: driver.prepare };
@@ -1382,6 +1384,21 @@ const qStandAllocated = prepare(`
 const qSetStandStatus = prepare('UPDATE stands SET status = ? WHERE id = ?');
 const qCountOwnershipsForUser = prepare('SELECT COUNT(*) AS c FROM ownerships WHERE user_id = ?');
 
+/* Stands a lead can be converted onto: no live sale against them.
+   The same test the public site and convertLeadToClient use, so the dropdown
+   can never offer something the conversion would then refuse. */
+const qAvailableStands = prepare(`
+  SELECT st.id, st.stand_number, st.price_cents, st.currency,
+         p.name AS project_name
+    FROM stands st
+    JOIN projects p ON p.id = st.project_id
+   WHERE NOT EXISTS (
+     SELECT 1 FROM ownerships o
+      WHERE o.stand_id = st.id AND COALESCE(o.sale_status, 'Active') <> 'Cancelled'
+   )
+   ORDER BY p.name, st.stand_number
+`);
+
 /* The sales agents a sale can be credited to. Inactive agents are left out of
    the picker, but a sale they already closed still shows its agent name —
    that name is joined in CLIENTS_SELECT, not read from this list. Same query
@@ -1578,6 +1595,8 @@ const admin = {
   async unlock(id) { await qUnlockClient.run(id); },
 
   stands: async () => await qStandsAll.all(),
+  /** Only the stands with no live sale — what a conversion may choose from. */
+  availableStands: async () => await qAvailableStands.all(),
   /* Sales agents, for the "who closed this sale?" picker. */
   agents: async () => await qAgents.all(),
   ownershipById: async (id) => await qOwnershipById.get(id),
@@ -1670,6 +1689,87 @@ const admin = {
 
   async createClient({ clientNumber, fullName, email, passwordHash }) {
     return await users.insert({ clientNumber, fullName, email, role: 'client', passwordHash });
+  },
+
+  /**
+   * Turns a lead into a paying client.
+   *
+   * Everything that has to happen together happens in one transaction: the
+   * portal account, the ownership, the stand going Sold, and the lead going
+   * Won. If any step fails — most likely the stand being taken by someone else
+   * in the meantime — nothing is written, so there is no half-converted state
+   * where a client exists with no stand or a stand is Sold with no owner.
+   *
+   * Returns { ok: true, clientId, clientNumber, password } or
+   *         { ok: false, reason }.
+   *
+   * The plaintext password is returned so the caller can show it once. Only the
+   * scrypt hash is stored, the same as every other login.
+   */
+  async convertLeadToClient(leadId, standId, purchasePriceCents, agentId = null) {
+    const lead = await prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
+    if (!lead) return { ok: false, reason: 'leadNotFound' };
+    if (lead.status === 'Won') return { ok: false, reason: 'alreadyWon' };
+
+    const stand = await prepare('SELECT id, stand_number FROM stands WHERE id = ?').get(standId);
+    if (!stand) return { ok: false, reason: 'standNotFound' };
+
+    /* The dropdown only offers free stands, but the check is repeated here: a
+       form left open while someone else converted the same stand must not win
+       the race just because it was submitted second. */
+    const taken = await prepare(`
+      SELECT 1 FROM ownerships
+       WHERE stand_id = ? AND COALESCE(sale_status, 'Active') <> 'Cancelled'
+       LIMIT 1
+    `).get(standId);
+    if (taken) return { ok: false, reason: 'standTaken' };
+
+    const password = generatePassword(20);
+    /* auth.js requires this module, so requiring it at the top would be a
+       cycle. By the time this runs both modules are fully loaded. */
+    const { hashPassword } = require('./auth');
+    const passwordHash = await hashPassword(password);
+
+    /* The closing agent: whoever the caller names, else whoever owned the lead. */
+    const owner = agentId || lead.assigned_agent_id || null;
+
+    const clientId = await driver.transaction(async (tx) => {
+      /* The next client number is picked inside the transaction so two
+         conversions at the same moment cannot both choose HP-10246. */
+      const rows = await tx.prepare(
+        "SELECT client_number FROM users WHERE client_number LIKE 'HP-%'").all();
+      let highest = 10000;
+      for (const row of rows) {
+        const n = Number.parseInt(String(row.client_number).slice(3), 10);
+        if (Number.isInteger(n) && n > highest) highest = n;
+      }
+      const clientNumber = 'HP-' + String(highest + 1).padStart(5, '0');
+
+      /* users has no phone column, so the lead's phone stays on the lead. */
+      const info = await tx.prepare(`
+        INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
+        VALUES (?, ?, ?, 'client', ?, ?)
+      `).run(clientNumber, lead.full_name, lead.email || null, passwordHash, nowIso());
+      const newId = Number(info.lastInsertRowid);
+
+      /* `status` is the office's service-progress label; `sale_status` is the
+         lifecycle column the analytics read. A new sale is Active, and the
+         service label starts where every other new sale starts. */
+      await tx.prepare(`
+        INSERT INTO ownerships
+          (user_id, stand_id, purchase_price_cents, purchase_date, status, agent_id, sale_status)
+        VALUES (?, ?, ?, ?, 'Servicing in progress', ?, 'Active')
+      `).run(newId, standId, purchasePriceCents, todayIso(), owner);
+
+      await tx.prepare("UPDATE stands SET status = 'Sold' WHERE id = ?").run(standId);
+      await tx.prepare("UPDATE leads SET status = 'Won' WHERE id = ?").run(leadId);
+
+      return newId;
+    });
+
+    const saved = await prepare('SELECT client_number FROM users WHERE id = ?').get(clientId);
+
+    return { ok: true, clientId, clientNumber: saved.client_number, password };
   },
 
   projectById: async (id) => await prepare('SELECT * FROM projects WHERE id = ?').get(id),
