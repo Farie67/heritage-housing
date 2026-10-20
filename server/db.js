@@ -787,6 +787,15 @@ const qUpdateLeadAny = prepare(`
    WHERE id = ?
 `);
 
+/* Contact details only, and only on the agent's own lead. The ownership guard
+   is in the WHERE for the same reason as above: "not yours" and "does not
+   exist" are one zero-row result, with no gap between checking and writing. */
+const qUpdateLeadDetails = prepare(`
+  UPDATE leads
+     SET full_name = ?, phone = ?, email = ?, source = ?
+   WHERE id = ? AND assigned_agent_id = ?
+`);
+
 /* ── Lead notes ─────────────────────────────────────────────────────────── */
 
 /* The ownership guard lives inside the INSERT. The SELECT yields a row only
@@ -919,6 +928,42 @@ const leads = {
     const info = await qUpdateLeadForAgent.run(
       status, budget || null, followUpDate || null, notes || null, id, agentId);
     return Number(info.changes) > 0;
+  },
+
+  /**
+   * Edits the contact details on one of this agent's own leads.
+   *
+   * Returns true when a row changed. False means the lead does not exist OR is
+   * somebody else's — the caller must not distinguish the two.
+   */
+  async updateLeadDetails(id, agentId, { fullName, phone, email, source }) {
+    const info = await qUpdateLeadDetails.run(
+      fullName, phone || null, email || null, source || null, id, agentId);
+    return Number(info.changes) > 0;
+  },
+
+  /**
+   * Deletes one of this agent's own leads, and its notes with it.
+   *
+   * The notes are deleted explicitly rather than relying on ON DELETE CASCADE.
+   * The clause is in the current schema, but a database restored from an older
+   * backup may not carry it, and a surviving note row would then block the
+   * delete with a foreign key error the agent could do nothing about.
+   *
+   * One transaction: the ownership check, the notes and the lead all go
+   * together, so there is no way to remove the notes and then fail to remove
+   * the lead.
+   */
+  async deleteLead(id, agentId) {
+    return await driver.transaction(async (tx) => {
+      const owned = await tx.prepare(
+        'SELECT id FROM leads WHERE id = ? AND assigned_agent_id = ?').get(id, agentId);
+      if (!owned) return false;
+
+      await tx.prepare('DELETE FROM lead_notes WHERE lead_id = ?').run(id);
+      await tx.prepare('DELETE FROM leads WHERE id = ? AND assigned_agent_id = ?').run(id, agentId);
+      return true;
+    });
   },
 
   /**

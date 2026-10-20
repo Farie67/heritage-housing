@@ -313,10 +313,54 @@ function renderStaffLeadDetail(settings, {
         <p class="muted">${esc(lead.status)}${lead.follow_up_date
       ? ` &middot; follow-up ${esc(lead.follow_up_date)}` : ''}</p>
       </div>
+      <form method="post" action="/staff/lead/${esc(lead.id)}/delete" class="inline-form"
+            data-confirm="Are you sure you want to delete this lead?">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+        <button class="btn outline" type="submit">Delete Lead</button>
+      </form>
     </div>
 
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <!-- The reveal is a <details> rather than a script: the site sends
+         script-src 'self', which drops inline handlers without any error, so an
+         onclick here would simply do nothing. The summary is styled as a button
+         so it still reads as one. -->
+    <details style="margin-top:18px">
+      <summary class="btn outline">Edit Details</summary>
+      <div class="client-card" style="margin-top:14px">
+        <h2>Contact details</h2>
+        <p class="field-hint" style="margin-bottom:14px">Changes the name, phone, email and
+          source only. Status and follow-up are on the form below.</p>
+
+        <form method="post" action="/staff/lead/${esc(lead.id)}/edit">
+          <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+          <label for="editName">Name</label>
+          <input id="editName" name="fullName" type="text" required maxlength="120"
+                 value="${esc(lead.full_name)}">
+
+          <label for="editPhone">Phone</label>
+          <input id="editPhone" name="phone" type="tel" maxlength="40"
+                 value="${esc(lead.phone || '')}">
+
+          <label for="editEmail">Email</label>
+          <input id="editEmail" name="email" type="email" maxlength="160"
+                 value="${esc(lead.email || '')}">
+
+          <label for="editSource">Source</label>
+          <!-- Free text, not the fixed list from the Add form: the office can set
+               any source, and a select would silently drop a value it did not
+               offer the next time this form was saved. -->
+          <input id="editSource" name="source" type="text" maxlength="60"
+                 placeholder="Walk-in, referral, website&hellip;"
+                 value="${esc(lead.source || '')}">
+
+          <button class="btn primary" type="submit">Save details</button>
+        </form>
+      </div>
+    </details>
 
     <div class="client-card">
       <h2>Details</h2>

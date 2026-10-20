@@ -590,6 +590,7 @@ const server = http.createServer(async (req, res) => {
           agent, csrf,
           notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
             : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
+              : url.searchParams.get('ok') === 'deleted' ? 'Lead deleted.'
               : url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
                 : url.searchParams.get('ok') === 'noted' ? 'Note added.'
                   : url.searchParams.get('ok') === 'password' ? 'Password changed. Other devices have been signed out.'
@@ -636,6 +637,7 @@ const server = http.createServer(async (req, res) => {
             notes: await leadNotes.forLead(leadId),
             csrf,
             notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.'
+              : url.searchParams.get('ok') === 'edited' ? 'Lead details saved.'
               : url.searchParams.get('ok') === 'noted' ? 'Note added.'
                 : '',
             error: url.searchParams.get('error') || ''
@@ -733,6 +735,89 @@ const server = http.createServer(async (req, res) => {
           detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
         });
         return redirect(res, `/staff/lead/${leadId}?ok=noted`);
+      }
+
+      /* Re-renders the dashboard with a message. The edit and delete routes
+         below act on a lead the agent reached from the dashboard, so a failure
+         returns them there rather than to a bare error page. */
+      const dashboardWithError = async (message) => viewsStaff.staffDashboard(
+        await content.settings(), {
+          agent, csrf, error: message,
+          leads: await leads.forAgent(agent.id),
+          followUps: await leads.dueForAgent(agent.id, todayIso()),
+          projects: await admin.projectsWithCounts(),
+          topSales: await getTopSalesAgents(),
+          topOverdue: await getTopOverdueAgents(todayIso()),
+          logs: await staffLogs.forAgent(agent.id, 5)
+        });
+
+      /* Edit the contact details on one of this agent's own leads.
+         Ownership is enforced inside the UPDATE, so an id belonging to somebody
+         else changes nothing.
+
+         "Not yours" answers 404, not 403, to match the detail page and the other
+         lead routes: a 403 would confirm the id exists, which is enough to
+         enumerate a colleague's leads one number at a time. */
+      const staffEditMatch = pathname.match(/^\/staff\/lead\/(\d+)\/edit$/);
+      if (staffEditMatch) {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const leadId = Number(staffEditMatch[1]);
+        const fullName = String(body.fullName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const phone = String(body.phone || '').trim().slice(0, 40);
+        const email = String(body.email || '').trim().slice(0, 160);
+        const source = String(body.source || '').trim().slice(0, 60);
+
+        if (fullName.length < 2) {
+          return sendHtml(res, 400, await dashboardWithError('Please enter the lead\'s name.'));
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+          return sendHtml(res, 400, await dashboardWithError('That does not look like a valid email address.'));
+        }
+
+        /* The same duplicate guard as creating a lead, ignoring this lead
+           itself — otherwise editing the phone number would be a way round it. */
+        if (phone) {
+          const existing = await findLeadByPhone(phone);
+          if (existing && existing.id !== leadId) {
+            const mine = existing.assigned_agent_id === agent.id;
+            return sendHtml(res, mine ? 200 : 409, await dashboardWithError(mine
+              ? `Another of your leads already uses this number (${existing.full_name}).`
+              : 'A lead with this phone number already exists. It is assigned to another agent.'));
+          }
+        }
+
+        const ok = await leads.updateLeadDetails(leadId, agent.id, { fullName, phone, email, source });
+        if (!ok) {
+          return sendHtml(res, 404, await dashboardWithError(
+            'That lead could not be updated. It may have been reassigned.'));
+        }
+
+        await audit('lead_edit', 'success', {
+          detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
+        });
+        return redirect(res, `/staff/lead/${leadId}?ok=edited`);
+      }
+
+      /* Delete one of this agent's own leads. Its notes go with it, in the same
+         transaction, inside leads.deleteLead. */
+      const staffDeleteMatch = pathname.match(/^\/staff\/lead\/(\d+)\/delete$/);
+      if (staffDeleteMatch) {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        if (!agent) return redirect(res, '/staff/login');
+
+        const leadId = Number(staffDeleteMatch[1]);
+        const ok = await leads.deleteLead(leadId, agent.id);
+        if (!ok) {
+          return sendHtml(res, 404, await dashboardWithError(
+            'That lead could not be deleted. It may have been reassigned.'));
+        }
+
+        await audit('lead_delete', 'success', {
+          detail: `lead ${leadId} by agent ${agent.id} (${agent.name})`, ip
+        });
+        return redirect(res, '/staff?ok=deleted');
       }
 
       /* Add a lead.
