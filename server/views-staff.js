@@ -78,12 +78,13 @@ function staffDashboard(settings, {
      The first place is bolded and coloured — --gold is the darkened brand red,
      which the stylesheet already uses for exactly this reason (small coloured
      text on white). */
-  /* The icon is a small decorative glyph in its own span. Inside an <h2> an
-     emoji inherits the heading's size and swamps the words; at 15px it reads as
-     a label rather than a picture. aria-hidden keeps it out of a screen
-     reader's reading, since the heading already says what the card is. */
+  /* The icon is a fixed-size decorative glyph in its own span. Left inside the
+     heading it inherits the text size and grows with it; pinned at 24px it
+     stays a label rather than a picture, and vertical-align keeps it sitting on
+     the same line as the words. aria-hidden keeps it out of a screen reader's
+     reading, since the heading already says what the card is. */
   const icon = (glyph) =>
-    `<span aria-hidden="true" style="font-size:15px;margin-right:6px">${glyph}</span>`;
+    `<span aria-hidden="true" style="font-size:24px;margin-right:10px;vertical-align:middle">${glyph}</span>`;
 
   /* One renderer for both lists, so the two cards cannot drift apart.
      `label` turns a row into the count text, because the two lists do not
@@ -141,15 +142,15 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
-    <div class="client-grid" style="grid-template-columns:1fr 1fr;margin-top:20px">
+    <div class="client-grid" style="grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));margin-top:20px">
       <div class="client-card">
-        <h2>${icon('&#127942;')}Top Sales Agents</h2>
+        <h3>${icon('&#127942;')}Top Sales Agents</h3>
         <p class="field-hint" style="margin-bottom:12px">Stands sold, all time.</p>
 ${leaderboard(topSales, (r) => `${r.sales} sale${r.sales === 1 ? '' : 's'}`, 'No sales recorded yet.')}
       </div>
 
       <div class="client-card">
-        <h2>${icon('&#9888;&#65039;')}Most Overdue Follow-ups</h2>
+        <h3>${icon('&#9888;&#65039;')}Most Overdue Follow-ups</h3>
         <p class="field-hint" style="margin-bottom:12px">Open leads past their follow-up date.</p>
 ${topOverdue.length
     ? leaderboard(topOverdue, (r) => `${r.overdue} overdue`, '')
