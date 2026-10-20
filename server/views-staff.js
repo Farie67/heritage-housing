@@ -72,8 +72,18 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
 /** The dashboard: the agent's leads and their own daily activity log. */
 function staffDashboard(settings, {
   agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
-  notice = '', error = ''
+  topSales = [], topOverdue = [], notice = '', error = ''
 } = {}) {
+  /* Both leaderboards share one shape: a numbered list, or "No data yet."
+     The first place is bolded and coloured — --gold is the darkened brand red,
+     which the stylesheet already uses for exactly this reason (small coloured
+     text on white). */
+  const leaderboard = (rows, value, unit) => (rows.length
+    ? `<ol style="margin:0;padding-left:20px">
+${rows.map((r, i) => `        <li${i === 0 ? ' style="font-weight:700;color:var(--gold)"' : ''}>${esc(r.name)} &mdash; ${esc(r[value])} ${unit}${r[value] === 1 ? '' : 's'}</li>`).join('\n')}
+      </ol>`
+    : '<p class="muted" style="margin:0">No data yet.</p>');
+
   const leadRows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
@@ -118,6 +128,20 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
 
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <div class="client-grid" style="grid-template-columns:1fr 1fr;margin-top:20px">
+      <div class="client-card">
+        <h2>&#127942; Top Sales Agents</h2>
+        <p class="field-hint" style="margin-bottom:12px">Stands sold, all time.</p>
+${leaderboard(topSales, 'sales', 'sale')}
+      </div>
+
+      <div class="client-card">
+        <h2>&#9888;&#65039; Most Overdue Follow-ups</h2>
+        <p class="field-hint" style="margin-bottom:12px">Open leads past their follow-up date.</p>
+${leaderboard(topOverdue, 'overdue', 'overdue')}
+      </div>
+    </div>
 
     <div class="notice ${followUps.length ? 'error alert-critical' : ''}">
       <strong>My Follow-ups</strong>

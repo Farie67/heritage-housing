@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 
 const config = require('./config');
 const { audit, users, sessions, portal, enquiries, admin, content, db,
-  leads, staffLogs, leadNotes, agents } = require('./db');
+  leads, staffLogs, leadNotes, agents, getTopSalesAgents, getTopOverdueAgents } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
@@ -596,6 +596,8 @@ const server = http.createServer(async (req, res) => {
           leads: await leads.forAgent(agent.id),
           followUps: await leads.dueForAgent(agent.id, todayIso()),
           projects: await admin.projectsWithCounts(),
+          topSales: await getTopSalesAgents(),
+          topOverdue: await getTopOverdueAgents(todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5),
         }));
       }
@@ -621,6 +623,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -658,6 +662,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -701,6 +707,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -714,6 +722,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -740,6 +750,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
             ...opts
           });
@@ -793,6 +805,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
             ...opts
           });
@@ -853,6 +867,8 @@ const server = http.createServer(async (req, res) => {
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
             logs: await staffLogs.forAgent(agent.id, 5),
           }));
         }

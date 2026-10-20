@@ -858,6 +858,37 @@ const qStaffLogsOldest = prepare(`${STAFF_LOG_SELECT}
    ORDER BY s.created_at ASC, s.id ASC
    LIMIT ?`);
 
+/* ── Staff dashboard leaderboards ───────────────────────────────────────── */
+
+/* Stands sold, per agent. A cancelled sale is not a sale, so it is excluded —
+   the same test the public availability checks use. */
+const qTopSalesAgents = prepare(`
+  SELECT a.id, a.name, COUNT(*) AS sales
+    FROM ownerships o
+    JOIN agents a ON a.id = o.agent_id
+   WHERE o.agent_id IS NOT NULL
+     AND COALESCE(o.sale_status, 'Active') <> 'Cancelled'
+   GROUP BY a.id, a.name
+   ORDER BY sales DESC, a.name
+   LIMIT ?
+`);
+
+/* Leads whose follow-up date has already passed and which are still open,
+   counted per agent. Strictly `< today`, so something due today is not yet
+   overdue — the dashboard's own follow-up box includes today, this does not. */
+const qTopOverdueAgents = prepare(`
+  SELECT a.id, a.name, COUNT(*) AS overdue
+    FROM leads l
+    JOIN agents a ON a.id = l.assigned_agent_id
+   WHERE l.follow_up_date IS NOT NULL
+     AND l.follow_up_date <> ''
+     AND l.follow_up_date < ?
+     AND l.status NOT IN ('Won', 'Lost')
+   GROUP BY a.id, a.name
+   ORDER BY overdue DESC, a.name
+   LIMIT ?
+`);
+
 const leads = {
   /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
   async create({ fullName, phone, email, source, status = 'New', budget = null,
@@ -952,6 +983,20 @@ const staffLogs = {
     return await stmt.all(agentId, agentId, safeLimit);
   }
 };
+
+/* ── Staff dashboard leaderboards ───────────────────────────────────────── */
+
+/** The agents with the most completed sales — [{ id, name, sales }]. */
+async function getTopSalesAgents(limit = 3) {
+  const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 20) : 3;
+  return await qTopSalesAgents.all(n);
+}
+
+/** The agents sitting on the most overdue follow-ups — [{ id, name, overdue }]. */
+async function getTopOverdueAgents(today, limit = 3) {
+  const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 20) : 3;
+  return await qTopOverdueAgents.all(today, n);
+}
 
 /* ── Client portal reads ────────────────────────────────────────────────── */
 
@@ -1964,7 +2009,7 @@ const admin = {
 
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
-  leads, staffLogs, leadNotes,
+  leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
   SALE_STATUSES, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES
