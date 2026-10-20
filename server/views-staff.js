@@ -78,11 +78,23 @@ function staffDashboard(settings, {
      The first place is bolded and coloured — --gold is the darkened brand red,
      which the stylesheet already uses for exactly this reason (small coloured
      text on white). */
-  const leaderboard = (rows, value, unit) => (rows.length
+  /* The icon is a small decorative glyph in its own span. Inside an <h2> an
+     emoji inherits the heading's size and swamps the words; at 15px it reads as
+     a label rather than a picture. aria-hidden keeps it out of a screen
+     reader's reading, since the heading already says what the card is. */
+  const icon = (glyph) =>
+    `<span aria-hidden="true" style="font-size:15px;margin-right:6px">${glyph}</span>`;
+
+  /* One renderer for both lists, so the two cards cannot drift apart.
+     `label` turns a row into the count text, because the two lists do not
+     pluralise the same way: "3 sales" takes an s, but "3 overdue" does not —
+     overdue is an adjective, not a count noun. `empty` is the message shown
+     when there is nothing to rank. */
+  const leaderboard = (rows, label, empty) => (rows.length
     ? `<ol style="margin:0;padding-left:20px">
-${rows.map((r, i) => `        <li${i === 0 ? ' style="font-weight:700;color:var(--gold)"' : ''}>${esc(r.name)} &mdash; ${esc(r[value])} ${unit}${r[value] === 1 ? '' : 's'}</li>`).join('\n')}
+${rows.map((r, i) => `        <li${i === 0 ? ' style="font-weight:700;color:var(--gold)"' : ''}>${esc(r.name)} &mdash; ${esc(label(r))}</li>`).join('\n')}
       </ol>`
-    : '<p class="muted" style="margin:0">No data yet.</p>');
+    : `<p class="muted" style="margin:0">${esc(empty)}</p>`);
 
   const leadRows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
@@ -131,15 +143,18 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
 
     <div class="client-grid" style="grid-template-columns:1fr 1fr;margin-top:20px">
       <div class="client-card">
-        <h2>&#127942; Top Sales Agents</h2>
+        <h2>${icon('&#127942;')}Top Sales Agents</h2>
         <p class="field-hint" style="margin-bottom:12px">Stands sold, all time.</p>
-${leaderboard(topSales, 'sales', 'sale')}
+${leaderboard(topSales, (r) => `${r.sales} sale${r.sales === 1 ? '' : 's'}`, 'No sales recorded yet.')}
       </div>
 
       <div class="client-card">
-        <h2>&#9888;&#65039; Most Overdue Follow-ups</h2>
+        <h2>${icon('&#9888;&#65039;')}Most Overdue Follow-ups</h2>
         <p class="field-hint" style="margin-bottom:12px">Open leads past their follow-up date.</p>
-${leaderboard(topOverdue, 'overdue', 'overdue')}
+${topOverdue.length
+    ? leaderboard(topOverdue, (r) => `${r.overdue} overdue`, '')
+    : `<p class="notice success" style="margin:0;font-size:1rem">&#127881; You have no overdue
+        follow-ups. Great job!</p>`}
       </div>
     </div>
 
