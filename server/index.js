@@ -595,6 +595,7 @@ const server = http.createServer(async (req, res) => {
                   : '',
           leads: await leads.forAgent(agent.id),
           followUps: await leads.dueForAgent(agent.id, todayIso()),
+          projects: await admin.projectsWithCounts(),
           logs: await staffLogs.forAgent(agent.id, 5),
         }));
       }
@@ -619,6 +620,7 @@ const server = http.createServer(async (req, res) => {
             error: 'That lead could not be found. It may have been reassigned.',
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -655,6 +657,7 @@ const server = http.createServer(async (req, res) => {
             error: 'That lead could not be updated. It may have been reassigned.',
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -697,6 +700,7 @@ const server = http.createServer(async (req, res) => {
             error: 'That lead could not be found. It may have been reassigned.',
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -709,6 +713,7 @@ const server = http.createServer(async (req, res) => {
             error: 'That lead could not be updated. It may have been reassigned.',
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5)
           }));
         }
@@ -734,6 +739,7 @@ const server = http.createServer(async (req, res) => {
             agent, csrf,
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5),
             ...opts
           });
@@ -743,6 +749,11 @@ const server = http.createServer(async (req, res) => {
         const email = String(body.email || '').trim().slice(0, 160);
         const source = String(body.source || '').trim().slice(0, 60);
         const budget = String(body.budget || '').trim().slice(0, 60);
+
+        /* Optional: which development they are interested in. An empty value
+           means "not known yet", which is a valid state. */
+        const rawProject = String(body.projectId || '').trim();
+        const projectId = rawProject ? Number.parseInt(rawProject, 10) : null;
 
         if (fullName.length < 2) {
           return sendHtml(res, 400, await renderDashboard({
@@ -756,7 +767,8 @@ const server = http.createServer(async (req, res) => {
         }
 
         const id = await leads.create({
-          fullName, phone, email, source, budget, status: 'New', assignedAgentId: agent.id
+          fullName, phone, email, source, budget, projectId,
+          status: 'New', assignedAgentId: agent.id
         });
         await audit('lead_create', 'success', {
           detail: `lead ${id} (${fullName}) by agent ${agent.id} (${agent.name})`, ip
@@ -780,6 +792,7 @@ const server = http.createServer(async (req, res) => {
             agent, csrf,
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5),
             ...opts
           });
@@ -838,6 +851,8 @@ const server = http.createServer(async (req, res) => {
           return sendHtml(res, 400, viewsStaff.staffDashboard(await content.settings(), {
             agent, csrf, error: 'Please write a short update before posting.',
             leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
             logs: await staffLogs.forAgent(agent.id, 5),
           }));
         }

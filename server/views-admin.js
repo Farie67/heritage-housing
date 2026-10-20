@@ -907,7 +907,7 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
 /* The pipeline stages, from the one place they are defined. */
 const { LEAD_STATUSES } = require('./lead-input');
 
-function renderLeads({ leads = [], agents = [], user, csrf,
+function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
   notice = '', error = '' }) {
   const rows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
@@ -985,6 +985,12 @@ ${rows}
 
         <label for="l-budget">Budget</label>
         <input id="l-budget" name="budget" type="text" maxlength="60" placeholder="US$5,000">
+
+        <label for="l-project">Location of interest</label>
+        <select id="l-project" name="projectId">
+          <option value="">Not decided yet</option>
+${projects.map((p) => `          <option value="${esc(p.id)}">${esc(p.name)}</option>`).join('\n')}
+        </select>
 
         <label for="l-agent">Assign to agent</label>
         <select id="l-agent" name="assignedAgentId">
@@ -1080,6 +1086,7 @@ ${standOptions}
 ${field('Phone', lead.phone)}
 ${field('Email', lead.email)}
 ${field('Source', lead.source)}
+${field('Location of interest', lead.project_name)}
 ${field('Status', lead.status)}
 ${field('Budget', lead.budget)}
 ${field('Follow-up date', lead.follow_up_date)}

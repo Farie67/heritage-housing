@@ -1666,11 +1666,17 @@ async function handleAdmin(req, res, ctx) {
       const rawAgent = String(body.assignedAgentId || '').trim();
       const assignedAgentId = rawAgent ? Number.parseInt(rawAgent, 10) : null;
 
+      /* Optional: which development they are interested in. Empty means not
+         known yet, and the conversion then offers every free stand. */
+      const rawProject = String(body.projectId || '').trim();
+      const projectId = rawProject ? Number.parseInt(rawProject, 10) : null;
+
       const refuse = async (message) => {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
             leads: await leads.all(), agents: await agents.list(),
+            projects: await admin.projectsWithCounts(),
             user, csrf, error: message
           })
         }));
@@ -1686,7 +1692,9 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      const id = await leads.create({ fullName, phone, email, source, budget, assignedAgentId });
+      const id = await leads.create({
+        fullName, phone, email, source, budget, projectId, assignedAgentId
+      });
       await audit('lead_create', 'success', {
         userId: user.id, detail: `lead ${id} (${fullName})`, ip
       });
@@ -1702,6 +1710,7 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderLeads({
         leads: await leads.all(),
         agents: await agents.list(),
+        projects: await admin.projectsWithCounts(),
         user, csrf,
         notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
       })
@@ -1745,7 +1754,7 @@ async function handleAdmin(req, res, ctx) {
         lead: { ...lead, agent_name: owner ? owner.name : null },
         notes: await leadNotes.forLead(leadId),
         agents: await agents.list(),
-        availableStands: await admin.availableStands(),
+        availableStands: await admin.availableStands(lead.project_id),
         user, csrf,
         notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.' : '',
         error: url.searchParams.get('error') || ''
@@ -1784,7 +1793,7 @@ async function handleAdmin(req, res, ctx) {
           lead: { ...lead, agent_name: owner ? owner.name : null },
           notes: await leadNotes.forLead(leadId),
           agents: await agents.list(),
-          availableStands: await admin.availableStands(),
+          availableStands: await admin.availableStands(lead.project_id),
           user, csrf, error: message
         })
       }));

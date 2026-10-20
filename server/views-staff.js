@@ -71,7 +71,8 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
 
 /** The dashboard: the agent's leads and their own daily activity log. */
 function staffDashboard(settings, {
-  agent, csrf = '', leads = [], logs = [], followUps = [], notice = '', error = ''
+  agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
+  notice = '', error = ''
 } = {}) {
   const leadRows = leads.length ? leads.map((l) => `          <tr>
             <td><strong>${esc(l.full_name)}</strong></td>
@@ -175,6 +176,12 @@ ${leadRows}
           <option>Phone call</option>
           <option>Website</option>
           <option>Other</option>
+        </select>
+
+        <label for="leadProject">Location of interest</label>
+        <select id="leadProject" name="projectId">
+          <option value="">Not decided yet</option>
+${projects.map((p) => `          <option value="${esc(p.id)}">${esc(p.name)}</option>`).join('\n')}
         </select>
 
         <button class="btn primary" type="submit">Save Lead</button>

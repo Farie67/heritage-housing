@@ -430,6 +430,10 @@ await ensureColumn('ownerships', 'sale_notes', 'TEXT');
 await ensureColumn('leads', 'budget', 'TEXT');
 await ensureColumn('leads', 'follow_up_date', 'TEXT');
 await ensureColumn('leads', 'notes', 'TEXT');
+/* Which development the enquiry is about. Nullable: a lead can arrive before
+   anyone knows where they want to buy, and the conversion then offers every
+   free stand rather than guessing. */
+await ensureColumn('leads', 'project_id', 'INTEGER REFERENCES projects(id)');
 
 /* Staff sign-in. Nullable: an agent can exist as a sales credit on a sale
    without ever being given a login. An agent with no hash simply cannot sign
@@ -730,26 +734,23 @@ const staffSessions = {
 
 const qInsertLead = prepare(`
   INSERT INTO leads (full_name, phone, email, source, status, budget,
-                     follow_up_date, notes, assigned_agent_id, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     follow_up_date, notes, assigned_agent_id, project_id, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-/* LEFT JOIN, because a lead can sit unowned — an inner join would hide exactly
-   the leads the office most needs to see. */
-const qLeadsAll = prepare(`
-  SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status,
-         l.budget, l.follow_up_date, l.notes,
-         l.assigned_agent_id, l.created_at, a.name AS agent_name
+/* LEFT JOIN on both, because a lead can sit unowned and can have no development
+   of interest — an inner join would hide exactly the leads the office most
+   needs to see. */
+const LEAD_SELECT = `
+  SELECT l.*, a.name AS agent_name, p.name AS project_name
     FROM leads l
-    LEFT JOIN agents a ON a.id = l.assigned_agent_id
-   ORDER BY l.created_at DESC, l.id DESC
-`);
-const qLeadsForAgent = prepare(`
-  SELECT l.id, l.full_name, l.phone, l.email, l.source, l.status,
-         l.budget, l.follow_up_date, l.notes, l.created_at
-    FROM leads l
+    LEFT JOIN agents   a ON a.id = l.assigned_agent_id
+    LEFT JOIN projects p ON p.id = l.project_id`;
+
+const qLeadsAll = prepare(`${LEAD_SELECT}
+   ORDER BY l.created_at DESC, l.id DESC`);
+const qLeadsForAgent = prepare(`${LEAD_SELECT}
    WHERE l.assigned_agent_id = ?
-   ORDER BY l.created_at DESC, l.id DESC
-`);
+   ORDER BY l.created_at DESC, l.id DESC`);
 
 /* Due or overdue for one agent. ISO dates sort and compare as plain strings, so
    `follow_up_date <= today` needs no date parsing. A closed lead is never due —
@@ -765,7 +766,7 @@ const qLeadsDueForAgent = prepare(`
    ORDER BY l.follow_up_date, l.id
 `);
 
-const qLeadById = prepare('SELECT * FROM leads WHERE id = ?');
+const qLeadById = prepare(`${LEAD_SELECT} WHERE l.id = ?`);
 
 /* The agent_id predicate is part of the UPDATE, not a separate SELECT before
    it. That way "not yours" and "does not exist" are the same zero-row result,
@@ -848,11 +849,11 @@ const qRecentStaffLogs = prepare(`
 const leads = {
   /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
   async create({ fullName, phone, email, source, status = 'New', budget = null,
-    followUpDate = null, notes = null, assignedAgentId = null }) {
+    followUpDate = null, notes = null, assignedAgentId = null, projectId = null }) {
     const info = await qInsertLead.run(
       fullName, phone || null, email || null, source || null, status,
       budget || null, followUpDate || null, notes || null,
-      assignedAgentId || null, nowIso());
+      assignedAgentId || null, projectId || null, nowIso());
     return Number(info.lastInsertRowid);
   },
   /** Every lead, with the owning agent's name, newest first. */
@@ -1386,9 +1387,12 @@ const qCountOwnershipsForUser = prepare('SELECT COUNT(*) AS c FROM ownerships WH
 
 /* Stands a lead can be converted onto: no live sale against them.
    The same test the public site and convertLeadToClient use, so the dropdown
-   can never offer something the conversion would then refuse. */
+   can never offer something the conversion would then refuse.
+
+   project_id is selected so the caller can narrow to one development without a
+   second statement. */
 const qAvailableStands = prepare(`
-  SELECT st.id, st.stand_number, st.price_cents, st.currency,
+  SELECT st.id, st.stand_number, st.price_cents, st.currency, st.project_id,
          p.name AS project_name
     FROM stands st
     JOIN projects p ON p.id = st.project_id
@@ -1595,8 +1599,15 @@ const admin = {
   async unlock(id) { await qUnlockClient.run(id); },
 
   stands: async () => await qStandsAll.all(),
-  /** Only the stands with no live sale — what a conversion may choose from. */
-  availableStands: async () => await qAvailableStands.all(),
+  /**
+   * Only the stands with no live sale — what a conversion may choose from.
+   * Pass a project id to narrow to one development, or nothing for all.
+   */
+  async availableStands(projectId = null) {
+    const rows = await qAvailableStands.all();
+    if (!projectId) return rows;
+    return rows.filter((s) => s.project_id === projectId);
+  },
   /* Sales agents, for the "who closed this sale?" picker. */
   agents: async () => await qAgents.all(),
   ownershipById: async (id) => await qOwnershipById.get(id),
@@ -1745,11 +1756,20 @@ const admin = {
       }
       const clientNumber = 'HP-' + String(highest + 1).padStart(5, '0');
 
+      /* A client account needs something in the email column, and a lead may
+         never have had one. The placeholder is built from the phone so it stays
+         recognisable to whoever reads the client list, and is obviously not a
+         real mailbox — anything sent to the company domain is not the client's.
+         If there is no phone either, the lead id keeps it unique. */
+      const digits = String(lead.phone || '').replace(/\D/g, '');
+      const email = lead.email
+        || `client-${digits || 'lead' + leadId}@heritagehousing.co.zw`;
+
       /* users has no phone column, so the lead's phone stays on the lead. */
       const info = await tx.prepare(`
         INSERT INTO users (client_number, full_name, email, role, password_hash, created_at)
         VALUES (?, ?, ?, 'client', ?, ?)
-      `).run(clientNumber, lead.full_name, lead.email || null, passwordHash, nowIso());
+      `).run(clientNumber, lead.full_name, email, passwordHash, nowIso());
       const newId = Number(info.lastInsertRowid);
 
       /* `status` is the office's service-progress label; `sale_status` is the
