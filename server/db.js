@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS users (
   client_number   TEXT    NOT NULL UNIQUE,
   full_name       TEXT    NOT NULL,
   email           TEXT,
-  role            TEXT    NOT NULL DEFAULT 'client' CHECK (role IN ('client','admin')),
+  role            TEXT    NOT NULL DEFAULT 'client'
+                          CHECK (role IN ('client','admin','manager')),
   password_hash   TEXT    NOT NULL,
   created_at      TEXT    NOT NULL,
   disabled        INTEGER NOT NULL DEFAULT 0,
@@ -453,6 +454,74 @@ await ensureColumn('payments', 'voided_by', 'INTEGER REFERENCES users(id)');
 await ensureColumn('payments', 'void_reason', 'TEXT');
 await ensureColumn('payments', 'original_transaction_id', 'INTEGER REFERENCES payments(id)');
 await ensureColumn('payments', 'approved_by', 'INTEGER REFERENCES users(id)');
+
+/* ── Managers ─────────────────────────────────────────────────────────────
+   `users.role` originally had CHECK (role IN ('client','admin')). A manager is a
+   third role, and SQLite cannot alter a CHECK constraint in place, so the table
+   has to be rebuilt. This runs after every ensureColumn so the copy picks up
+   every column the table has.
+
+   Guarded on the old constraint being present, so it runs once and startup
+   stays idempotent. A database created fresh already has the new definition and
+   skips this entirely.
+
+   The rebuild is the risky part: ownerships, payments, sessions, audit and the
+   rest all reference users(id). Foreign keys are therefore switched off around
+   the swap — with them on, dropping the table would cascade or fail — and
+   PRAGMA foreign_key_check afterwards proves every reference still resolves. If
+   the check finds a problem the whole thing throws rather than leaving a
+   half-built table behind. */
+async function allowManagerRole() {
+  const row = await prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
+  if (!row || !row.sql || row.sql.includes("'manager'")) return;
+
+  /* Reuse the live DDL rather than restating the columns, so this cannot drift
+     from the table it is copying. */
+  const newDdl = row.sql
+    .replace(/CREATE TABLE\s+(IF NOT EXISTS\s+)?"?users"?/i, 'CREATE TABLE users_new')
+    .replace(/CHECK\s*\(\s*role\s+IN\s*\([^)]*\)\s*\)/i,
+      "CHECK (role IN ('client','admin','manager'))");
+
+  if (!newDdl.includes("'manager'")) {
+    throw new Error('users rebuild: could not rewrite the role CHECK constraint');
+  }
+
+  const cols = (await prepare('PRAGMA table_info(users)').all()).map((c) => c.name);
+  const list = cols.join(', ');
+
+  await driver.exec('PRAGMA foreign_keys = OFF');
+  try {
+    await driver.transaction(async (tx) => {
+      await tx.exec(newDdl);
+      await tx.prepare(
+        `INSERT INTO users_new (${list}) SELECT ${list} FROM users`).run();
+      await tx.prepare('DROP TABLE users').run();
+      await tx.prepare('ALTER TABLE users_new RENAME TO users').run();
+    });
+
+    const broken = await prepare('PRAGMA foreign_key_check').all();
+    if (broken.length) {
+      throw new Error(`users rebuild left ${broken.length} broken foreign key reference(s)`);
+    }
+  } finally {
+    await driver.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+try {
+  await allowManagerRole();
+} catch (err) {
+  /* Turso enforces foreign keys and ignores the PRAGMA above, so the DROP can
+     fail there. That is a safe failure — the transaction rolls back and the
+     users table is untouched — but the server must still start, so it is
+     reported rather than thrown. Manager accounts stay unusable until the
+     operator applies the change by hand. */
+  console.error('  ! Could not rebuild the users table for the manager role.');
+  console.error(`    ${err.message}`);
+  console.error('    Existing accounts are unaffected. Managers will not be usable');
+  console.error('    until this migration is applied manually.');
+}
 
 await driver.exec(`
 CREATE INDEX IF NOT EXISTS idx_payments_ownership ON payments(ownership_id);

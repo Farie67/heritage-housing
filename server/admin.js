@@ -47,8 +47,35 @@ const HANDLE_RE = /^\/admin\/enquiries\/(\d+)\/(handle|reopen)$/;
 /** Paths an unauthenticated visitor may reach. */
 const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
 
+/* The roles that may hold an admin session at all. 'client' is not one of them:
+   a client reaching /admin is sent to their own portal. */
+const STAFF_ROLES = new Set(['admin', 'manager']);
+
+/**
+ * What a manager may reach inside the panel.
+ *
+ * This is an allowlist, not a list of forbidden pages, so a route added later is
+ * closed to managers by default rather than accidentally open.
+ *
+ * The Sales page is /admin/analytics — /admin/sales is its per-sale detail page,
+ * which is why both appear. Sub-paths of each (a lead's detail, a sale, the
+ * ledger) are covered by the prefix test.
+ */
+const MANAGER_PATHS = [
+  '/admin/analytics',
+  '/admin/sales',
+  '/admin/leads',
+  '/admin/activity-logs'
+];
+
+function managerMayReach(pathname) {
+  /* The overview only; not every /admin/* path, which is why this is exact. */
+  if (pathname === '/admin') return true;
+  return MANAGER_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
 function isAdmin(user) {
-  return Boolean(user && user.role === 'admin');
+  return Boolean(user && STAFF_ROLES.has(user.role));
 }
 
 /* Flash messages keyed by the ?ok= flag a redirect carries back. */
@@ -414,7 +441,7 @@ async function handleAdmin(req, res, ctx) {
     /* Credentials were valid, but this may be an ordinary client. Tear the
        session down before the cookie is ever issued, so a client can never
        hold an admin-capable session token. */
-    if (result.user.role !== 'admin') {
+    if (!STAFF_ROLES.has(result.user.role)) {
       await auth.destroySession(result.token);
       await audit('admin_login', 'denied', {
         userId: result.user.id, clientNumber, detail: 'not an admin account', ip
@@ -461,6 +488,16 @@ async function handleAdmin(req, res, ctx) {
       'Set-Cookie': auth.clearSessionCookie()
     });
     return true;
+  }
+
+  /* A manager is a restricted admin — sales, leads and the activity log only.
+     Checked here, once, before any page route below runs, so no individual route
+     has to remember. */
+  if (user.role === 'manager' && !managerMayReach(pathname)) {
+    await audit('admin_access', 'denied', {
+      userId: user.id, detail: `${method} ${pathname} (manager role)`, ip
+    });
+    return h.redirect(res, '/admin?error=denied'), true;
   }
 
   /* ══ Sales analytics ═══════════════════════════════════════════════════
@@ -772,9 +809,19 @@ async function handleAdmin(req, res, ctx) {
     const recent = (await enquiries.all()).slice(0, 5);
     await audit('admin_view', 'success', { userId: user.id, detail: 'overview', ip });
 
+    /* A manager who reached for a page outside their remit is redirected here
+       rather than shown a bare error page. */
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const error = url.searchParams.get('error') === 'denied'
+      ? 'Access denied. You do not have permission to view this page.'
+      : '';
+
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Overview', active: '/admin', user, csrf,
-      body: views.renderDashboard({ counts, recent, clientsByDevelopment: await admin.clientsByDevelopment(), user, csrf })
+      body: views.renderDashboard({
+        counts, recent, clientsByDevelopment: await admin.clientsByDevelopment(),
+        user, csrf, error
+      })
     }));
     return true;
   }

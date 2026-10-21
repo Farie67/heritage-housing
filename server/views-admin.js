@@ -30,6 +30,22 @@ const NAV = [
   ['/admin/content', 'Content']
 ];
 
+/* What a manager may see. Kept beside NAV so the two cannot drift apart — and
+   every entry here must also appear in MANAGER_PATHS in admin.js, which is what
+   actually enforces it. Hiding a link is not access control. */
+const MANAGER_NAV = new Set([
+  '/admin',
+  '/admin/analytics',
+  '/admin/leads',
+  '/admin/activity-logs'
+]);
+
+/** The nav links a given user may see. Everyone who is not a manager sees all. */
+function navFor(user) {
+  if (!user || user.role !== 'manager') return NAV;
+  return NAV.filter(([href]) => MANAGER_NAV.has(href));
+}
+
 async function adminLayout({ title, active = '', user, csrf, body }) {
   /* logoAbsolute/faviconAbsolute/brandName all read a site setting, so they are
      asynchronous. Without the awaits the template renders the string
@@ -37,7 +53,7 @@ async function adminLayout({ title, active = '', user, csrf, body }) {
   const logo = await logoAbsolute();
   const favicon = await faviconAbsolute();
   const brand = esc(await brandName());
-  const links = NAV.map(([href, label]) =>
+  const links = navFor(user).map(([href, label]) =>
     `      <a href="${href}"${href === active ? ' aria-current="page"' : ''}>${esc(label)}</a>`
   ).join('\n');
 
@@ -148,7 +164,7 @@ async function renderLogin({ error = '', csrf = '', notice = '' }) {
 
 /* ── Overview ───────────────────────────────────────────────────────────── */
 
-function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf }) {
+function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf, error = '' }) {
   const rows = recent.length
     ? recent.map((e) => `        <tr>
           <td>${esc(formatDate(e.created_at))}</td>
@@ -181,6 +197,8 @@ function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf
       </div>
       <a class="btn primary" href="/admin/enquiries">Open enquiries${counts.open_enquiries ? ` (${counts.open_enquiries})` : ''}</a>
     </div>
+
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
     <div class="portal-stat-grid">
       <div class="portal-stat"><small>Clients</small><strong>${esc(counts.clients)}</strong></div>
