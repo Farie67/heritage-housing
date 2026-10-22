@@ -70,6 +70,39 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
 }
 
 /** The dashboard: the agent's leads and their own daily activity log. */
+/**
+ * The office's feedback on one update, as shown to the agent.
+ *
+ * Empty string when there is none, so the ordinary case adds nothing at all to
+ * the page. Coloured with .notice.info, which is the same blue box the rest of
+ * the site uses for a neutral message from the office.
+ */
+function adminFeedback(comments = []) {
+  return comments.map((c) => `            <div class="notice info" style="margin:8px 0 0">
+              <strong>Admin Feedback</strong>
+              <span class="muted">&middot; ${esc(formatDate(c.created_at))}${c.admin_name
+    ? ` &middot; ${esc(c.admin_name)}` : ''}</span><br>
+              ${esc(c.comment_text)}
+            </div>`).join('\n');
+}
+
+/** How many admin comments sit on a set of updates — for the heading badge. */
+function countComments(logs = []) {
+  return logs.reduce((n, g) => n + (g.comments ? g.comments.length : 0), 0);
+}
+
+/**
+ * The badge itself.
+ *
+ * Red, deliberately: --gold is the brand red the stylesheet already uses for
+ * small coloured text on white, so it stays readable. .status.open alone would
+ * have been amber, and the point of this is that it stands out.
+ */
+function commentBadge(n) {
+  if (!n) return '';
+  return ` <span class="status open" style="color:var(--gold);font-weight:700">${esc(n)} comment${n === 1 ? '' : 's'}</span>`;
+}
+
 function staffDashboard(settings, {
   agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
   topSales = [], topOverdue = [], values = {}, notice = '', error = ''
@@ -122,7 +155,7 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
 
   const logRows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
-            <td>${esc(g.log_text)}</td>
+            <td>${esc(g.log_text)}${adminFeedback(g.comments)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="2">You have not posted an update yet.</td></tr>';
 
@@ -227,7 +260,7 @@ ${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.pro
     </div>
 
     <div class="client-card" style="margin-top:20px">
-      <h2>Daily Activity Log</h2>
+      <h2>Daily Activity Log${commentBadge(countComments(logs))}</h2>
       <p class="field-hint" style="margin-bottom:14px">A short note about what you did today.
         The office sees these too.</p>
 
@@ -429,7 +462,7 @@ ${logItems}
 function renderStaffActivityLogs(settings, { agent, logs = [] } = {}) {
   const rows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
-            <td>${esc(g.log_text)}</td>
+            <td>${esc(g.log_text)}${adminFeedback(g.comments)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="2">You have not posted any updates yet.</td></tr>';
 
@@ -442,7 +475,7 @@ function renderStaffActivityLogs(settings, { agent, logs = [] } = {}) {
     <div class="dashboard-top">
       <div>
         <span class="eyebrow dark">ACTIVITY</span>
-        <h1>My activity</h1>
+        <h1>My activity${commentBadge(countComments(logs))}</h1>
         <p class="muted">Every update you have posted, newest first.</p>
       </div>
     </div>

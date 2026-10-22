@@ -376,6 +376,19 @@ CREATE TABLE IF NOT EXISTS staff_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_staff_logs_agent ON staff_logs(agent_id);
 
+/* The office's reply to an agent's daily update.
+   ON DELETE CASCADE on the log, so feedback can never outlive the entry it is
+   about. admin_id points at users, because an admin or a manager signs in
+   through the users table — not at agents. */
+CREATE TABLE IF NOT EXISTS log_comments (
+  id           INTEGER PRIMARY KEY,
+  log_id       INTEGER NOT NULL REFERENCES staff_logs(id) ON DELETE CASCADE,
+  admin_id     INTEGER NOT NULL REFERENCES users(id),
+  comment_text TEXT    NOT NULL,
+  created_at   TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_log_comments_log ON log_comments(log_id);
+
 /* Staff sessions live apart from the sessions table for a hard reason: that
    table's user_id is a foreign key to users(id), and an agent is an agents row.
    With foreign keys enforced an agent id could never be stored there. Keeping
@@ -907,6 +920,26 @@ const qLeadNotesAll = prepare(`
 
 const qInsertStaffLog = prepare(
   'INSERT INTO staff_logs (agent_id, log_text, created_at) VALUES (?, ?, ?)');
+
+const qInsertLogComment = prepare(
+  'INSERT INTO log_comments (log_id, admin_id, comment_text, created_at) VALUES (?, ?, ?, ?)');
+const qLogCommentsForLog = prepare(`
+  SELECT c.id, c.log_id, c.comment_text, c.created_at, u.full_name AS admin_name
+    FROM log_comments c
+    LEFT JOIN users u ON u.id = c.admin_id
+   WHERE c.log_id = ?
+   ORDER BY c.created_at, c.id
+`);
+/* Fetches the comments for a set of logs, so a page of twenty entries costs one
+   query rather than twenty. The IN list is built from the ids the caller already
+   has; the values themselves are still bound, never interpolated. */
+const qLogCommentsForLogs = (count) => prepare(`
+  SELECT c.id, c.log_id, c.comment_text, c.created_at, u.full_name AS admin_name
+    FROM log_comments c
+    LEFT JOIN users u ON u.id = c.admin_id
+   WHERE c.log_id IN (${Array.from({ length: count }, () => '?').join(',')})
+   ORDER BY c.created_at, c.id
+`);
 /* LIMIT is bound rather than interpolated, so it cannot become a way to inject
    SQL if a caller ever passes something other than a number. */
 const qStaffLogsForAgent = prepare(`
@@ -1085,12 +1118,38 @@ const leadNotes = {
   all: async () => await qLeadNotesAll.all()
 };
 
+/**
+ * Attaches each log's comments as `comments: []`.
+ *
+ * One query for the whole page rather than one per entry, then grouped in JS.
+ * A JOIN in the log query itself would repeat each log once per comment, which
+ * would quietly break the LIMIT — an agent with three comments would lose two
+ * other entries off the end of their "last 5".
+ */
+async function attachLogComments(rows) {
+  if (!rows.length) return rows;
+
+  const ids = rows.map((r) => r.id);
+  const comments = await qLogCommentsForLogs(ids.length).all(...ids);
+
+  const byLog = new Map();
+  for (const c of comments) {
+    if (!byLog.has(c.log_id)) byLog.set(c.log_id, []);
+    byLog.get(c.log_id).push(c);
+  }
+
+  return rows.map((r) => ({ ...r, comments: byLog.get(r.id) || [] }));
+}
+
 const staffLogs = {
   async create({ agentId, text }) {
     await qInsertStaffLog.run(agentId, text, nowIso());
   },
-  /** The dashboard's "last 5" — one agent, newest first. */
-  forAgent: async (agentId, limit = 5) => await qStaffLogsForAgent.all(agentId, limit),
+
+  /** The dashboard's "last 5" — one agent, newest first, with admin feedback. */
+  async forAgent(agentId, limit = 5) {
+    return await attachLogComments(await qStaffLogsForAgent.all(agentId, limit));
+  },
 
   /**
    * The full activity log, with agent names.
@@ -1108,13 +1167,22 @@ const staffLogs = {
        falls back to "no date filter" rather than silently matching nothing. */
     const range = date ? utcRangeForLocalDate(date) : null;
 
-    return await stmt.all(
+    return await attachLogComments(await stmt.all(
       agentId, agentId,
       range ? range.startIso : null,
       range ? range.startIso : null,
       range ? range.endIso : null,
-      safeLimit);
-  }
+      safeLimit));
+  },
+
+  /** The office's reply to one entry. Returns the new comment's id. */
+  async addLogComment(logId, adminId, text) {
+    const info = await qInsertLogComment.run(logId, adminId, text, nowIso());
+    return Number(info.lastInsertRowid);
+  },
+
+  /** Every comment on one entry, oldest first. */
+  getLogComments: async (logId) => await qLogCommentsForLog.all(logId)
 };
 
 /* ── Staff dashboard leaderboards ───────────────────────────────────────── */

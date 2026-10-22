@@ -2077,10 +2077,48 @@ async function handleAdmin(req, res, ctx) {
         logs: await staffLogs.recent({ sortOrder, agentId, date }),
         agents: await agents.list(),
         user, csrf,
-        agentId, sortOrder, date, today
+        agentId, sortOrder, date, today,
+        notice: url.searchParams.get('ok') === 'commented' ? 'Comment added.' : '',
+        error: url.searchParams.get('error') || ''
       })
     }));
     return true;
+  }
+
+  /* ── Activity logs: comment on one entry ──
+     The office's reply to an agent's update. Managers reach this too: activity
+     logs are inside their remit, and /admin/activity-logs/5/comment matches the
+     prefix allowlist. */
+  const logCommentMatch = pathname.match(/^\/admin\/activity-logs\/(\d+)\/comment$/);
+  if (logCommentMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const logId = Number(logCommentMatch[1]);
+
+    /* Send them back to the day, agent and order they were looking at. Each
+       value is re-validated rather than trusted, because these arrive as hidden
+       fields and are trivially editable. */
+    const params = new URLSearchParams();
+    const backDate = String(body.date || '').trim();
+    if (utcRangeForLocalDate(backDate)) params.set('date', backDate);
+    const backAgent = String(body.agent || '').trim();
+    if (/^\d+$/.test(backAgent)) params.set('agent', backAgent);
+    if (String(body.sort || '') === 'asc') params.set('sort', 'asc');
+
+    const text = String(body.commentText || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+
+    if (text.length < 2) {
+      params.set('error', 'Please write a comment before saving.');
+      return h.redirect(res, `/admin/activity-logs?${params}`), true;
+    }
+
+    await staffLogs.addLogComment(logId, user.id, text);
+    await audit('log_comment', 'success', {
+      userId: user.id, detail: `log ${logId}`, ip
+    });
+
+    params.set('ok', 'commented');
+    return h.redirect(res, `/admin/activity-logs?${params}`), true;
   }
 
   /* ── Projects ── */

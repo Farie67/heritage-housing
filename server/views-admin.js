@@ -1232,11 +1232,41 @@ ${rows}
 /* ── Activity logs ──────────────────────────────────────────────────────── */
 
 function renderActivityLogs({ logs = [], agents = [], user, csrf,
-  agentId = null, sortOrder = 'DESC', date = '', today = '' }) {
+  agentId = null, sortOrder = 'DESC', date = '', today = '',
+  notice = '', error = '' }) {
+  /* Existing feedback, then the form to add more. The reveal is a <details>
+     rather than a script, for the same reason as everywhere else: script-src
+     'self' drops inline handlers without an error.
+     The hidden fields carry the current day, agent and order, so saving a
+     comment returns the office to the view they were reading. */
+  const commentsFor = (g) => {
+    const existing = (g.comments || []).map((c) => `            <div class="notice info" style="margin:8px 0 0">
+              <strong>Admin Feedback</strong>
+              <span class="muted">&middot; ${esc(formatDate(c.created_at))}${c.admin_name
+    ? ` &middot; ${esc(c.admin_name)}` : ''}</span><br>
+              ${esc(c.comment_text)}
+            </div>`).join('\n');
+
+    return `${existing}
+            <details style="margin-top:8px">
+              <summary class="text-btn">Add Comment</summary>
+              <form method="post" action="/admin/activity-logs/${esc(g.id)}/comment"
+                    style="margin-top:8px;min-width:240px">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <input type="hidden" name="date" value="${esc(date)}">
+                ${agentId ? `<input type="hidden" name="agent" value="${esc(agentId)}">` : ''}
+                ${sortOrder === 'ASC' ? '<input type="hidden" name="sort" value="asc">' : ''}
+                <label for="c-${esc(g.id)}">Comment</label>
+                <input id="c-${esc(g.id)}" name="commentText" type="text" maxlength="1000" required>
+                <button class="btn primary" type="submit">Save comment</button>
+              </form>
+            </details>`;
+  };
+
   const rows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
             <td>${esc(g.agent_name)}</td>
-            <td>${esc(g.log_text)}</td>
+            <td>${esc(g.log_text)}${commentsFor(g)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="3">No activity reported on this date.</td></tr>';
 
@@ -1282,6 +1312,9 @@ ${agentOptions}
     </form>
 
     <h3>Activity for ${esc(date)}</h3>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
     <div class="client-card">
       <table class="portal-table">
