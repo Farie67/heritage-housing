@@ -13,7 +13,7 @@
 const config = require('./config');
 const driver = require('./driver');
 /* format.js has no dependencies of its own, so this cannot create a cycle. */
-const { slugify, todayIso } = require('./format');
+const { slugify, todayIso, utcRangeForLocalDate } = require('./format');
 /* passwords.js also has no dependencies beyond node:crypto. */
 const { generatePassword } = require('./passwords');
 
@@ -919,12 +919,20 @@ const qStaffLogsForAgent = prepare(`
 /* The activity log, with the agent's name joined in.
    `? IS NULL OR s.agent_id = ?` filters by agent without needing a second
    statement for the unfiltered case: both placeholders get the same value, and
-   when it is null the first test is true and the comparison is ignored. */
+   when it is null the first test is true and the comparison is ignored.
+
+   The date filter works the same way, but as a half-open range on the stored
+   text rather than DATE(created_at) = ?. created_at is UTC, so DATE() would
+   give the UTC day: in Harare (UTC+2) anything posted after midnight local is
+   still the previous UTC day and would be filed wrongly. A range also lets the
+   index on created_at do the work instead of a function wrapped round the
+   column. */
 const STAFF_LOG_SELECT = `
   SELECT s.id, s.log_text, s.created_at, s.agent_id, a.name AS agent_name
     FROM staff_logs s
     JOIN agents a ON a.id = s.agent_id
-   WHERE (? IS NULL OR s.agent_id = ?)`;
+   WHERE (? IS NULL OR s.agent_id = ?)
+     AND (? IS NULL OR (s.created_at >= ? AND s.created_at < ?))`;
 
 /* Two statements rather than one, because ORDER BY cannot be a bound parameter
    and building it from a query string would be an injection point. The caller
@@ -1089,12 +1097,23 @@ const staffLogs = {
    *
    * `sortOrder` is 'DESC' (newest first) or 'ASC'; anything else falls back to
    * DESC, since the value arrives from a query string. `agentId` narrows to one
-   * agent; null returns everyone.
+   * agent; null returns everyone. `date` is a local 'YYYY-MM-DD' and narrows to
+   * that one day; null returns every day.
    */
-  async recent({ limit = 200, sortOrder = 'DESC', agentId = null } = {}) {
+  async recent({ limit = 200, sortOrder = 'DESC', agentId = null, date = null } = {}) {
     const stmt = sortOrder === 'ASC' ? qStaffLogsOldest : qStaffLogsNewest;
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 1000) : 200;
-    return await stmt.all(agentId, agentId, safeLimit);
+
+    /* Local day -> the UTC instants that bound it. A date that does not parse
+       falls back to "no date filter" rather than silently matching nothing. */
+    const range = date ? utcRangeForLocalDate(date) : null;
+
+    return await stmt.all(
+      agentId, agentId,
+      range ? range.startIso : null,
+      range ? range.startIso : null,
+      range ? range.endIso : null,
+      safeLimit);
   }
 };
 

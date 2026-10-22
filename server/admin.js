@@ -27,6 +27,7 @@ const viewsAnalytics = require('./views-analytics');
 const analytics = require('./analytics');
 const reportExports = require('./exports');
 const { RateLimiter } = require('./security');
+const { todayIso, utcRangeForLocalDate } = require('./format');
 const { generatePassword, generatePasswordWithSymbol } = require('./passwords');
 const { validateUpload, validateLogoUpload } = require('./multipart');
 const { logoPath, logoAbsolute, FALLBACK } = require('./branding');
@@ -2046,9 +2047,10 @@ async function handleAdmin(req, res, ctx) {
   }
 
   /* ── Activity logs ──
-     Every agent's updates, optionally narrowed to one agent and sortable. The
-     sort value is read here and passed through staffLogs.recent, which will only
-     ever accept 'ASC' or 'DESC' — the SQL keyword is never built from input. */
+     Every agent's updates for one day, optionally narrowed to one agent and
+     sortable. The sort value is read here and passed through staffLogs.recent,
+     which will only ever accept 'ASC' or 'DESC' — the SQL keyword is never built
+     from input. */
   if (pathname === '/admin/activity-logs') {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
@@ -2057,15 +2059,25 @@ async function handleAdmin(req, res, ctx) {
     const agentId = rawAgent ? Number.parseInt(rawAgent, 10) : null;
     const sortOrder = url.searchParams.get('sort') === 'asc' ? 'ASC' : 'DESC';
 
+    /* Defaults to today. todayIso() rather than new Date().toISOString(): the
+       latter is the UTC date, which in Harare is still yesterday until 02:00, so
+       an early-morning visit would open on the wrong day and look empty.
+       A date that does not parse falls back to today rather than to "everything",
+       so a hand-edited query string cannot turn the page back into an endless
+       list. */
+    const today = todayIso();
+    const requested = (url.searchParams.get('date') || '').trim();
+    const date = utcRangeForLocalDate(requested) ? requested : today;
+
     await audit('admin_view', 'success', { userId: user.id, detail: 'activity logs', ip });
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Activity Logs', active: '/admin/activity-logs', user, csrf,
       body: views.renderActivityLogs({
-        logs: await staffLogs.recent({ sortOrder, agentId }),
+        logs: await staffLogs.recent({ sortOrder, agentId, date }),
         agents: await agents.list(),
         user, csrf,
-        agentId, sortOrder
+        agentId, sortOrder, date, today
       })
     }));
     return true;

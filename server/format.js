@@ -94,4 +94,43 @@ function slugify(text) {
     .replace(/^-+|-+$/g, '');
 }
 
-module.exports = { money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify, todayIso };
+/**
+ * The UTC instants that bound one local calendar day.
+ *
+ * Timestamps are stored as UTC (`new Date().toISOString()`), so asking SQL for
+ * `DATE(created_at) = '2026-10-22'` compares against the *UTC* day. In Harare
+ * (UTC+2) that is wrong by two hours at each end: something posted at 00:30
+ * local is still 22:30 UTC the previous day, so it would be filed under
+ * yesterday, and a page for "today" would look empty when it is not.
+ *
+ * This turns a local date into the half-open UTC range [start, end) that
+ * actually covers it, which works with a plain indexed comparison on the stored
+ * text rather than a function wrapped around the column.
+ *
+ * Returns null for anything that is not a real YYYY-MM-DD date, so a hand-edited
+ * query string cannot produce a nonsense range.
+ */
+function utcRangeForLocalDate(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  if (!m) return null;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+
+  /* Local midnight. Constructing from the parts (rather than parsing the string
+     as UTC) keeps this in the server's own zone, matching todayIso above. */
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const valid = start.getFullYear() === year
+    && start.getMonth() === month - 1
+    && start.getDate() === day;
+  if (!valid) return null;   // e.g. 2026-02-31, which Date would roll forward
+
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+module.exports = {
+  money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify, todayIso,
+  utcRangeForLocalDate
+};

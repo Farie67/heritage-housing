@@ -1232,13 +1232,13 @@ ${rows}
 /* ── Activity logs ──────────────────────────────────────────────────────── */
 
 function renderActivityLogs({ logs = [], agents = [], user, csrf,
-  agentId = null, sortOrder = 'DESC' }) {
+  agentId = null, sortOrder = 'DESC', date = '', today = '' }) {
   const rows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
             <td>${esc(g.agent_name)}</td>
             <td>${esc(g.log_text)}</td>
           </tr>`).join('\n')
-    : '          <tr><td colspan="3">No activity posted yet.</td></tr>';
+    : '          <tr><td colspan="3">No activity reported on this date.</td></tr>';
 
   const agentOptions = agents.map((a) =>
     `          <option value="${esc(a.id)}"${String(a.id) === String(agentId) ? ' selected' : ''}>${esc(a.name)}</option>`).join('\n');
@@ -1248,11 +1248,20 @@ function renderActivityLogs({ logs = [], agents = [], user, csrf,
       <div>
         <span class="eyebrow dark">ACTIVITY</span>
         <h1>Activity Logs</h1>
-        <p class="muted">Every update the sales team has posted from their staff dashboard.</p>
+        <p class="muted">Every update the sales team has posted from their staff dashboard,
+          one day at a time.</p>
       </div>
     </div>
 
+    <!-- One day at a time, using the browser's own date picker. The agent and
+         sort choices are carried through as hidden fields so changing the date
+         does not silently drop them. -->
     <form method="get" action="/admin/activity-logs" class="filters">
+      <div class="field">
+        <label for="f-date">Filter by date</label>
+        <input id="f-date" type="date" name="date" value="${esc(date)}"${today
+    ? ` max="${esc(today)}"` : ''}>
+      </div>
       <div class="field">
         <label for="f-agent">Agent</label>
         <select id="f-agent" name="agent">
@@ -1267,10 +1276,12 @@ ${agentOptions}
           <option value="asc"${sortOrder === 'ASC' ? ' selected' : ''}>Oldest first</option>
         </select>
       </div>
-      <button class="btn primary" type="submit">Apply</button>
-      ${agentId || sortOrder === 'ASC'
-    ? '<a class="btn outline" href="/admin/activity-logs">Clear</a>' : ''}
+      <button class="btn primary" type="submit">View</button>
+      ${agentId || sortOrder === 'ASC' || (today && date !== today)
+    ? `<a class="btn outline" href="/admin/activity-logs">Today</a>` : ''}
     </form>
+
+    <h3>Activity for ${esc(date)}</h3>
 
     <div class="client-card">
       <table class="portal-table">
