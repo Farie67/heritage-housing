@@ -1178,6 +1178,33 @@ footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
   padding-top: 18px;
   color: #8b9aa8;
   font-size: 13px;
+  /* Centred: the copyright line and the Property Watch credit are two flex
+     items, so the gap does the spacing and flex-wrap drops the credit onto its
+     own line on a narrow screen instead of overflowing. */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+
+/* The Property Watch mark sits in a circle against the dark navy footer. The
+   white fill and gold ring keep it legible where a bare logo would disappear;
+   object-fit means the artwork fills the circle rather than being stretched. */
+.copyright .credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copyright .credit img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background-color: #fff;
+  border: 2px solid var(--gold);
 }
 
 /* ── Portal: login + dashboard ──────────────────────────────────────────── */
@@ -1216,7 +1243,7 @@ footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
   padding: 60px 0;
   background-color: #171c56;
   background-image:
-    linear-gradient(rgba(23, 28, 86, .45), rgba(23, 28, 86, .45)),
+    linear-gradient(rgba(23, 28, 86, .85), rgba(23, 28, 86, .85)),
     url('/assets/img/staff-team.jpg');
   background-size: cover;
   background-position: center;
@@ -1615,6 +1642,8 @@ footer { background: var(--navy-3); color: #fff; padding: 55px 0 20px; }
   .hero-actions, .section-head, .portal-callout { flex-direction: column; align-items: flex-start; }
   .cards.four, .cards.three, .property-grid, .values,
   .trust-grid, .footer-grid { grid-template-columns: 1fr; }
+  /* Single column down here, so centred reads better than ragged-left. */
+  .footer-grid { text-align: center; }
   .trust-grid > div { border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, .12); }
   .filters { flex-direction: column; }
   .filters select, .filters .field { width: 100%; }
