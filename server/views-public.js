@@ -165,9 +165,9 @@ ${body}
     </div>
   </div>
   <div class="container copyright">
-    &copy; <span data-year>2026</span> ${esc(s.company_legal)}. All rights reserved.
-    <span style="display:inline-flex;align-items:center;gap:8px;margin-left:14px;vertical-align:middle">
-      <img src="/images/property-watch.png" alt="Property Watch" style="height:20px;width:auto">
+    <span>&copy; <span data-year>2026</span> ${esc(s.company_legal)}. All rights reserved.</span>
+    <span class="credit">
+      <img src="/images/property-watch.png" alt="Property Watch">
       <span>Proudly designed by Property Watch</span>
     </span>
   </div>
