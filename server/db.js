@@ -385,7 +385,8 @@ CREATE TABLE IF NOT EXISTS log_comments (
   log_id       INTEGER NOT NULL REFERENCES staff_logs(id) ON DELETE CASCADE,
   admin_id     INTEGER NOT NULL REFERENCES users(id),
   comment_text TEXT    NOT NULL,
-  created_at   TEXT    NOT NULL
+  created_at   TEXT    NOT NULL,
+  is_read      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_log_comments_log ON log_comments(log_id);
 
@@ -541,6 +542,12 @@ CREATE INDEX IF NOT EXISTS idx_payments_ownership ON payments(ownership_id);
 CREATE INDEX IF NOT EXISTS idx_payments_type      ON payments(type);
 CREATE INDEX IF NOT EXISTS idx_payments_paid_on   ON payments(paid_on);
 `);
+
+/* Whether the agent has seen a piece of feedback yet.
+   Added after log_comments was first created, so it is applied as a migration
+   for databases that already have the table; the CREATE TABLE above covers a
+   fresh install. */
+await ensureColumn('log_comments', 'is_read', 'INTEGER NOT NULL DEFAULT 0');
 
 /* ── One-time backfill ───────────────────────────────────────────────────
    Existing rows predate the transaction model. Each statement below only
@@ -829,7 +836,9 @@ const LEAD_SELECT = `
     LEFT JOIN projects p ON p.id = l.project_id`;
 
 const qLeadsAll = prepare(`${LEAD_SELECT}
-   ORDER BY l.created_at DESC, l.id DESC`);
+   ORDER BY CASE WHEN l.assigned_agent_id IS NULL THEN 0 ELSE 1 END,
+            a.name COLLATE NOCASE,
+            l.created_at DESC, l.id DESC`);
 const qLeadsForAgent = prepare(`${LEAD_SELECT}
    WHERE l.assigned_agent_id = ?
    ORDER BY l.created_at DESC, l.id DESC`);
@@ -924,7 +933,8 @@ const qInsertStaffLog = prepare(
 const qInsertLogComment = prepare(
   'INSERT INTO log_comments (log_id, admin_id, comment_text, created_at) VALUES (?, ?, ?, ?)');
 const qLogCommentsForLog = prepare(`
-  SELECT c.id, c.log_id, c.comment_text, c.created_at, u.full_name AS admin_name
+  SELECT c.id, c.log_id, c.comment_text, c.created_at, c.is_read,
+         u.full_name AS admin_name
     FROM log_comments c
     LEFT JOIN users u ON u.id = c.admin_id
    WHERE c.log_id = ?
@@ -934,11 +944,31 @@ const qLogCommentsForLog = prepare(`
    query rather than twenty. The IN list is built from the ids the caller already
    has; the values themselves are still bound, never interpolated. */
 const qLogCommentsForLogs = (count) => prepare(`
-  SELECT c.id, c.log_id, c.comment_text, c.created_at, u.full_name AS admin_name
+  SELECT c.id, c.log_id, c.comment_text, c.created_at, c.is_read,
+         u.full_name AS admin_name
     FROM log_comments c
     LEFT JOIN users u ON u.id = c.admin_id
    WHERE c.log_id IN (${Array.from({ length: count }, () => '?').join(',')})
    ORDER BY c.created_at, c.id
+`);
+/* How many comments this agent has not yet seen.
+
+   Deliberately counted across every log the agent owns, not just the handful a
+   page happens to show: feedback on an older update still needs to be noticed,
+   and the dashboard only ever loads the last five. */
+const qUnreadLogCommentsForAgent = prepare(`
+  SELECT COUNT(*) AS c
+    FROM log_comments c
+    JOIN staff_logs s ON s.id = c.log_id
+   WHERE s.agent_id = ? AND c.is_read = 0
+`);
+/* Marks every comment on this agent's logs as seen. The agent_id test lives in
+   the subquery, so one agent can never mark another's feedback read. */
+const qMarkLogCommentsRead = prepare(`
+  UPDATE log_comments
+     SET is_read = 1
+   WHERE is_read = 0
+     AND log_id IN (SELECT id FROM staff_logs WHERE agent_id = ?)
 `);
 /* LIMIT is bound rather than interpolated, so it cannot become a way to inject
    SQL if a caller ever passes something other than a number. */
@@ -1182,7 +1212,30 @@ const staffLogs = {
   },
 
   /** Every comment on one entry, oldest first. */
-  getLogComments: async (logId) => await qLogCommentsForLog.all(logId)
+  getLogComments: async (logId) => await qLogCommentsForLog.all(logId),
+
+  /**
+   * How many pieces of feedback this agent has not seen yet.
+   *
+   * Counted across all of their entries, not just the five the dashboard shows,
+   * so feedback on an older update still raises the badge.
+   */
+  async unreadCountForAgent(agentId) {
+    const row = await qUnreadLogCommentsForAgent.get(agentId);
+    return Number(row ? row.c : 0);
+  },
+
+  /**
+   * Marks all of this agent's feedback as seen.
+   *
+   * Called AFTER the page has been rendered with its unread count, so the agent
+   * sees the badge on the visit that clears it and not again afterwards. The
+   * scoping to this agent's own logs is inside the SQL.
+   */
+  async markCommentsAsRead(agentId) {
+    const info = await qMarkLogCommentsRead.run(agentId);
+    return Number(info.changes);
+  }
 };
 
 /* ── Staff dashboard leaderboards ───────────────────────────────────────── */

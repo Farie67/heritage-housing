@@ -930,21 +930,57 @@ function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
   values = {}, notice = '', error = '' }) {
   /* What was typed, so a rejected form comes back filled in rather than blank. */
   const v = (key) => esc(values[key] == null ? '' : values[key]);
-  const rows = leads.length ? leads.map((l) => `          <tr>
-            <td><strong>${esc(l.full_name)}</strong></td>
-            <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
-            <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
-            <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
-            <td>${esc(l.status)}</td>
-            <td>${l.budget ? esc(l.budget) : '<span class="muted">&mdash;</span>'}</td>
-            <td>${l.follow_up_date ? esc(l.follow_up_date) : '<span class="muted">&mdash;</span>'}</td>
-            <td>${l.agent_name
-    ? esc(l.agent_name)
-    : '<span class="muted">Unassigned</span>'}</td>
-            <td>${esc(formatDate(l.created_at))}</td>
-            <td class="actions"><a class="text-btn" href="/admin/leads/${esc(l.id)}">View</a></td>
-          </tr>`).join('\n')
-    : '          <tr><td colspan="10">No leads yet. Add the first one below.</td></tr>';
+  /* One row, reused inside every folder.
+     The "Assigned to" column is gone: the folder heading now says whose leads
+     these are, so repeating it on every row was noise. */
+  const leadRow = (l) => `            <tr>
+              <td><strong>${esc(l.full_name)}</strong></td>
+              <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
+              <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
+              <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
+              <td>${esc(l.status)}</td>
+              <td>${l.budget ? esc(l.budget) : '<span class="muted">&mdash;</span>'}</td>
+              <td>${l.follow_up_date ? esc(l.follow_up_date) : '<span class="muted">&mdash;</span>'}</td>
+              <td>${esc(formatDate(l.created_at))}</td>
+              <td class="actions"><a class="text-btn" href="/admin/leads/${esc(l.id)}">View</a></td>
+            </tr>`;
+
+  const leadHead = `            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Phone</th>
+              <th scope="col">Email</th>
+              <th scope="col">Source</th>
+              <th scope="col">Status</th>
+              <th scope="col">Budget</th>
+              <th scope="col">Follow-up</th>
+              <th scope="col">Added</th>
+              <th scope="col">Actions</th>
+            </tr>`;
+
+  /* Grouped by agent, in the order the query returned them: unowned first, then
+     each agent alphabetically, newest lead first inside each folder.
+     A Map keyed on the name rather than a run-detector, so it stays correct even
+     if the ordering ever changes underneath it. */
+  const byAgent = new Map();
+  for (const l of leads) {
+    const key = l.agent_name || 'Unassigned';
+    if (!byAgent.has(key)) byAgent.set(key, []);
+    byAgent.get(key).push(l);
+  }
+
+  const folders = byAgent.size
+    ? [...byAgent.entries()].map(([name, list]) => `      <details class="dev-folder" open>
+        <summary class="dev-group-heading">${esc(name)} (${esc(list.length)} lead${list.length === 1 ? '' : 's'})</summary>
+        <table class="portal-table">
+          <thead>
+${leadHead}
+          </thead>
+          <tbody>
+${list.map(leadRow).join('\n')}
+          </tbody>
+        </table>
+      </details>`).join('\n\n')
+    : '      <p class="muted">No leads yet. Add the first one below.</p>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -960,26 +996,8 @@ function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
     <div class="client-card">
-      <table class="portal-table">
-        <caption>Every lead</caption>
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Phone</th>
-            <th scope="col">Email</th>
-            <th scope="col">Source</th>
-            <th scope="col">Status</th>
-            <th scope="col">Budget</th>
-            <th scope="col">Follow-up</th>
-            <th scope="col">Assigned to</th>
-            <th scope="col">Added</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-${rows}
-        </tbody>
-      </table>
+${folders}
+      <p class="field-hint" style="margin-top:12px">Open a lead to view, edit or convert it.</p>
     </div>
 
     <div class="client-card" style="margin-top:20px">
