@@ -342,6 +342,10 @@ CREATE TABLE IF NOT EXISTS leads (
   source            TEXT,
   status            TEXT    NOT NULL DEFAULT 'New',
   assigned_agent_id INTEGER REFERENCES agents(id),
+  /* Which side filed the lead: 'admin' when the office did, 'agent' when a
+     sales agent did. Declared here rather than migrated in, so a fresh database
+     gets it without any startup ALTER TABLE. */
+  created_by        TEXT    DEFAULT 'agent',
   created_at        TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_leads_agent ON leads(assigned_agent_id);
@@ -449,17 +453,13 @@ await ensureColumn('leads', 'notes', 'TEXT');
    anyone knows where they want to buy, and the conversion then offers every
    free stand rather than guessing. */
 await ensureColumn('leads', 'project_id', 'INTEGER REFERENCES projects(id)');
-/* Which side filed the lead: 'admin' when the office did, 'agent' when a sales
-   agent did. Defaults to 'agent', so a lead whose origin nobody recorded is
-   treated as agent-created rather than being flagged in red as office work. */
-await ensureColumn('leads', 'created_by', "TEXT DEFAULT 'agent'");
 
-/* Rows written before that column existed carry NULL rather than the default —
-   SQLite only applies a DEFAULT to new inserts, and ADD COLUMN only fills it in
-   on a table that did not already have the column. Backfilling keeps the data
-   saying what the views already assume. Idempotent: after the first run there
-   is nothing left to match. */
-await driver.exec("UPDATE leads SET created_by = 'agent' WHERE created_by IS NULL");
+/* leads.created_by is deliberately NOT migrated here.
+   It is declared in the CREATE TABLE above, so a fresh database has it from the
+   start, and the deployed database had it added by hand in the Turso console.
+   The ALTER TABLE that used to sit here failed on Turso — adding a column to a
+   table with foreign keys blows up there — and took the whole process down on
+   boot. Nothing in the startup path touches this column now. */
 
 /* Staff sign-in. Nullable: an agent can exist as a sales credit on a sale
    without ever being given a login. An agent with no hash simply cannot sign
