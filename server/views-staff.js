@@ -12,6 +12,67 @@
    ========================================================================== */
 
 const { esc, formatDate } = require('./views');
+const { sanitizeRichText } = require('./sanitize');
+const { staffLogOpen, STAFF_LOG_WINDOW } = require('./format');
+
+/**
+ * An activity entry, rendered as markup.
+ *
+ * Entries are stored as sanitised HTML now that the log has an editor — showing
+ * them through esc() would print the tags. They are sanitised AGAIN here rather
+ * than trusted: rows written before the editor existed were stored as raw text
+ * with no escaping at all, and one of those could contain anything. Cleaning on
+ * the way out makes both generations safe to render.
+ */
+function logBody(text) {
+  return sanitizeRichText(text);
+}
+
+/**
+ * The editor, or the locked notice.
+ *
+ * The same window the POST route enforces, so the page and the server agree.
+ * Hiding the form is a courtesy — the route is what actually refuses.
+ */
+function activityLogForm(csrf) {
+  if (!staffLogOpen()) {
+    return `      <p class="notice error">The Daily Activity Log is locked. You can edit this
+        between ${esc(STAFF_LOG_WINDOW)}.</p>`;
+  }
+
+  const button = (cmd, arg, label, style) =>
+    `          <button type="button" class="btn outline" data-cmd="${cmd}"${arg ? ` data-arg="${arg}"` : ''}
+                  style="${style || ''}" title="${label}">${label}</button>`;
+
+  return `      <form method="post" action="/staff/log">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="richEditor">Today's update</label>
+
+        <div class="rt-toolbar" role="toolbar" aria-label="Formatting"
+             style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">
+${button('formatBlock', 'H2', 'H2', 'padding:6px 10px')}
+${button('formatBlock', 'H3', 'H3', 'padding:6px 10px')}
+${button('bold', null, 'B', 'font-weight:700;padding:6px 12px')}
+${button('italic', null, 'I', 'font-style:italic;padding:6px 12px')}
+${button('underline', null, 'U', 'text-decoration:underline;padding:6px 12px')}
+${button('insertOrderedList', null, '1.', 'padding:6px 12px')}
+${button('insertUnorderedList', null, '&bull;', 'padding:6px 12px')}
+        </div>
+
+        <div id="richEditor" contenteditable="true" role="textbox" aria-multiline="true"
+             aria-label="Today's update"
+             data-placeholder="Who did you visit? What moved forward?"
+             style="min-height:140px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fff"></div>
+
+        <!-- The form posts this; the script copies the editor's HTML into it. -->
+        <input type="hidden" name="logText" id="logText" value="">
+
+        <button class="btn primary" type="submit" style="margin-top:12px">Post Update</button>
+      </form>
+
+      <script src="/assets/js/log-editor.js" defer></script>`;
+}
 const { LEAD_STATUSES } = require('./lead-input');
 const publicViews = require('./views-public');
 
@@ -161,7 +222,7 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
 
   const logRows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
-            <td>${esc(g.log_text)}${adminFeedback(g.comments)}</td>
+            <td>${logBody(g.log_text)}${adminFeedback(g.comments)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="2">You have not posted an update yet.</td></tr>';
 
@@ -183,6 +244,15 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
 
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <!-- The log sits first: it is the thing an agent is meant to do each day,
+         and the rest of the page is reference material behind it. -->
+    <div class="client-card" style="margin-top:20px">
+      <h2>Daily Activity Log${commentBadge(unread)}</h2>
+      <p class="field-hint" style="margin-bottom:14px">What you did today, with formatting. The
+        office sees these too.</p>
+${activityLogForm(csrf)}
+    </div>
 
     <div class="client-grid" style="grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));margin-top:20px">
       <div class="client-card">
@@ -266,34 +336,6 @@ ${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.pro
     </div>
 
     <div class="client-card" style="margin-top:20px">
-      <h2>Daily Activity Log${commentBadge(unread)}</h2>
-      <p class="field-hint" style="margin-bottom:14px">A short note about what you did today.
-        The office sees these too.</p>
-
-      <form method="post" action="/staff/log">
-        <input type="hidden" name="csrf" value="${esc(csrf)}">
-        <label for="logText">Today's update</label>
-        <textarea id="logText" name="logText" rows="3" maxlength="2000" required
-                  placeholder="Who did you visit? What moved forward?"></textarea>
-        <button class="btn primary" type="submit">Post Update</button>
-      </form>
-    </div>
-
-    <div class="client-card" style="margin-top:20px">
-      <h2>Your last 5 updates</h2>
-      <table class="portal-table">
-        <caption>Your recent activity</caption>
-        <thead>
-          <tr><th scope="col">Date</th><th scope="col">Update</th></tr>
-        </thead>
-        <tbody>
-${logRows}
-        </tbody>
-      </table>
-      <p style="margin-top:14px"><a class="text-btn" href="/staff/activity-logs">View full history &rarr;</a></p>
-    </div>
-
-    <div class="client-card" style="margin-top:20px">
       <h2>Change Password</h2>
       <p class="field-hint" style="margin-bottom:14px">Changing this signs you out on every
         other device.</p>
@@ -315,6 +357,21 @@ ${logRows}
 
         <button class="btn primary" type="submit">Update Password</button>
       </form>
+    </div>
+
+    <!-- History last: it is a record to check, not something to act on. -->
+    <div class="client-card" style="margin-top:20px">
+      <h2>Your last 5 updates</h2>
+      <table class="portal-table">
+        <caption>Your recent activity</caption>
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Update</th></tr>
+        </thead>
+        <tbody>
+${logRows}
+        </tbody>
+      </table>
+      <p style="margin-top:14px"><a class="text-btn" href="/staff/activity-logs">View full history &rarr;</a></p>
     </div>
   </section>`
   });
@@ -470,7 +527,7 @@ ${logItems}
 function renderStaffActivityLogs(settings, { agent, logs = [], unread = 0 } = {}) {
   const rows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
-            <td>${esc(g.log_text)}${adminFeedback(g.comments)}</td>
+            <td>${logBody(g.log_text)}${adminFeedback(g.comments)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="2">You have not posted any updates yet.</td></tr>';
 

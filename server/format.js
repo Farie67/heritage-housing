@@ -130,7 +130,43 @@ function utcRangeForLocalDate(dateStr) {
   return { startIso: start.toISOString(), endIso: end.toISOString() };
 }
 
+/* ── Daily Activity Log window ─────────────────────────────────────────────
+   The office opens the log between 07:50 and 17:10 Harare time, whatever the
+   server's own clock is set to. Render runs in UTC, so the zone is named
+   explicitly rather than trusted to the host. */
+
+const STAFF_LOG_OPENS_MIN = 7 * 60 + 50;    // 07:50
+const STAFF_LOG_CLOSES_MIN = 17 * 60 + 10;  // 17:10
+
+/**
+ * Minutes since midnight in Africa/Harare.
+ *
+ * Zimbabwe has never observed daylight saving and sits on a fixed +02:00, but
+ * the zone is resolved through Intl rather than adding a hardcoded offset, so
+ * this stays right if the machine's own zone or the zone's rules ever differ.
+ */
+function harareMinutes(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Harare',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(now);
+
+  const get = (type) => Number((parts.find((p) => p.type === type) || {}).value || 0);
+  return get('hour') * 60 + get('minute');
+}
+
+/** True while the Daily Activity Log is open for posting. Both ends inclusive. */
+function staffLogOpen(now = new Date()) {
+  const mins = harareMinutes(now);
+  return mins >= STAFF_LOG_OPENS_MIN && mins <= STAFF_LOG_CLOSES_MIN;
+}
+
+/** The window as a label, for the notice that explains it. */
+const STAFF_LOG_WINDOW = '07:50 and 17:10';
+
 module.exports = {
   money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify, todayIso,
-  utcRangeForLocalDate
+  utcRangeForLocalDate, harareMinutes, staffLogOpen, STAFF_LOG_WINDOW
 };

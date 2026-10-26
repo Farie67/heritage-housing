@@ -32,8 +32,9 @@ const viewsStaff = require('./views-staff');
 const adminRoutes = require('./admin');
 const publicSite = require('./public-site');
 const invoice = require('./invoice');
-const { slugify, todayIso } = require('./format');
+const { slugify, todayIso, staffLogOpen, STAFF_LOG_WINDOW } = require('./format');
 const { readLeadUpdate } = require('./lead-input');
+const { sanitizeRichText, hasRichText } = require('./sanitize');
 const { isMultipart, boundaryFrom, parseMultipart } = require('./multipart');
 const { validateNewPassword } = require('./passwords');
 
@@ -1061,11 +1062,33 @@ const server = http.createServer(async (req, res) => {
         if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
         if (!agent) return redirect(res, '/staff/login');
 
-        const text = String(body.logText || '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+        /* The log only accepts entries during office hours, checked against
+           Harare time rather than the server's own zone — Render runs in UTC.
+           Enforced here and not only in the view: hiding the editor stops an
+           honest mistake, it does not stop a crafted POST. */
+        if (!staffLogOpen()) {
+          return sendHtml(res, 403, viewsStaff.staffDashboard(await content.settings(), {
+            agent, csrf,
+            error: `The Daily Activity Log is locked. You can only post between ${STAFF_LOG_WINDOW}.`,
+            unread: await staffLogs.unreadCountForAgent(agent.id),
+            leads: await leads.forAgent(agent.id),
+            followUps: await leads.dueForAgent(agent.id, todayIso()),
+            projects: await admin.projectsWithCounts(),
+            topSales: await getTopSalesAgents(),
+            topOverdue: await getTopOverdueAgents(todayIso()),
+            logs: await staffLogs.forAgent(agent.id, 5),
+          }));
+        }
 
-        if (text.length < 3) {
+        /* The editor submits HTML. It is sanitised down to a short allowlist
+           before it is stored, so nothing dangerous is ever written — and the
+           views can then render it as markup safely. */
+        const text = sanitizeRichText(body.logText || '');
+
+        if (!hasRichText(text)) {
           return sendHtml(res, 400, viewsStaff.staffDashboard(await content.settings(), {
             agent, csrf, error: 'Please write a short update before posting.',
+            unread: await staffLogs.unreadCountForAgent(agent.id),
             leads: await leads.forAgent(agent.id),
             followUps: await leads.dueForAgent(agent.id, todayIso()),
             projects: await admin.projectsWithCounts(),
