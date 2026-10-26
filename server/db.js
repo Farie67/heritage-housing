@@ -450,9 +450,16 @@ await ensureColumn('leads', 'notes', 'TEXT');
    free stand rather than guessing. */
 await ensureColumn('leads', 'project_id', 'INTEGER REFERENCES projects(id)');
 /* Which side filed the lead: 'admin' when the office did, 'agent' when a sales
-   agent did. Nullable, because rows written before this column existed genuinely
-   have no answer — they are treated as agent-created rather than guessed at. */
-await ensureColumn('leads', 'created_by', 'TEXT');
+   agent did. Defaults to 'agent', so a lead whose origin nobody recorded is
+   treated as agent-created rather than being flagged in red as office work. */
+await ensureColumn('leads', 'created_by', "TEXT DEFAULT 'agent'");
+
+/* Rows written before that column existed carry NULL rather than the default —
+   SQLite only applies a DEFAULT to new inserts, and ADD COLUMN only fills it in
+   on a table that did not already have the column. Backfilling keeps the data
+   saying what the views already assume. Idempotent: after the first run there
+   is nothing left to match. */
+await driver.exec("UPDATE leads SET created_by = 'agent' WHERE created_by IS NULL");
 
 /* Staff sign-in. Nullable: an agent can exist as a sales credit on a sale
    without ever being given a login. An agent with no hash simply cannot sign
@@ -1047,11 +1054,11 @@ const leads = {
   /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
   async create({ fullName, phone, email, source, status = 'New', budget = null,
     followUpDate = null, notes = null, assignedAgentId = null, projectId = null,
-    createdBy = null }) {
+    createdBy = 'agent' }) {
     const info = await qInsertLead.run(
       fullName, phone || null, email || null, source || null, status,
       budget || null, followUpDate || null, notes || null,
-      assignedAgentId || null, projectId || null, createdBy || null, nowIso());
+      assignedAgentId || null, projectId || null, createdBy || 'agent', nowIso());
     return Number(info.lastInsertRowid);
   },
   /** Every lead, with the owning agent's name, newest first. */

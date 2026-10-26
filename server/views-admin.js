@@ -933,8 +933,15 @@ function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
   /* One row, reused inside every folder.
      The "Assigned to" column is gone: the folder heading now says whose leads
      these are, so repeating it on every row was noise. */
+  /* A lead the office filed is shown in red — the same marker the staff portal
+     uses, so both views agree on what "Admin Assigned" means.
+     <strong> already carries the weight; only the colour is added. */
+  const leadName = (l) => (l.created_by === 'admin'
+    ? `<strong style="color:var(--red)">${esc(l.full_name)}</strong>`
+    : `<strong>${esc(l.full_name)}</strong>`);
+
   const leadRow = (l) => `            <tr>
-              <td><strong>${esc(l.full_name)}</strong></td>
+              <td>${leadName(l)}</td>
               <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
               <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
               <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
