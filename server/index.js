@@ -582,9 +582,22 @@ const server = http.createServer(async (req, res) => {
            eighty times in an hour is not an attack; eighty failures is. So it
            is peeked here — deciding whether to block — and charged only once a
            sign-in has actually failed, further down. */
+        /* The address bucket counts only failures. An office that signs in
+           eighty times in an hour is not an attack; eighty failures is. So it
+           is peeked here — deciding whether to block — and charged only once a
+           sign-in has actually failed, further down.
+
+           `peek` and `hit` live on RateLimiter in security.js. A deployment
+           where that file is older than this one has them missing, and calling
+           into a method that is not there took sign-in down with a TypeError.
+           Falling back to `check` costs the failure-only behaviour — it counts
+           this attempt regardless of outcome — but it always exists, and a
+           slightly stricter limiter beats a login page that cannot be used. */
+        const canPeek = typeof staffLoginIpLimiter.peek === 'function';
+
         const limitKey = staffLoginKey(identifier, ip);
         const account = staffLoginLimiter.check(limitKey);
-        const address = staffLoginIpLimiter.peek(ip);
+        const address = canPeek ? staffLoginIpLimiter.peek(ip) : staffLoginIpLimiter.check(ip);
 
         if (!account.allowed || !address.allowed) {
           /* Whichever bucket is fuller decides how long they actually have to
@@ -620,8 +633,11 @@ const server = http.createServer(async (req, res) => {
 
         if (!result.ok) {
           /* The only place the address bucket is charged. A bad password is one
-             attempt against this network; a good one is not. */
-          staffLoginIpLimiter.hit(ip);
+             attempt against this network; a good one is not.
+             Skipped when `peek` was unavailable: the fallback `check` above has
+             already counted this attempt, and charging it twice would halve the
+             limit for anyone on an older security.js. */
+          if (canPeek) staffLoginIpLimiter.hit(ip);
           logSecurityEvent('staff_login_failed', req, { identifier: identifier.slice(0, 80) });
           return sendHtml(res, 401, viewsStaff.staffLogin(await content.settings(), {
             csrf, error: 'Invalid email, name or password.'
