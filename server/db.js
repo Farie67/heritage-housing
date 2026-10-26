@@ -481,72 +481,23 @@ await ensureColumn('payments', 'original_transaction_id', 'INTEGER REFERENCES pa
 await ensureColumn('payments', 'approved_by', 'INTEGER REFERENCES users(id)');
 
 /* ── Managers ─────────────────────────────────────────────────────────────
-   `users.role` originally had CHECK (role IN ('client','admin')). A manager is a
-   third role, and SQLite cannot alter a CHECK constraint in place, so the table
-   has to be rebuilt. This runs after every ensureColumn so the copy picks up
-   every column the table has.
+   `users.role` carried CHECK (role IN ('client','admin')); a manager is a third
+   role. The CREATE TABLE above now allows it, so a fresh database is fine.
 
-   Guarded on the old constraint being present, so it runs once and startup
-   stays idempotent. A database created fresh already has the new definition and
-   skips this entirely.
+   There used to be an allowManagerRole() here that rebuilt the users table to
+   widen that constraint on an existing database. It has been REMOVED: the
+   rebuild drops and renames a table every other financial table points at, and
+   on Turso — which ignores PRAGMA foreign_keys and enforces constraints always
+   — that can never work. It failed on every boot on Render and is gone for
+   good. Nothing in the startup path alters or rebuilds this table now.
 
-   The rebuild is the risky part: ownerships, payments, sessions, audit and the
-   rest all reference users(id). Foreign keys are therefore switched off around
-   the swap — with them on, dropping the table would cascade or fail — and
-   PRAGMA foreign_key_check afterwards proves every reference still resolves. If
-   the check finds a problem the whole thing throws rather than leaving a
-   half-built table behind. */
-async function allowManagerRole() {
-  const row = await prepare(
-    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
-  if (!row || !row.sql || row.sql.includes("'manager'")) return;
+   A database that predates the manager role therefore needs this applied once,
+   by hand, in the Turso console:
 
-  /* Reuse the live DDL rather than restating the columns, so this cannot drift
-     from the table it is copying. */
-  const newDdl = row.sql
-    .replace(/CREATE TABLE\s+(IF NOT EXISTS\s+)?"?users"?/i, 'CREATE TABLE users_new')
-    .replace(/CHECK\s*\(\s*role\s+IN\s*\([^)]*\)\s*\)/i,
-      "CHECK (role IN ('client','admin','manager'))");
+     UPDATE users SET role = 'manager' WHERE client_number = 'MGR-001';
 
-  if (!newDdl.includes("'manager'")) {
-    throw new Error('users rebuild: could not rewrite the role CHECK constraint');
-  }
-
-  const cols = (await prepare('PRAGMA table_info(users)').all()).map((c) => c.name);
-  const list = cols.join(', ');
-
-  await driver.exec('PRAGMA foreign_keys = OFF');
-  try {
-    await driver.transaction(async (tx) => {
-      await tx.exec(newDdl);
-      await tx.prepare(
-        `INSERT INTO users_new (${list}) SELECT ${list} FROM users`).run();
-      await tx.prepare('DROP TABLE users').run();
-      await tx.prepare('ALTER TABLE users_new RENAME TO users').run();
-    });
-
-    const broken = await prepare('PRAGMA foreign_key_check').all();
-    if (broken.length) {
-      throw new Error(`users rebuild left ${broken.length} broken foreign key reference(s)`);
-    }
-  } finally {
-    await driver.exec('PRAGMA foreign_keys = ON');
-  }
-}
-
-try {
-  await allowManagerRole();
-} catch (err) {
-  /* Turso enforces foreign keys and ignores the PRAGMA above, so the DROP can
-     fail there. That is a safe failure — the transaction rolls back and the
-     users table is untouched — but the server must still start, so it is
-     reported rather than thrown. Manager accounts stay unusable until the
-     operator applies the change by hand. */
-  console.error('  ! Could not rebuild the users table for the manager role.');
-  console.error(`    ${err.message}`);
-  console.error('    Existing accounts are unaffected. Managers will not be usable');
-  console.error('    until this migration is applied manually.');
-}
+   which only works after recreating the users table with the wider CHECK. That
+   is a deliberate, supervised operation, not something a boot should attempt. */
 
 await driver.exec(`
 CREATE INDEX IF NOT EXISTS idx_payments_ownership ON payments(ownership_id);
@@ -1172,8 +1123,19 @@ const leadNotes = {
 async function attachLogComments(rows) {
   if (!rows.length) return rows;
 
-  const ids = rows.map((r) => r.id);
-  const comments = await qLogCommentsForLogs(ids.length).all(...ids);
+  /* A database whose log_comments predates is_read — and where the startup ALTER
+     never succeeded, because Turso rejects ALTER TABLE on a table with foreign
+     keys — has no such column. Selecting it unconditionally threw
+     "no such column: c.is_read" out of here, and /staff calls this immediately
+     after a sign-in, so a perfectly good login ended in a 500. Degrade to "no
+     feedback shown" instead of taking the dashboard down. */
+  let comments;
+  try {
+    comments = await qLogCommentsForLogs(rows.length).all(...rows.map((r) => r.id));
+  } catch (err) {
+    if (!/no such column/i.test(String(err && err.message))) throw err;
+    return rows.map((r) => ({ ...r, comments: [] }));
+  }
 
   const byLog = new Map();
   for (const c of comments) {
@@ -1234,8 +1196,15 @@ const staffLogs = {
    * so feedback on an older update still raises the badge.
    */
   async unreadCountForAgent(agentId) {
-    const row = await qUnreadLogCommentsForAgent.get(agentId);
-    return Number(row ? row.c : 0);
+    /* Same reason as attachLogComments: without the column there is nothing to
+       count, and a missing badge is far better than a dead dashboard. */
+    try {
+      const row = await qUnreadLogCommentsForAgent.get(agentId);
+      return Number(row ? row.c : 0);
+    } catch (err) {
+      if (!/no such column/i.test(String(err && err.message))) throw err;
+      return 0;
+    }
   },
 
   /**
@@ -1246,8 +1215,13 @@ const staffLogs = {
    * scoping to this agent's own logs is inside the SQL.
    */
   async markCommentsAsRead(agentId) {
-    const info = await qMarkLogCommentsRead.run(agentId);
-    return Number(info.changes);
+    try {
+      const info = await qMarkLogCommentsRead.run(agentId);
+      return Number(info.changes);
+    } catch (err) {
+      if (!/no such column/i.test(String(err && err.message))) throw err;
+      return 0;
+    }
   }
 };
 
