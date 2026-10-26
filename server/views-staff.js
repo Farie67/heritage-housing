@@ -29,7 +29,25 @@ function logBody(text) {
 }
 
 /**
- * The editor, or the locked notice.
+ * The agent's most recent lead notes, shown under the activity log.
+ *
+ * Rendered as escaped text inside <p> tags, never as markup. These notes come
+ * from a plain textarea — they were never rich text and nothing sanitises them
+ * on the way in, so the only safe thing is to show them as text.
+ */
+function recentNotesBlock(notes) {
+  if (!notes.length) {
+    return '      <p class="muted" style="margin:0">No lead notes added recently.</p>';
+  }
+
+  return notes.map((n) => `      <div style="background:#f4f6fb;padding:10px;border-radius:8px;margin-bottom:10px">
+        <p class="muted" style="margin:0 0 4px;font-size:12px">${esc(formatDate(n.created_at))}</p>
+        <p style="margin:0 0 4px"><strong>${esc(n.lead_name)}</strong></p>
+        <p style="margin:0">${esc(n.note_text)}</p>
+      </div>`).join('\n');
+}
+
+/** The editor, or the locked notice.
  *
  * The same window the POST route enforces, so the page and the server agree.
  * Hiding the form is a courtesy — the route is what actually refuses.
@@ -165,7 +183,8 @@ function commentBadge(unread) {
 
 function staffDashboard(settings, {
   agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
-  topSales = [], topOverdue = [], values = {}, unread = 0, notice = '', error = ''
+  topSales = [], topOverdue = [], values = {}, recentLeadNotes = [], unread = 0,
+  notice = '', error = ''
 } = {}) {
   /* What the agent typed, so a rejected form comes back filled in rather than
      blank. Every field falls back to empty on a first render. */
@@ -244,15 +263,6 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
 
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
-
-    <!-- The log sits first: it is the thing an agent is meant to do each day,
-         and the rest of the page is reference material behind it. -->
-    <div class="client-card" style="margin-top:20px">
-      <h2>Daily Activity Log${commentBadge(unread)}</h2>
-      <p class="field-hint" style="margin-bottom:14px">What you did today, with formatting. The
-        office sees these too.</p>
-${activityLogForm(csrf)}
-    </div>
 
     <div class="client-grid" style="grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));margin-top:20px">
       <div class="client-card">
@@ -336,6 +346,33 @@ ${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.pro
     </div>
 
     <div class="client-card" style="margin-top:20px">
+      <h2>Daily Activity Log${commentBadge(unread)}</h2>
+      <p class="field-hint" style="margin-bottom:14px">What you did today, with formatting. The
+        office sees these too.</p>
+${activityLogForm(csrf)}
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0 16px">
+
+      <h4>Recent Lead Notes</h4>
+${recentNotesBlock(recentLeadNotes)}
+    </div>
+
+    <!-- History last: it is a record to check, not something to act on. -->
+    <div class="client-card" style="margin-top:20px">
+      <h2>Your last 5 updates</h2>
+      <table class="portal-table">
+        <caption>Your recent activity</caption>
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Update</th></tr>
+        </thead>
+        <tbody>
+${logRows}
+        </tbody>
+      </table>
+      <p style="margin-top:14px"><a class="text-btn" href="/staff/activity-logs">View full history &rarr;</a></p>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
       <h2>Change Password</h2>
       <p class="field-hint" style="margin-bottom:14px">Changing this signs you out on every
         other device.</p>
@@ -357,21 +394,6 @@ ${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.pro
 
         <button class="btn primary" type="submit">Update Password</button>
       </form>
-    </div>
-
-    <!-- History last: it is a record to check, not something to act on. -->
-    <div class="client-card" style="margin-top:20px">
-      <h2>Your last 5 updates</h2>
-      <table class="portal-table">
-        <caption>Your recent activity</caption>
-        <thead>
-          <tr><th scope="col">Date</th><th scope="col">Update</th></tr>
-        </thead>
-        <tbody>
-${logRows}
-        </tbody>
-      </table>
-      <p style="margin-top:14px"><a class="text-btn" href="/staff/activity-logs">View full history &rarr;</a></p>
     </div>
   </section>`
   });

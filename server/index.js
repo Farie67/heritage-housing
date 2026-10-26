@@ -691,6 +691,7 @@ const server = http.createServer(async (req, res) => {
           topSales: await getTopSalesAgents(),
           topOverdue: await getTopOverdueAgents(todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5),
+          recentLeadNotes: await leadNotes.recentForAgent(agent.id, 10),
         }));
 
         /* After the page has gone out, so this visit still shows the badge and

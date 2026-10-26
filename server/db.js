@@ -882,11 +882,24 @@ const qLeadNotesForAgentLeads = prepare(`
    WHERE l.assigned_agent_id = ?
    ORDER BY n.created_at, n.id
 `);
+/* The notes one agent has written lately, newest first, with the lead's name.
+   Keyed on WHO WROTE the note (n.agent_id), not on who currently owns the lead —
+   this is the agent's own activity digest, so a lead handed to a colleague does
+   not make their past work disappear from it. */
+const qRecentLeadNotesForAgent = prepare(`
+  SELECT n.id, n.lead_id, n.note_text, n.created_at,
+         l.full_name AS lead_name
+    FROM lead_notes n
+    JOIN leads l ON l.id = n.lead_id
+   WHERE n.agent_id = ?
+   ORDER BY n.created_at DESC, n.id DESC
+   LIMIT ?
+`);
+
 /* Everything, for the admin leads page. */
 const qLeadNotesAll = prepare(`
   SELECT n.id, n.lead_id, n.note_text, n.created_at, a.name AS agent_name
-    FROM lead_notes n
-    JOIN agents a ON a.id = n.agent_id
+    FROM lead_notes n    JOIN agents a ON a.id = n.agent_id
    ORDER BY n.created_at, n.id
 `);
 
@@ -1108,6 +1121,16 @@ const leadNotes = {
   forLead: async (leadId) => await qLeadNotesForLead.all(leadId),
   /** Every note across the leads currently assigned to one agent. */
   forAgentLeads: async (agentId) => await qLeadNotesForAgentLeads.all(agentId),
+
+  /**
+   * The notes this agent wrote most recently, newest first, for the digest on
+   * their dashboard. `limit` is bound, never interpolated.
+   */
+  async recentForAgent(agentId, limit = 10) {
+    const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+    return await qRecentLeadNotesForAgent.all(agentId, n);
+  },
+
   /** Everything — for the admin leads page. */
   all: async () => await qLeadNotesAll.all()
 };
