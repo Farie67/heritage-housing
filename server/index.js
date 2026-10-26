@@ -148,8 +148,45 @@ const enquiryLimiter = new RateLimiter(config.ENQUIRY_MAX_PER_HOUR, 60 * 60 * 10
    working systematically through the site. */
 const generalLimiter = new RateLimiter(config.GENERAL_MAX_PER_WINDOW, config.GENERAL_WINDOW_MS);
 /* Staff sign-in gets its own bucket for the same reason the admin one does:
-   hammering one portal must not lock out the other. */
-const staffLoginLimiter = new RateLimiter(config.LOGIN_MAX_ATTEMPTS, config.LOGIN_WINDOW_MS);
+   hammering one portal must not lock out the other. 15 attempts, its own
+   setting, because the key below is narrower than "one address". */
+const staffLoginLimiter = new RateLimiter(config.STAFF_LOGIN_MAX_ATTEMPTS, config.LOGIN_WINDOW_MS);
+
+/* The coarse backstop, keyed on the address alone.
+ *
+ * The limiter above is deliberately narrow — one account from one machine — so
+ * that a colleague's mistakes cannot lock out the office, and so that a shared
+ * office connection does not lock out one person. The cost of that narrowness is
+ * blindness: an attacker working through a list of a thousand staff addresses
+ * never fills any single bucket, because each name is its own key.
+ *
+ * This one sees the whole spray. Sixty attempts an hour from one address, no
+ * matter which accounts it names, and it blocks.
+ *
+ * It is NOT reset when someone signs in successfully. Clearing it on success
+ * would hand an attacker holding one valid credential a way to empty the bucket
+ * between rounds and spray indefinitely. */
+const staffLoginIpLimiter = new RateLimiter(config.STAFF_LOGIN_MAX_PER_IP, 60 * 60 * 1000);
+
+/**
+ * The bucket a staff sign-in counts against: the account *and* the address.
+ *
+ * Keyed on the pair rather than the address alone, so one person's typing
+ * mistakes cannot lock out everyone sharing an office connection, and a single
+ * account cannot be hammered from one machine.
+ *
+ * The identifier is trimmed and lower-cased first. Without that, "Farai@x.zm",
+ * "farai@x.zm" and " farai@x.zm" would each open a fresh bucket and the limit
+ * would be trivial to step around. The "|" separator stops the two parts running
+ * together into the same string for different pairs.
+ *
+ * A blank identifier falls back to the address on its own, so a form submitted
+ * with no account still counts against something.
+ */
+function staffLoginKey(identifier, ip) {
+  const who = String(identifier || '').trim().toLowerCase();
+  return who ? `${who}|${ip}` : `ip|${ip}`;
+}
 
 // Keep the limiters' maps from growing without bound.
 setInterval(async () => {
@@ -157,6 +194,7 @@ setInterval(async () => {
   enquiryLimiter.sweep();
   generalLimiter.sweep();
   staffLoginLimiter.sweep();
+  staffLoginIpLimiter.sweep();
   adminRoutes.sweep();
   await sessions.purgeExpired();
 }, 10 * 60 * 1000).unref();
@@ -531,18 +569,44 @@ const server = http.createServer(async (req, res) => {
         }
         if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
 
-        const limit = staffLoginLimiter.check(ip);
-        if (!limit.allowed) {
-          const mins = Math.ceil(limit.retryAfterMs / 60000);
-          logSecurityEvent('staff_login_rate_limited', req, { retryAfterMs: limit.retryAfterMs });
-          return sendHtml(res, 429, viewsStaff.staffLogin(await content.settings(), {
-            csrf,
-            error: `Too many sign-in attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`
-          }), { 'Retry-After': String(Math.ceil(limit.retryAfterMs / 1000)) });
-        }
-
+        /* Credentials are read before the limiter, because the bucket is keyed
+           on the account as well as the address. */
         const identifier = String(body.identifier || '').trim();
         const password = String(body.password || '');
+
+        /* The account bucket counts every attempt: it is about one person
+           mistyping their own password, and it is cleared the moment they get
+           it right.
+
+           The address bucket counts only failures. An office that signs in
+           eighty times in an hour is not an attack; eighty failures is. So it
+           is peeked here — deciding whether to block — and charged only once a
+           sign-in has actually failed, further down. */
+        const limitKey = staffLoginKey(identifier, ip);
+        const account = staffLoginLimiter.check(limitKey);
+        const address = staffLoginIpLimiter.peek(ip);
+
+        if (!account.allowed || !address.allowed) {
+          /* Whichever bucket is fuller decides how long they actually have to
+             wait, so the figure shown is the truthful one. */
+          const retryAfterMs = Math.max(account.retryAfterMs, address.retryAfterMs);
+          const mins = Math.max(1, Math.ceil(retryAfterMs / 60000));
+
+          logSecurityEvent('staff_login_rate_limited', req, {
+            retryAfterMs, scope: address.allowed ? 'account' : 'ip'
+          });
+
+          /* The account message is the one the office will usually see; the
+             address message is different because "this account" would be a lie
+             when the block is on the network. */
+          const error = address.allowed
+            ? `Too many failed attempts for this account. Please wait ${mins} minutes or reset your password.`
+            : `Too many sign-in attempts from this network. Please wait ${mins} minutes.`;
+
+          return sendHtml(res, 429, viewsStaff.staffLogin(await content.settings(), {
+            csrf, error
+          }), { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) });
+        }
 
         if (identifier.length < 2 || password.length < 3) {
           return sendHtml(res, 400, viewsStaff.staffLogin(await content.settings(), {
@@ -555,13 +619,20 @@ const server = http.createServer(async (req, res) => {
         });
 
         if (!result.ok) {
+          /* The only place the address bucket is charged. A bad password is one
+             attempt against this network; a good one is not. */
+          staffLoginIpLimiter.hit(ip);
           logSecurityEvent('staff_login_failed', req, { identifier: identifier.slice(0, 80) });
           return sendHtml(res, 401, viewsStaff.staffLogin(await content.settings(), {
             csrf, error: 'Invalid email, name or password.'
           }));
         }
 
-        staffLoginLimiter.reset(ip);
+        /* Only the account bucket is cleared. The address bucket is never
+           cleared on success — it only ever counted failures, and wiping it here
+           would hand an attacker holding one working login a way to spray
+           without limit. */
+        staffLoginLimiter.reset(limitKey);
         logSecurityEvent('staff_login_success', req, { agent: result.agent.name });
         return sendHtml(res, 302, '', {
           Location: '/staff',
@@ -586,8 +657,10 @@ const server = http.createServer(async (req, res) => {
 
         /* Only this agent's own leads and own updates. Nothing here takes an
            id from the request, so there is no id to tamper with. */
-        return sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
-          agent, csrf,
+        const unread = await staffLogs.unreadCountForAgent(agent.id);
+
+        sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
+          agent, csrf, unread,
           notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
             : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
               : url.searchParams.get('ok') === 'deleted' ? 'Lead deleted.'
@@ -602,6 +675,12 @@ const server = http.createServer(async (req, res) => {
           topOverdue: await getTopOverdueAgents(todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5),
         }));
+
+        /* After the page has gone out, so this visit still shows the badge and
+           the next one does not. Deliberately not before: marking first would
+           hide the notification on the very visit that was meant to deliver it. */
+        await staffLogs.markCommentsAsRead(agent.id);
+        return;
       }
 
       /* One lead, in full.
@@ -887,7 +966,7 @@ const server = http.createServer(async (req, res) => {
 
         const id = await leads.create({
           fullName, phone, email, source, budget, projectId,
-          status: 'New', assignedAgentId: agent.id
+          status: 'New', assignedAgentId: agent.id, createdBy: 'agent'
         });
         await audit('lead_create', 'success', {
           detail: `lead ${id} (${fullName}) by agent ${agent.id} (${agent.name})`, ip
@@ -998,12 +1077,19 @@ const server = http.createServer(async (req, res) => {
         if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
         if (!agent) return redirect(res, '/staff/login');
 
-        return sendHtml(res, 200, viewsStaff.renderStaffActivityLogs(
+        const unread = await staffLogs.unreadCountForAgent(agent.id);
+
+        sendHtml(res, 200, viewsStaff.renderStaffActivityLogs(
           await content.settings(), {
-            agent,
+            agent, unread,
             logs: await staffLogs.recent({ agentId: agent.id, limit: 500 })
           }
         ));
+
+        /* Same ordering as the dashboard: render with the count, then clear it.
+           The comments themselves stay on the page — only the badge goes. */
+        await staffLogs.markCommentsAsRead(agent.id);
+        return;
       }
 
       return sendHtml(res, 404, await views.renderError({

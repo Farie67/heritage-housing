@@ -449,6 +449,10 @@ await ensureColumn('leads', 'notes', 'TEXT');
    anyone knows where they want to buy, and the conversion then offers every
    free stand rather than guessing. */
 await ensureColumn('leads', 'project_id', 'INTEGER REFERENCES projects(id)');
+/* Which side filed the lead: 'admin' when the office did, 'agent' when a sales
+   agent did. Nullable, because rows written before this column existed genuinely
+   have no answer — they are treated as agent-created rather than guessed at. */
+await ensureColumn('leads', 'created_by', 'TEXT');
 
 /* Staff sign-in. Nullable: an agent can exist as a sales credit on a sale
    without ever being given a login. An agent with no hash simply cannot sign
@@ -823,8 +827,9 @@ const staffSessions = {
 
 const qInsertLead = prepare(`
   INSERT INTO leads (full_name, phone, email, source, status, budget,
-                     follow_up_date, notes, assigned_agent_id, project_id, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     follow_up_date, notes, assigned_agent_id, project_id,
+                     created_by, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 /* LEFT JOIN on both, because a lead can sit unowned and can have no development
    of interest — an inner join would hide exactly the leads the office most
@@ -1041,11 +1046,12 @@ const qTopOverdueAgents = prepare(`
 const leads = {
   /** Creates a lead. `assignedAgentId` may be null — an unowned lead. */
   async create({ fullName, phone, email, source, status = 'New', budget = null,
-    followUpDate = null, notes = null, assignedAgentId = null, projectId = null }) {
+    followUpDate = null, notes = null, assignedAgentId = null, projectId = null,
+    createdBy = null }) {
     const info = await qInsertLead.run(
       fullName, phone || null, email || null, source || null, status,
       budget || null, followUpDate || null, notes || null,
-      assignedAgentId || null, projectId || null, nowIso());
+      assignedAgentId || null, projectId || null, createdBy || null, nowIso());
     return Number(info.lastInsertRowid);
   },
   /** Every lead, with the owning agent's name, newest first. */

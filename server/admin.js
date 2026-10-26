@@ -1756,7 +1756,11 @@ async function handleAdmin(req, res, ctx) {
       }
 
       const id = await leads.create({
-        fullName, phone, email, source, budget, projectId, assignedAgentId
+        fullName, phone, email, source, budget, projectId, assignedAgentId,
+        /* Marks the lead as office-filed. The staff dashboard shows these in
+           red, so an agent can tell an approach that was handed to them from
+           one they found themselves. */
+        createdBy: 'admin'
       });
       await audit('lead_create', 'success', {
         userId: user.id, detail: `lead ${id} (${fullName})`, ip

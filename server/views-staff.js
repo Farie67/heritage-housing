@@ -86,26 +86,25 @@ function adminFeedback(comments = []) {
             </div>`).join('\n');
 }
 
-/** How many admin comments sit on a set of updates — for the heading badge. */
-function countComments(logs = []) {
-  return logs.reduce((n, g) => n + (g.comments ? g.comments.length : 0), 0);
-}
-
 /**
  * The badge itself.
  *
  * Red, deliberately: --gold is the brand red the stylesheet already uses for
  * small coloured text on white, so it stays readable. .status.open alone would
  * have been amber, and the point of this is that it stands out.
+ *
+ * Counts UNREAD feedback only. The routes pass the number in, computed across
+ * every log the agent owns — not just the handful a page happens to show.
  */
-function commentBadge(n) {
+function commentBadge(unread) {
+  const n = Number(unread) || 0;
   if (!n) return '';
-  return ` <span class="status open" style="color:var(--gold);font-weight:700">${esc(n)} comment${n === 1 ? '' : 's'}</span>`;
+  return ` <span class="status open" style="color:var(--gold);font-weight:700">${esc(n)} new comment${n === 1 ? '' : 's'}</span>`;
 }
 
 function staffDashboard(settings, {
   agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
-  topSales = [], topOverdue = [], values = {}, notice = '', error = ''
+  topSales = [], topOverdue = [], values = {}, unread = 0, notice = '', error = ''
 } = {}) {
   /* What the agent typed, so a rejected form comes back filled in rather than
      blank. Every field falls back to empty on a first render. */
@@ -133,8 +132,15 @@ ${rows.map((r, i) => `        <li${i === 0 ? ' style="font-weight:700;color:var(
       </ol>`
     : `<p class="muted" style="margin:0">${esc(empty)}</p>`);
 
+  /* A lead the office filed is shown in red, so an agent can tell an approach
+     that was handed to them from one they found themselves, at a glance.
+     <strong> already carries the weight; only the colour is added. */
+  const leadName = (l) => (l.created_by === 'admin'
+    ? `<strong style="color:var(--red)">${esc(l.full_name)}</strong>`
+    : `<strong>${esc(l.full_name)}</strong>`);
+
   const leadRows = leads.length ? leads.map((l) => `          <tr>
-            <td><strong>${esc(l.full_name)}</strong></td>
+            <td>${leadName(l)}</td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
@@ -260,7 +266,7 @@ ${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.pro
     </div>
 
     <div class="client-card" style="margin-top:20px">
-      <h2>Daily Activity Log${commentBadge(countComments(logs))}</h2>
+      <h2>Daily Activity Log${commentBadge(unread)}</h2>
       <p class="field-hint" style="margin-bottom:14px">A short note about what you did today.
         The office sees these too.</p>
 
@@ -342,7 +348,9 @@ function renderStaffLeadDetail(settings, {
     <div class="dashboard-top">
       <div>
         <span class="eyebrow dark">LEAD</span>
-        <h1>${esc(lead.full_name)}</h1>
+        <h1>${esc(lead.full_name)}${lead.created_by === 'admin'
+      ? ' <span style="background:var(--red);color:white;padding:4px 8px;border-radius:4px;font-size:12px;margin-left:10px;vertical-align:middle">Admin Assigned</span>'
+      : ''}</h1>
         <p class="muted">${esc(lead.status)}${lead.follow_up_date
       ? ` &middot; follow-up ${esc(lead.follow_up_date)}` : ''}</p>
       </div>
@@ -459,7 +467,7 @@ ${logItems}
  * The route passes only this agent's rows, so there is no filter here and no id
  * in the page — a signed-in agent simply cannot ask for anyone else's.
  */
-function renderStaffActivityLogs(settings, { agent, logs = [] } = {}) {
+function renderStaffActivityLogs(settings, { agent, logs = [], unread = 0 } = {}) {
   const rows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
             <td>${esc(g.log_text)}${adminFeedback(g.comments)}</td>
@@ -475,7 +483,7 @@ function renderStaffActivityLogs(settings, { agent, logs = [] } = {}) {
     <div class="dashboard-top">
       <div>
         <span class="eyebrow dark">ACTIVITY</span>
-        <h1>My activity${commentBadge(countComments(logs))}</h1>
+        <h1>My activity${commentBadge(unread)}</h1>
         <p class="muted">Every update you have posted, newest first.</p>
       </div>
     </div>
