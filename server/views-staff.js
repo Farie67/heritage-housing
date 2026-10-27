@@ -214,13 +214,12 @@ ${rows.map((r, i) => `        <li${i === 0 ? ' style="font-weight:700;color:var(
 
   /* A lead the office filed is shown in red, so an agent can tell an approach
      that was handed to them from one they found themselves, at a glance.
-     <strong> already carries the weight; only the colour is added. */
-  const leadName = (l) => (l.created_by === 'admin'
-    ? `<strong style="color:var(--red)">${esc(l.full_name)}</strong>`
-    : `<strong>${esc(l.full_name)}</strong>`);
 
-  const leadRows = leads.length ? leads.map((l) => `          <tr>
-            <td>${leadName(l)}</td>
+     The colour sits on the <tr> and inherits into every cell, the same way the
+     admin leads table does it. That works because .portal-table td sets
+     text-align, padding and border-bottom but no colour of its own. */
+  const leadRows = leads.length ? leads.map((l) => `          <tr${l.created_by === 'admin' ? ' style="color:var(--red)"' : ''}>
+            <td><strong>${esc(l.full_name)}</strong></td>
             <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
             <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
