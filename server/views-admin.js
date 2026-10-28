@@ -30,17 +30,18 @@ const NAV = [
   ['/admin/content', 'Content']
 ];
 
-const { visiblePrefixes } = require('./permissions');
+const { visiblePrefixes, getEffectiveRole } = require('./permissions');
 
 /**
  * The nav links a given user may see.
  *
  * Driven by the same table the router enforces, so a link can never point at a
- * page that would refuse the user. Hiding a link is presentation only — the
- * router is what actually keeps them out.
+ * page that would refuse the user. The role is resolved the same way too, so an
+ * email-mapped account sees exactly what the router will let it reach.
+ * Hiding a link is presentation only — the router is what keeps them out.
  */
 function navFor(user) {
-  const role = user && user.role;
+  const role = getEffectiveRole(user);
   if (!role) return [];
   const prefixes = visiblePrefixes(role);
   if (prefixes === null) return NAV;          // admin: everything

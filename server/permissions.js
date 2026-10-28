@@ -71,13 +71,61 @@ const STAFF_ROLES = new Set(Object.keys(ROLES));
 
 const isStaffRole = (role) => STAFF_ROLES.has(role);
 
+/* ── Email-mapped roles ───────────────────────────────────────────────────
+   Turso will not accept the new role values, so the CEO's account still says
+   'admin' in the database and is narrowed here instead.
+
+   IMPORTANT: this can only ever REDUCE privilege, never grant it.
+
+   The tempting one-liner — "if the email matches, return 'ceo'" — reads as a
+   restriction but is actually an override: a *client* whose email happened to
+   be set to this address would be handed a staff role and let into /admin. The
+   guard below returns the stored role untouched for anyone who is not already
+   staff, so the mapping can demote an admin but cannot promote a client.
+
+   Two further caveats worth knowing:
+     - The address is compared case-insensitively and trimmed, because an email
+       typed into a database console rarely arrives clean.
+     - Whoever can edit users.email can therefore change what this account may
+       do. That is a weaker guarantee than a role column, which is why the real
+       fix remains widening the CHECK. This keeps the office working meanwhile.
+   ────────────────────────────────────────────────────────────────────────── */
+const CEO_EMAIL = 'ceo@heritagehousing.co.zw';
+
+/**
+ * The role the app should treat this user as.
+ *
+ * Accepts a user object and returns a role string. Given a plain string it
+ * returns it unchanged, so the primitives below can be called with either.
+ */
+function getEffectiveRole(user) {
+  if (!user) return null;
+  if (typeof user === 'string') return user;
+
+  const stored = user.role;
+  if (!isStaffRole(stored)) return stored;      // never promote a non-staff account
+
+  const email = String(user.email || '').trim().toLowerCase();
+  if (email === CEO_EMAIL) return 'ceo';
+
+  return stored;
+}
+
+/** Resolves a user object or a role string down to a role string. */
+const resolveRole = (userOrRole) => getEffectiveRole(userOrRole);
+
 function matches(pathname, prefix) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-/** True when this role may open this path at all. */
-function mayReach(role, pathname) {
-  const rule = ROLES[role];
+/**
+ * True when this role may open this path at all.
+ *
+ * Takes a user object or a role string; an object is resolved through
+ * getEffectiveRole first, so no caller has to remember to do it.
+ */
+function mayReach(userOrRole, pathname) {
+  const rule = ROLES[resolveRole(userOrRole)];
   if (!rule) return false;
   if (rule.paths === null) return true;
   if (pathname === OVERVIEW) return rule.paths.includes(OVERVIEW);
@@ -90,7 +138,8 @@ function mayReach(role, pathname) {
  * Reach and act are separate questions: HR may open a lead but not change it,
  * and a role with no reach is refused whatever the method.
  */
-function mayPerform(role, method, pathname) {
+function mayPerform(userOrRole, method, pathname) {
+  const role = resolveRole(userOrRole);
   if (!mayReach(role, pathname)) return false;
 
   const rule = ROLES[role];
@@ -104,15 +153,16 @@ function mayPerform(role, method, pathname) {
 /**
  * The prefixes a role may see, or null meaning "everything".
  *
+ * Takes a user object or a role string, the same as mayReach.
  * The view uses this only to decide what to draw. It is not a control.
  */
-function visiblePrefixes(role) {
-  const rule = ROLES[role];
+function visiblePrefixes(userOrRole) {
+  const rule = ROLES[resolveRole(userOrRole)];
   if (!rule) return [];
   return rule.paths;
 }
 
 module.exports = {
-  ROLES, STAFF_ROLES, isStaffRole, mayReach, mayPerform, visiblePrefixes,
+  ROLES, STAFF_ROLES, isStaffRole, getEffectiveRole, mayReach, mayPerform, visiblePrefixes,
   OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES
 };

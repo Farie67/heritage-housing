@@ -52,10 +52,12 @@ const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
    table itself lives in permissions.js so the router and the navigation read the
    same facts. 'client' is not a staff role: a client reaching /admin is sent to
    their own portal. */
-const { isStaffRole, mayReach, mayPerform } = require('./permissions');
+const { isStaffRole, getEffectiveRole, mayReach, mayPerform } = require('./permissions');
 
 function isAdmin(user) {
-  return Boolean(user && isStaffRole(user.role));
+  /* getEffectiveRole may only narrow a role, never widen it, so a client whose
+     email somehow matched the CEO address still fails here. */
+  return Boolean(user && isStaffRole(getEffectiveRole(user)));
 }
 
 /* Flash messages keyed by the ?ok= flag a redirect carries back. */
@@ -421,7 +423,7 @@ async function handleAdmin(req, res, ctx) {
     /* Credentials were valid, but this may be an ordinary client. Tear the
        session down before the cookie is ever issued, so a client can never
        hold an admin-capable session token. */
-    if (!isStaffRole(result.user.role)) {
+    if (!isStaffRole(getEffectiveRole(result.user))) {
       await auth.destroySession(result.token);
       await audit('admin_login', 'denied', {
         userId: result.user.id, clientNumber, detail: 'not an admin account', ip
@@ -479,16 +481,20 @@ async function handleAdmin(req, res, ctx) {
        2. may this role perform this method on it?
      The second only matters for a role that is read-only, or read-only on this
      part of the panel. */
-  if (!mayReach(user.role, pathname)) {
+  /* Resolved once and used for both the decision and the audit line, so the log
+     always names the role the panel actually applied. */
+  const role = getEffectiveRole(user);
+
+  if (!mayReach(role, pathname)) {
     await audit('admin_access', 'denied', {
-      userId: user.id, detail: `${method} ${pathname} (${user.role} role)`, ip
+      userId: user.id, detail: `${method} ${pathname} (${role} role)`, ip
     });
     return h.redirect(res, '/admin?error=denied'), true;
   }
 
-  if (!mayPerform(user.role, method, pathname)) {
+  if (!mayPerform(role, method, pathname)) {
     await audit('admin_access', 'denied', {
-      userId: user.id, detail: `${method} ${pathname} (${user.role} is view-only here)`, ip
+      userId: user.id, detail: `${method} ${pathname} (${role} is view-only here)`, ip
     });
     return h.redirect(res, '/admin?error=readonly'), true;
   }
@@ -1721,7 +1727,7 @@ async function handleAdmin(req, res, ctx) {
             leads: await leads.all(), agents: await agents.list(),
             projects: await admin.projectsWithCounts(),
             user, csrf, error: message, values: typed,
-            readOnly: !mayPerform(user.role, 'POST', '/admin/leads')
+            readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
           })
         }));
       };
@@ -1777,7 +1783,7 @@ async function handleAdmin(req, res, ctx) {
         user, csrf,
         /* A form the router would refuse is worse than no form, so the view is
            told whether this role may actually post it. */
-        readOnly: !mayPerform(user.role, 'POST', '/admin/leads'),
+        readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads'),
         notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
       })
     }));
@@ -1822,7 +1828,7 @@ async function handleAdmin(req, res, ctx) {
         agents: await agents.list(),
         availableStands: await admin.availableStands(lead.project_id),
         user, csrf,
-        readOnly: !mayPerform(user.role, 'POST', '/admin/leads'),
+        readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads'),
         notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.' : '',
         error: url.searchParams.get('error') || ''
       })
@@ -1862,7 +1868,7 @@ async function handleAdmin(req, res, ctx) {
           agents: await agents.list(),
           availableStands: await admin.availableStands(lead.project_id),
           user, csrf, error: message,
-          readOnly: !mayPerform(user.role, 'POST', '/admin/leads')
+          readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
         })
       }));
     };
