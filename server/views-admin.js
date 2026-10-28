@@ -1180,7 +1180,31 @@ ${noteItems}
   </section>`;
 }
 
-function renderStaff({ agents = [], user, csrf, notice = '', error = '',
+/** How a panel role is shown to the office. */
+const ROLE_LABELS = {
+  admin: 'Administrator', manager: 'Manager', ceo: 'CEO', finance: 'Finance', hr: 'HR'
+};
+
+/**
+ * The extra actions on one row: Edit, then Delete.
+ *
+ * `ref` is "a-5" or "u-5" — agent or user. The two tables have independent id
+ * sequences, so a bare id would be ambiguous and could delete the wrong record.
+ *
+ * data-confirm, not onclick: the site sends script-src 'self' without
+ * 'unsafe-inline', so an inline handler is dropped silently and the delete would
+ * fire on the first click with no prompt at all.
+ */
+function rowActions(ref, csrf, confirmText) {
+  return `              <a class="text-btn" href="/admin/staff/${esc(ref)}/edit">Edit</a>
+              <form method="post" action="/admin/staff/${esc(ref)}/delete" class="inline-form"
+                    data-confirm="${esc(confirmText)}">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Delete</button>
+              </form>`;
+}
+
+function renderStaff({ agents = [], accounts = [], user, csrf, notice = '', error = '',
   generatedPassword = '', generatedFor = '' }) {
   const rows = agents.length ? agents.map((a) => `          <tr>
             <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">DISABLED</span>'}</td>
@@ -1195,9 +1219,24 @@ function renderStaff({ agents = [], user, csrf, notice = '', error = '',
                 <input type="hidden" name="csrf" value="${esc(csrf)}">
                 <button class="text-btn" type="submit">Reset password</button>
               </form>
+${rowActions(`a-${a.id}`, csrf, `Delete ${a.name}? This removes their login and activity history. It cannot be undone.`)}
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No agents yet. Add the first one below.</td></tr>';
+
+  /* Panel accounts are rows in users, not agents — a different table with a
+     different role column, so they get their own table rather than being
+     squeezed into the agents grid. */
+  const accountRows = accounts.length ? accounts.map((u) => `          <tr>
+            <td><strong>${esc(u.full_name)}</strong></td>
+            <td>${u.email ? esc(u.email) : '<span class="muted">&mdash;</span>'}</td>
+            <td><span class="status">${esc(ROLE_LABELS[u.role] || u.role)}</span></td>
+            <td>${esc(u.client_number)}</td>
+            <td class="actions">
+${rowActions(`u-${u.id}`, csrf, `Delete ${u.full_name}? Their admin-panel login stops working immediately. It cannot be undone.`)}
+            </td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="5">No panel accounts yet.</td></tr>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -1239,6 +1278,24 @@ ${rows}
     </div>
 
     <div class="client-card" style="margin-top:20px">
+      <table class="portal-table">
+        <caption>Panel accounts — everyone who signs in at /admin/login</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Email</th>
+            <th scope="col">Role</th>
+            <th scope="col">Staff ID</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+${accountRows}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
       <h2>Add a team member</h2>
       <p class="field-hint">A password is generated and shown once after saving. A Sales
         Agent gets a staff-portal login; the other roles get an admin-panel account instead.</p>
@@ -1269,8 +1326,71 @@ ${rows}
   </section>`;
 }
 
-/* ── Activity logs ──────────────────────────────────────────────────────── */
+/* ── Edit one staff member ──────────────────────────────────────────────── */
 
+/** The panel roles a user account can hold, in the order the office thinks of them. */
+const PANEL_ROLE_CHOICES = ['admin', 'manager', 'ceo', 'finance', 'hr'];
+
+/**
+ * Edit page for one member of staff.
+ *
+ * `kind` is 'agent' or 'user' and decides which record is being edited. A Sales
+ * Agent has no role column at all — that is what makes them an agent — so the
+ * role is shown as fixed text rather than a select that could be changed into
+ * something the agents table cannot hold.
+ */
+function renderStaffEdit({ kind, record, user, csrf, notice = '', error = '' }) {
+  const isAgent = kind === 'agent';
+  const ref = `${isAgent ? 'a' : 'u'}-${record.id}`;
+  const name = isAgent ? record.name : record.full_name;
+  const email = record.email || '';
+
+  const roleField = isAgent
+    ? `        <label for="e-role">Role</label>
+        <input id="e-role" type="text" value="Sales Agent" disabled>`
+    : `        <label for="e-role">Role</label>
+        <select id="e-role" name="role">
+${PANEL_ROLE_CHOICES.map((r) => `          <option value="${esc(r)}"${r === record.role ? ' selected' : ''}>${esc(ROLE_LABELS[r] || r)}</option>`).join('\n')}
+        </select>`;
+
+  return `  <section class="container inner-page">
+    <p><a class="text-btn" href="/admin/staff">&larr; Back to staff</a></p>
+
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">STAFF</span>
+        <h1>${esc(name)}</h1>
+        <p class="muted">${isAgent ? 'Sales Agent' : esc(ROLE_LABELS[record.role] || record.role)}
+          ${isAgent ? '' : ` &middot; ${esc(record.client_number)}`}</p>
+      </div>
+    </div>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <div class="client-card">
+      <h2>Details</h2>
+      <form method="post" action="/admin/staff/${esc(ref)}/edit">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="e-name">Name</label>
+        <input id="e-name" name="name" type="text" required maxlength="120" value="${esc(name)}">
+
+        <label for="e-email">Email</label>
+        <input id="e-email" name="email" type="email" maxlength="160" value="${esc(email)}">
+
+${isAgent ? `        <label for="e-phone">Phone</label>
+        <input id="e-phone" name="phone" type="tel" maxlength="40" value="${esc(record.phone || '')}">
+
+` : ''}${roleField}
+
+        <button class="btn primary" type="submit">Save changes</button>
+      </form>
+    </div>
+  </section>`;
+}
+
+/* ── Activity logs ──────────────────────────────────────────────────────── */
 function renderActivityLogs({ logs = [], agents = [], user, csrf,
   agentId = null, sortOrder = 'DESC', date = '', today = '',
   notice = '', error = '' }) {
@@ -1966,5 +2086,5 @@ module.exports = {
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
   renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
-  renderActivityLogs
+  renderActivityLogs, renderStaffEdit
 };

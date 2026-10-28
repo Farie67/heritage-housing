@@ -660,6 +660,50 @@ const users = {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     return await stmt.run(clientNumber, fullName, email, role, passwordHash, nowIso());
+  },
+
+  /**
+   * Accounts that hold an admin-panel role — everything except 'client'.
+   *
+   * Listed separately from the agents table: the two are different tables with
+   * different columns, and a client card must never appear here.
+   */
+  staffAccounts: async () => await prepare(`
+    SELECT id, client_number, full_name, email, role, created_at
+      FROM users
+     WHERE role <> 'client'
+     ORDER BY role, full_name COLLATE NOCASE
+  `).all(),
+
+  /** Edits a panel account's name, email and role. */
+  async updateProfile(id, { fullName, email, role }) {
+    const info = await prepare(`
+      UPDATE users SET full_name = ?, email = ?, role = ? WHERE id = ?
+    `).run(fullName, email || null, role, id);
+    return Number(info.changes) > 0;
+  },
+
+  /**
+   * Removes a panel account.
+   *
+   * Refuses to touch a 'client' at all — every financial row in the system
+   * points at that one, and this route exists to tidy up staff, not to erase a
+   * buyer. The caller also gets a readable reason when something still
+   * references the row.
+   */
+  async removeStaff(id) {
+    const row = await qUserById.get(id);
+    if (!row) return { ok: false, reason: 'notFound' };
+    if (row.role === 'client') return { ok: false, reason: 'isClient' };
+    try {
+      const info = await prepare('DELETE FROM users WHERE id = ? AND role <> \'client\'').run(id);
+      return { ok: Number(info.changes) > 0, reason: 'notFound' };
+    } catch (err) {
+      if (/FOREIGN KEY constraint failed/i.test(String(err.message))) {
+        return { ok: false, reason: 'referenced' };
+      }
+      throw err;
+    }
   }
 };
 
@@ -765,6 +809,35 @@ const agents = {
     const info = await qInsertAgent.run(
       name, email || null, phone || null, passwordHash || null, nowIso());
     return Number(info.lastInsertRowid);
+  },
+
+  /** Edits an agent's contact details. The role is always Sales Agent. */
+  async update(id, { name, email, phone }) {
+    const info = await prepare(`
+      UPDATE agents SET name = ?, email = ?, phone = ? WHERE id = ?
+    `).run(name, email || null, phone || null, id);
+    return Number(info.changes) > 0;
+  },
+
+  /**
+   * What would stop this agent being deleted.
+   *
+   * leads.assigned_agent_id and ownerships.agent_id carry no ON DELETE clause,
+   * so a delete fails while either still points at the agent. Counted first so
+   * the office gets a sentence instead of a raw constraint error.
+   */
+  async blockers(id) {
+    const leads = await prepare(
+      'SELECT COUNT(*) AS c FROM leads WHERE assigned_agent_id = ?').get(id);
+    const sales = await prepare(
+      'SELECT COUNT(*) AS c FROM ownerships WHERE agent_id = ?').get(id);
+    return { leads: Number(leads.c), sales: Number(sales.c) };
+  },
+
+  /** Removes an agent. The cascade tables go with it. Returns true/false. */
+  async remove(id) {
+    const info = await prepare('DELETE FROM agents WHERE id = ?').run(id);
+    return Number(info.changes) > 0;
   }
 };
 

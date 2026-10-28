@@ -1756,6 +1756,7 @@ async function handleAdmin(req, res, ctx) {
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
             leads: await leads.all(), agents: await agents.list(),
+            accounts: await users.staffAccounts(),
             projects: await admin.projectsWithCounts(),
             user, csrf, error: message, values: typed,
             readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
@@ -1810,6 +1811,7 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderLeads({
         leads: await leads.all(),
         agents: await agents.list(),
+            accounts: await users.staffAccounts(),
         projects: await admin.projectsWithCounts(),
         user, csrf,
         /* A form the router would refuse is worse than no form, so the view is
@@ -1857,6 +1859,7 @@ async function handleAdmin(req, res, ctx) {
         lead: { ...lead, agent_name: owner ? owner.name : null },
         notes: await leadNotes.forLead(leadId),
         agents: await agents.list(),
+            accounts: await users.staffAccounts(),
         availableStands: await admin.availableStands(lead.project_id),
         user, csrf,
         readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads'),
@@ -1897,6 +1900,7 @@ async function handleAdmin(req, res, ctx) {
           lead: { ...lead, agent_name: owner ? owner.name : null },
           notes: await leadNotes.forLead(leadId),
           agents: await agents.list(),
+            accounts: await users.staffAccounts(),
           availableStands: await admin.availableStands(lead.project_id),
           user, csrf, error: message,
           readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
@@ -2003,6 +2007,7 @@ async function handleAdmin(req, res, ctx) {
           title: 'Staff', active: '/admin/staff', user, csrf,
           body: views.renderStaff({
             agents: await agents.list(),
+            accounts: await users.staffAccounts(),
             user, csrf, error: message
           })
         }));
@@ -2040,6 +2045,7 @@ async function handleAdmin(req, res, ctx) {
           title: 'Staff', active: '/admin/staff', user, csrf,
           body: views.renderStaff({
             agents: await agents.list(),
+            accounts: await users.staffAccounts(),
             user, csrf,
             notice: `${name} added.`,
             generatedPassword: password,
@@ -2083,6 +2089,7 @@ async function handleAdmin(req, res, ctx) {
         title: 'Staff', active: '/admin/staff', user, csrf,
         body: views.renderStaff({
           agents: await agents.list(),
+            accounts: await users.staffAccounts(),
           user, csrf,
           notice: `${name} added as ${ROLE_LABEL[role]} (${clientNumber}).`,
           generatedPassword: password,
@@ -2098,7 +2105,8 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
       body: views.renderStaff({
-        agents: await agents.list(), user, csrf
+        agents: await agents.list(),
+            accounts: await users.staffAccounts(), user, csrf
       })
     }));
     return true;
@@ -2135,6 +2143,7 @@ async function handleAdmin(req, res, ctx) {
       title: 'Staff', active: '/admin/staff', user, csrf,
       body: views.renderStaff({
         agents: await agents.list(),
+            accounts: await users.staffAccounts(),
         user, csrf,
         notice: `Password reset for ${agent.name}.`,
         generatedPassword: password,
@@ -2174,6 +2183,7 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderActivityLogs({
         logs: await staffLogs.recent({ sortOrder, agentId, date }),
         agents: await agents.list(),
+            accounts: await users.staffAccounts(),
         user, csrf,
         agentId, sortOrder, date, today,
         notice: url.searchParams.get('ok') === 'commented' ? 'Comment added.' : '',
