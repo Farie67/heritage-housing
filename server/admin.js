@@ -60,6 +60,37 @@ function isAdmin(user) {
   return Boolean(user && isStaffRole(getEffectiveRole(user)));
 }
 
+/* ── Adding a team member ───────────────────────────────────────────────────
+   A Sales Agent is a row in `agents`; the panel roles are rows in `users`. The
+   two tables are separate by design — staff_signin reads agents, signIn reads
+   users — so the role picked on the form decides which one is written. */
+
+/** The client_number prefix each panel role's accounts carry. */
+const PANEL_ROLE_PREFIX = { admin: 'ADMIN', ceo: 'CEO', finance: 'FIN', hr: 'HR' };
+
+/** How each role is described back to whoever added them. */
+const ROLE_LABEL = {
+  agent: 'Sales Agent', admin: 'Administrator', ceo: 'CEO', finance: 'Finance', hr: 'HR'
+};
+
+/**
+ * The next free client_number for a prefix, e.g. CEO-004.
+ *
+ * Derived from the highest existing number rather than a counter, so deleting a
+ * row by hand cannot make the next insert collide with a surviving one.
+ */
+async function nextStaffNumber(prefix) {
+  const rows = await db.prepare(
+    'SELECT client_number FROM users WHERE client_number LIKE ?').all(`${prefix}-%`);
+
+  let highest = 0;
+  for (const r of rows) {
+    const n = Number.parseInt(String(r.client_number).slice(prefix.length + 1), 10);
+    if (Number.isInteger(n) && n > highest) highest = n;
+  }
+  return `${prefix}-${String(highest + 1).padStart(3, '0')}`;
+}
+
 /* Flash messages keyed by the ?ok= flag a redirect carries back. */
 const CLIENT_FLASH = {
   saved: 'Client details saved.',
@@ -1959,6 +1990,13 @@ async function handleAdmin(req, res, ctx) {
       const name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 120);
       const email = String(body.email || '').trim().slice(0, 160);
       const phone = String(body.phone || '').trim().slice(0, 40);
+      const role = String(body.role || 'agent').trim().toLowerCase();
+
+      /* 'agent' lives in the agents table; everything else is a users row. The
+         two are different tables on purpose — see db.js — so the choice is made
+         here rather than in one shared insert. */
+      const PANEL_ROLES = ['admin', 'ceo', 'finance', 'hr'];
+      const isAgent = role === 'agent';
 
       const refuse = async (message) => {
         h.sendHtml(res, 200, await views.adminLayout({
@@ -1975,7 +2013,11 @@ async function handleAdmin(req, res, ctx) {
         await refuse('That does not look like a valid email address.');
         return true;
       }
-      if (await agents.nameTaken(name)) {
+      if (!isAgent && !PANEL_ROLES.includes(role)) {
+        await refuse('Please choose a role from the list.');
+        return true;
+      }
+      if (isAgent && await agents.nameTaken(name)) {
         await refuse(`An agent called "${name}" already exists.`);
         return true;
       }
@@ -1983,21 +2025,66 @@ async function handleAdmin(req, res, ctx) {
       /* The same generator and the same scrypt hash as every other login in
          the system — a staff password is not a second class of credential. */
       const password = generatePassword(20);
-      const id = await agents.create({
-        name, email, phone, passwordHash: await auth.hashPassword(password)
-      });
-      await audit('agent_create', 'success', {
-        userId: user.id, detail: `agent ${id} (${name})`, ip
+
+      if (isAgent) {
+        const id = await agents.create({
+          name, email, phone, passwordHash: await auth.hashPassword(password)
+        });
+        await audit('agent_create', 'success', {
+          userId: user.id, detail: `agent ${id} (${name})`, ip
+        });
+
+        /* Rendered, not redirected. The password has to be shown exactly once,
+           and a redirect would put it in the browser history. */
+        h.sendHtml(res, 200, await views.adminLayout({
+          title: 'Staff', active: '/admin/staff', user, csrf,
+          body: views.renderStaff({
+            agents: await agents.list(),
+            user, csrf,
+            notice: `${name} added.`,
+            generatedPassword: password,
+            generatedFor: name
+          })
+        }));
+        return true;
+      }
+
+      /* A panel account. users.client_number is UNIQUE, so the next free number
+         for this role's prefix is picked first. */
+      const prefix = PANEL_ROLE_PREFIX[role];
+      const clientNumber = await nextStaffNumber(prefix);
+
+      try {
+        await users.insert({
+          clientNumber,
+          fullName: name,
+          email: email || null,
+          role,
+          passwordHash: await auth.hashPassword(password)
+        });
+      } catch (err) {
+        /* The live database still has CHECK (role IN ('client','admin','manager')).
+           Asking it for 'ceo' fails there, and a raw 500 would be baffling. */
+        if (/CHECK constraint failed/i.test(String(err.message))) {
+          await refuse(
+            `The database does not accept the "${role}" role yet. Its users table still `
+            + `allows only client, admin and manager — run scripts/migrate-roles.js `
+            + `first, then add this person again. "${name}" was NOT created.`);
+          return true;
+        }
+        throw err;
+      }
+
+      await audit('staff_user_create', 'success', {
+        userId: user.id, detail: `user ${clientNumber} (${name}, ${role})`, ip
       });
 
-      /* Rendered, not redirected. The password has to be shown exactly once,
-         and a redirect would put it in the browser history. */
       h.sendHtml(res, 200, await views.adminLayout({
         title: 'Staff', active: '/admin/staff', user, csrf,
         body: views.renderStaff({
           agents: await agents.list(),
           user, csrf,
-          notice: `${name} added.`,
+          notice: `${name} added as ${ROLE_LABEL[role]} (${clientNumber}).`,
           generatedPassword: password,
           generatedFor: name
         })

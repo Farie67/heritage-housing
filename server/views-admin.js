@@ -1239,10 +1239,20 @@ ${rows}
     </div>
 
     <div class="client-card" style="margin-top:20px">
-      <h2>Add an agent</h2>
-      <p class="field-hint">A password is generated and shown once after saving.</p>
+      <h2>Add a team member</h2>
+      <p class="field-hint">A password is generated and shown once after saving. A Sales
+        Agent gets a staff-portal login; the other roles get an admin-panel account instead.</p>
       <form method="post" action="/admin/staff">
         <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="s-role">Role</label>
+        <select id="s-role" name="role">
+          <option value="agent" selected>Sales Agent</option>
+          <option value="admin">Administrator</option>
+          <option value="ceo">CEO</option>
+          <option value="finance">Finance</option>
+          <option value="hr">HR</option>
+        </select>
 
         <label for="s-name">Name</label>
         <input id="s-name" name="name" type="text" required maxlength="120">
@@ -1253,7 +1263,7 @@ ${rows}
         <label for="s-phone">Phone</label>
         <input id="s-phone" name="phone" type="tel" maxlength="40">
 
-        <button class="btn primary" type="submit">Add agent</button>
+        <button class="btn primary" type="submit">Add team member</button>
       </form>
     </div>
   </section>`;
