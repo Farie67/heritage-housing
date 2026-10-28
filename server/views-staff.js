@@ -506,6 +506,10 @@ ${LEAD_STATUSES.map((s) => `          <option${s === lead.status ? ' selected' :
         <label for="followUpDate">Follow-up date</label>
         <input id="followUpDate" name="followUpDate" type="date" value="${esc(lead.follow_up_date || '')}">
 
+        <label for="budget">Budget</label>
+        <input id="budget" name="budget" type="text" maxlength="60" placeholder="US$5,000"
+               value="${esc(lead.budget || '')}">
+
         <label for="notes">Notes</label>
         <textarea id="notes" name="notes" rows="3" maxlength="2000">${esc(lead.notes || '')}</textarea>
 

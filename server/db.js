@@ -826,12 +826,14 @@ const qLeadById = prepare(`${LEAD_SELECT} WHERE l.id = ?`);
    it. That way "not yours" and "does not exist" are the same zero-row result,
    and there is no window between the check and the write.
 
-   budget uses COALESCE so that passing null PRESERVES the stored value. The
-   Manage form only edits status, follow-up date and notes, so a plain
-   `budget = ?` would silently wipe the budget on every save. */
+   budget is a plain assignment now. It used to be COALESCE(?, budget) because
+   the Manage form did not edit the budget, and a null from a form that never
+   sent the field would have wiped it on every save. The form carries the field
+   now, so the value it sends is the value the agent means — including empty,
+   which clears the budget. Preserving on blank would make clearing impossible. */
 const qUpdateLeadForAgent = prepare(`
   UPDATE leads
-     SET status = ?, budget = COALESCE(?, budget), follow_up_date = ?, notes = ?
+     SET status = ?, budget = ?, follow_up_date = ?, notes = ?
    WHERE id = ? AND assigned_agent_id = ?
 `);
 const qUpdateLeadAny = prepare(`
