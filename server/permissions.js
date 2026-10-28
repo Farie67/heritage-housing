@@ -93,10 +93,38 @@ const isStaffRole = (role) => STAFF_ROLES.has(role);
 const CEO_EMAIL = 'ceo@heritagehousing.co.zw';
 
 /**
+ * Addresses that stand for an executive role.
+ *
+ * The database cannot store these roles, so an account carrying one is saved as
+ * 'admin' and narrowed here instead. Add an address to this map to give that
+ * person the role without touching the schema.
+ */
+const ROLE_BY_EMAIL = new Map([
+  [CEO_EMAIL, 'ceo']
+]);
+
+/**
+ * Staff-ID prefixes that stand for an executive role.
+ *
+ * The second way to record an intended role without a role column: the "Add a
+ * team member" form already numbers accounts CEO-001, FIN-001 and HR-001, so the
+ * prefix identifies the role for every account created through it.
+ */
+const ROLE_BY_PREFIX = [
+  ['CEO-', 'ceo'],
+  ['FIN-', 'finance'],
+  ['HR-', 'hr']
+];
+
+/**
  * The role the app should treat this user as.
  *
  * Accepts a user object and returns a role string. Given a plain string it
  * returns it unchanged, so the primitives below can be called with either.
+ *
+ * Resolution order — email first, then staff-ID prefix, then the stored role.
+ * The guard at the top means none of this can ever promote a non-staff account:
+ * a client whose email or ID happened to match is still a client.
  */
 function getEffectiveRole(user) {
   if (!user) return null;
@@ -106,7 +134,12 @@ function getEffectiveRole(user) {
   if (!isStaffRole(stored)) return stored;      // never promote a non-staff account
 
   const email = String(user.email || '').trim().toLowerCase();
-  if (email === CEO_EMAIL) return 'ceo';
+  if (ROLE_BY_EMAIL.has(email)) return ROLE_BY_EMAIL.get(email);
+
+  const id = String(user.client_number || user.clientNumber || '').trim().toUpperCase();
+  for (const [prefix, role] of ROLE_BY_PREFIX) {
+    if (id.startsWith(prefix)) return role;
+  }
 
   return stored;
 }

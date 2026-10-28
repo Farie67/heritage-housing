@@ -2250,8 +2250,22 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
+      /* The users table cannot hold ceo/finance/hr — its CHECK still allows only
+         client, admin and manager, and the rebuild keeps failing on foreign
+         keys. Those roles are therefore stored as 'admin' and resolved back to
+         the intended role by getEffectiveRole, which reads the email address
+         and the CEO-/FIN-/HR- staff-ID prefix.
+
+         The consequence worth understanding: what the office picks is an
+         *intent* recorded outside the role column. If neither the address nor
+         the staff ID identifies the role, the account simply stays a full
+         administrator — so the notice below says which route took effect. */
+      const STORED_ROLE = { ceo: 'admin', finance: 'admin', hr: 'admin' };
+      const storedRole = STORED_ROLE[role] || role;
+      const substituted = storedRole !== role;
+
       try {
-        await users.updateProfile(recordId, { fullName: name, email, role });
+        await users.updateProfile(recordId, { fullName: name, email, role: storedRole });
       } catch (err) {
         if (/CHECK constraint failed/i.test(String(err.message))) {
           h.sendHtml(res, 400, await views.adminLayout({
@@ -2268,8 +2282,28 @@ async function handleAdmin(req, res, ctx) {
       }
 
       await audit('staff_user_update', 'success', {
-        userId: user.id, detail: `user ${recordId} (${name}, ${role})`, ip
+        userId: user.id,
+        detail: `user ${recordId} (${name}, ${role}${substituted ? ' stored as admin' : ''})`, ip
       });
+
+      /* Say plainly which mechanism decided their access, because only one of
+         the two actually narrows the account. */
+      if (substituted) {
+        const row = await users.byId(recordId);
+        const actual = getEffectiveRole(row);
+        if (actual === role) {
+          await backToStaff(`${name} updated. ${role.toUpperCase()} access is in effect.`);
+        } else {
+          await backToStaff(
+            `${name} saved, but their access is still Administrator. The database cannot store `
+            + `"${role}", and neither their email nor their staff ID (${row.client_number}) `
+            + `identifies that role. Give them a ${role} address, or a staff ID beginning `
+            + `${role === 'ceo' ? 'CEO-' : role === 'finance' ? 'FIN-' : 'HR-'}, then save again.`,
+            true);
+        }
+        return true;
+      }
+
       await backToStaff(`${name} updated.`);
       return true;
     }
