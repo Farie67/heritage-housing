@@ -667,13 +667,31 @@ const users = {
    *
    * Listed separately from the agents table: the two are different tables with
    * different columns, and a client card must never appear here.
+   *
+   * `showArchived` picks between the working list and the filed-away one, the
+   * same way the agents table does. Clients are excluded from both — this page
+   * manages staff.
    */
-  staffAccounts: async () => await prepare(`
-    SELECT id, client_number, full_name, email, role, created_at
+  staffAccounts: async (showArchived = false) => await prepare(`
+    SELECT id, client_number, full_name, email, role, created_at, archived
       FROM users
-     WHERE role <> 'client'
+     WHERE role <> 'client' AND archived = ?
      ORDER BY role, full_name COLLATE NOCASE
-  `).all(),
+  `).all(showArchived ? 1 : 0),
+
+  /** Files a panel account away. `archived` is what auth.js refuses at login. */
+  async archiveStaff(id) {
+    const info = await prepare(
+      "UPDATE users SET archived = 1 WHERE id = ? AND role <> 'client'").run(id);
+    return Number(info.changes) > 0;
+  },
+
+  /** Restores a filed-away panel account. */
+  async restoreStaff(id) {
+    const info = await prepare(
+      "UPDATE users SET archived = 0 WHERE id = ? AND role <> 'client'").run(id);
+    return Number(info.changes) > 0;
+  },
 
   /** Edits a panel account's name, email and role. */
   async updateProfile(id, { fullName, email, role }) {
@@ -749,6 +767,19 @@ const qAgentsForAdmin = prepare(`
     FROM agents a
    ORDER BY a.active DESC, a.name
 `);
+/* One list or the other, not both: the page shows active staff by default and
+   archived ones only when asked, so an archived agent cannot be mistaken for
+   someone still on the team. */
+const qAgentsByActive = prepare(`
+  SELECT a.id, a.name, a.email, a.phone, a.active, a.created_at,
+         CASE WHEN a.password_hash IS NULL THEN 0 ELSE 1 END AS has_password,
+         (SELECT COUNT(*) FROM leads l WHERE l.assigned_agent_id = a.id) AS lead_count
+    FROM agents a
+   WHERE a.active = ?
+   ORDER BY a.name COLLATE NOCASE
+`);
+const qArchiveAgent = prepare('UPDATE agents SET active = 0 WHERE id = ?');
+const qRestoreAgent = prepare('UPDATE agents SET active = 1 WHERE id = ?');
 const qAgentNameTaken = prepare('SELECT id FROM agents WHERE lower(name) = lower(?)');
 const qInsertAgent = prepare(`
   INSERT INTO agents (name, email, phone, password_hash, active, created_at)
@@ -799,6 +830,27 @@ const agents = {
 
   /** Every agent, for the staff table on /admin/staff. */
   list: async () => await qAgentsForAdmin.all(),
+
+  /** Active staff, or the archived ones — never both. */
+  listByActive: async (active = true) => await qAgentsByActive.all(active ? 1 : 0),
+
+  /**
+   * Files an agent away without deleting the row.
+   *
+   * `active = 0` stops them signing in (staffSignIn checks it) and leaves every
+   * lead, sale and note they touched exactly where it is. Deleting instead would
+   * either fail on a foreign key or take their history with it.
+   */
+  async archive(id) {
+    const info = await qArchiveAgent.run(id);
+    return Number(info.changes) > 0;
+  },
+
+  /** Puts an archived agent back on the team. */
+  async restore(id) {
+    const info = await qRestoreAgent.run(id);
+    return Number(info.changes) > 0;
+  },
 
   /** `agents.name` is UNIQUE; checked before the insert so the office gets a
       readable message instead of a raw constraint error. */

@@ -1756,7 +1756,6 @@ async function handleAdmin(req, res, ctx) {
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
             leads: await leads.all(), agents: await agents.list(),
-            accounts: await users.staffAccounts(),
             projects: await admin.projectsWithCounts(),
             user, csrf, error: message, values: typed,
             readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
@@ -1811,7 +1810,6 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderLeads({
         leads: await leads.all(),
         agents: await agents.list(),
-            accounts: await users.staffAccounts(),
         projects: await admin.projectsWithCounts(),
         user, csrf,
         /* A form the router would refuse is worse than no form, so the view is
@@ -1859,7 +1857,6 @@ async function handleAdmin(req, res, ctx) {
         lead: { ...lead, agent_name: owner ? owner.name : null },
         notes: await leadNotes.forLead(leadId),
         agents: await agents.list(),
-            accounts: await users.staffAccounts(),
         availableStands: await admin.availableStands(lead.project_id),
         user, csrf,
         readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads'),
@@ -1900,7 +1897,6 @@ async function handleAdmin(req, res, ctx) {
           lead: { ...lead, agent_name: owner ? owner.name : null },
           notes: await leadNotes.forLead(leadId),
           agents: await agents.list(),
-            accounts: await users.staffAccounts(),
           availableStands: await admin.availableStands(lead.project_id),
           user, csrf, error: message,
           readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
@@ -1989,6 +1985,16 @@ async function handleAdmin(req, res, ctx) {
      Agents are not clients: they never appear in the clients list, and they
      sign in at /staff/login with their own cookie and session table. This page
      is the office side of that — who exists, and who can get in. */
+  /* ── Staff ──
+     Active staff unless “Show archived” is asked for. One helper builds the
+     view so a new call site cannot forget one of the two lists, or show the
+     wrong side of the archive. */
+  const staffView = async ({ showArchived = false, ...rest } = {}) => views.renderStaff({
+    agents: await agents.listByActive(!showArchived),
+    accounts: await users.staffAccounts(showArchived),
+    user, csrf, showArchived, ...rest
+  });
+
   if (pathname === '/admin/staff') {
     if (method === 'POST') {
       const name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -2005,9 +2011,7 @@ async function handleAdmin(req, res, ctx) {
       const refuse = async (message) => {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Staff', active: '/admin/staff', user, csrf,
-          body: views.renderStaff({
-            agents: await agents.list(),
-            accounts: await users.staffAccounts(),
+          body: await staffView({
             user, csrf, error: message
           })
         }));
@@ -2043,9 +2047,7 @@ async function handleAdmin(req, res, ctx) {
            and a redirect would put it in the browser history. */
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Staff', active: '/admin/staff', user, csrf,
-          body: views.renderStaff({
-            agents: await agents.list(),
-            accounts: await users.staffAccounts(),
+          body: await staffView({
             user, csrf,
             notice: `${name} added.`,
             generatedPassword: password,
@@ -2087,9 +2089,7 @@ async function handleAdmin(req, res, ctx) {
 
       h.sendHtml(res, 200, await views.adminLayout({
         title: 'Staff', active: '/admin/staff', user, csrf,
-        body: views.renderStaff({
-          agents: await agents.list(),
-            accounts: await users.staffAccounts(),
+        body: await staffView({
           user, csrf,
           notice: `${name} added as ${ROLE_LABEL[role]} (${clientNumber}).`,
           generatedPassword: password,
@@ -2102,12 +2102,13 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     await audit('admin_view', 'success', { userId: user.id, detail: 'staff', ip });
+
+    const staffUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const showArchived = staffUrl.searchParams.get('show') === 'archived';
+
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
-      body: views.renderStaff({
-        agents: await agents.list(),
-            accounts: await users.staffAccounts(), user, csrf
-      })
+      body: await staffView({ showArchived })
     }));
     return true;
   }
@@ -2141,15 +2142,175 @@ async function handleAdmin(req, res, ctx) {
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Staff', active: '/admin/staff', user, csrf,
-      body: views.renderStaff({
-        agents: await agents.list(),
-            accounts: await users.staffAccounts(),
+      body: await staffView({
         user, csrf,
         notice: `Password reset for ${agent.name}.`,
         generatedPassword: password,
         generatedFor: agent.name
       })
     }));
+    return true;
+  }
+
+  /* ── Staff: edit / archive / restore ──
+     The ref is "a-5" or "u-5": agents and users have independent id sequences,
+     so a bare number would be ambiguous and could act on the wrong record. */
+  const staffRefMatch = pathname.match(/^\/admin\/staff\/([au])-(\d+)\/(edit|archive|restore)$/);
+
+  if (staffRefMatch) {
+    const kind = staffRefMatch[1] === 'a' ? 'agent' : 'user';
+    const recordId = Number(staffRefMatch[2]);
+    const action = staffRefMatch[3];
+
+    const backToStaff = async (message, isError = false) => h.sendHtml(res, 200,
+      await views.adminLayout({
+        title: 'Staff', active: '/admin/staff', user, csrf,
+        body: await staffView(isError ? { error: message } : { notice: message })
+      }));
+
+    if (action === 'edit') {
+      const record = kind === 'agent'
+        ? await agents.byId(recordId)
+        : await users.byId(recordId);
+
+      if (!record) {
+        h.sendHtml(res, 404, await views.adminLayout({
+          title: 'Not found', active: '/admin/staff', user, csrf,
+          body: '<section class="container inner-page"><h1>Staff member not found</h1><p><a class="btn primary" href="/admin/staff">Back to staff</a></p></section>'
+        }));
+        return true;
+      }
+
+      if (method === 'GET') {
+        h.sendHtml(res, 200, await views.adminLayout({
+          title: `Edit ${kind === 'agent' ? record.name : record.full_name}`,
+          active: '/admin/staff', user, csrf,
+          body: views.renderStaffEdit({ kind, record, user, csrf })
+        }));
+        return true;
+      }
+
+      if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+      const name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const email = String(body.email || '').trim().slice(0, 160);
+
+      if (name.length < 2) {
+        h.sendHtml(res, 400, await views.adminLayout({
+          title: 'Edit', active: '/admin/staff', user, csrf,
+          body: views.renderStaffEdit({
+            kind, record, user, csrf, error: 'Please enter a name.'
+          })
+        }));
+        return true;
+      }
+      if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+        h.sendHtml(res, 400, await views.adminLayout({
+          title: 'Edit', active: '/admin/staff', user, csrf,
+          body: views.renderStaffEdit({
+            kind, record, user, csrf, error: 'That does not look like a valid email address.'
+          })
+        }));
+        return true;
+      }
+
+      if (kind === 'agent') {
+        const phone = String(body.phone || '').trim().slice(0, 40);
+        await agents.update(recordId, { name, email, phone });
+        await audit('agent_update', 'success', {
+          userId: user.id, detail: `agent ${recordId} (${name})`, ip
+        });
+        await backToStaff(`${name} updated.`);
+        return true;
+      }
+
+      /* Panel accounts only. A client card must never be re-roled from here. */
+      const role = String(body.role || '').trim().toLowerCase();
+      const allowed = ['admin', 'manager', 'ceo', 'finance', 'hr'];
+      if (!allowed.includes(role)) {
+        h.sendHtml(res, 400, await views.adminLayout({
+          title: 'Edit', active: '/admin/staff', user, csrf,
+          body: views.renderStaffEdit({
+            kind, record, user, csrf, error: 'Please choose a role from the list.'
+          })
+        }));
+        return true;
+      }
+
+      /* Never let the signed-in admin demote or re-role their own account by
+         accident — that is how an office locks itself out. */
+      if (recordId === user.id && role !== getEffectiveRole(user)) {
+        h.sendHtml(res, 400, await views.adminLayout({
+          title: 'Edit', active: '/admin/staff', user, csrf,
+          body: views.renderStaffEdit({
+            kind, record, user, csrf,
+            error: 'You cannot change your own role. Ask another administrator to do it.'
+          })
+        }));
+        return true;
+      }
+
+      try {
+        await users.updateProfile(recordId, { fullName: name, email, role });
+      } catch (err) {
+        if (/CHECK constraint failed/i.test(String(err.message))) {
+          h.sendHtml(res, 400, await views.adminLayout({
+            title: 'Edit', active: '/admin/staff', user, csrf,
+            body: views.renderStaffEdit({
+              kind, record, user, csrf,
+              error: `The database does not accept the "${role}" role yet. `
+                + 'Run scripts/migrate-roles.js first. Nothing was changed.'
+            })
+          }));
+          return true;
+        }
+        throw err;
+      }
+
+      await audit('staff_user_update', 'success', {
+        userId: user.id, detail: `user ${recordId} (${name}, ${role})`, ip
+      });
+      await backToStaff(`${name} updated.`);
+      return true;
+    }
+
+    /* archive / restore */
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const label = kind === 'agent'
+      ? (await agents.byId(recordId) || {}).name
+      : (await users.byId(recordId) || {}).full_name;
+
+    if (!label) {
+      h.sendHtml(res, 404, await views.adminLayout({
+        title: 'Not found', active: '/admin/staff', user, csrf,
+        body: '<section class="container inner-page"><h1>Staff member not found</h1><p><a class="btn primary" href="/admin/staff">Back to staff</a></p></section>'
+      }));
+      return true;
+    }
+
+    /* Archiving yourself would end your own access mid-session. */
+    if (kind === 'user' && recordId === user.id && action === 'archive') {
+      await backToStaff('You cannot archive your own account.', true);
+      return true;
+    }
+
+    const done = action === 'archive'
+      ? (kind === 'agent' ? await agents.archive(recordId) : await users.archiveStaff(recordId))
+      : (kind === 'agent' ? await agents.restore(recordId) : await users.restoreStaff(recordId));
+
+    if (!done) {
+      await backToStaff('That change could not be made.', true);
+      return true;
+    }
+
+    await audit(`staff_${action}`, 'success', {
+      userId: user.id, detail: `${kind} ${recordId} (${label})`, ip
+    });
+
+    await backToStaff(action === 'archive'
+      ? `${label} archived. Their records are untouched.`
+      : `${label} restored.`);
     return true;
   }
 
@@ -2183,7 +2344,6 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderActivityLogs({
         logs: await staffLogs.recent({ sortOrder, agentId, date }),
         agents: await agents.list(),
-            accounts: await users.staffAccounts(),
         user, csrf,
         agentId, sortOrder, date, today,
         notice: url.searchParams.get('ok') === 'commented' ? 'Comment added.' : '',

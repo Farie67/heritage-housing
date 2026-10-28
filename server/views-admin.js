@@ -1186,28 +1186,37 @@ const ROLE_LABELS = {
 };
 
 /**
- * The extra actions on one row: Edit, then Delete.
+ * The actions on one row: Edit, then Archive (or Restore, once archived).
  *
  * `ref` is "a-5" or "u-5" — agent or user. The two tables have independent id
- * sequences, so a bare id would be ambiguous and could delete the wrong record.
+ * sequences, so a bare id would be ambiguous and could act on the wrong record.
+ * admin.js strips the prefix back off.
  *
  * data-confirm, not onclick: the site sends script-src 'self' without
- * 'unsafe-inline', so an inline handler is dropped silently and the delete would
+ * 'unsafe-inline', so an inline handler is dropped silently and the button would
  * fire on the first click with no prompt at all.
  */
-function rowActions(ref, csrf, confirmText) {
-  return `              <a class="text-btn" href="/admin/staff/${esc(ref)}/edit">Edit</a>
-              <form method="post" action="/admin/staff/${esc(ref)}/delete" class="inline-form"
-                    data-confirm="${esc(confirmText)}">
+function rowActions(ref, csrf, label, archived) {
+  const action = archived
+    ? `<form method="post" action="/admin/staff/${esc(ref)}/restore" class="inline-form"
+                    data-confirm="${esc(`Put ${label} back on the team? They will be able to sign in again.`)}">
                 <input type="hidden" name="csrf" value="${esc(csrf)}">
-                <button class="text-btn" type="submit">Delete</button>
+                <button class="text-btn" type="submit">Restore</button>
+              </form>`
+    : `<form method="post" action="/admin/staff/${esc(ref)}/archive" class="inline-form"
+                    data-confirm="${esc(`Archive ${label}? They can no longer sign in. Their leads, sales and history are kept, and you can restore them later.`)}">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Archive</button>
               </form>`;
+
+  return `              <a class="text-btn" href="/admin/staff/${esc(ref)}/edit">Edit</a>
+              ${action}`;
 }
 
-function renderStaff({ agents = [], accounts = [], user, csrf, notice = '', error = '',
-  generatedPassword = '', generatedFor = '' }) {
+function renderStaff({ agents = [], accounts = [], showArchived = false,
+  user, csrf, notice = '', error = '', generatedPassword = '', generatedFor = '' }) {
   const rows = agents.length ? agents.map((a) => `          <tr>
-            <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">DISABLED</span>'}</td>
+            <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">ARCHIVED</span>'}</td>
             <td>${a.email ? esc(a.email) : '<span class="muted">&mdash;</span>'}</td>
             <td>${a.phone ? esc(a.phone) : '<span class="muted">&mdash;</span>'}</td>
             <td>${a.has_password
@@ -1219,7 +1228,7 @@ function renderStaff({ agents = [], accounts = [], user, csrf, notice = '', erro
                 <input type="hidden" name="csrf" value="${esc(csrf)}">
                 <button class="text-btn" type="submit">Reset password</button>
               </form>
-${rowActions(`a-${a.id}`, csrf, `Delete ${a.name}? This removes their login and activity history. It cannot be undone.`)}
+${rowActions(`a-${a.id}`, csrf, a.name, !a.active)}
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No agents yet. Add the first one below.</td></tr>';
@@ -1233,7 +1242,7 @@ ${rowActions(`a-${a.id}`, csrf, `Delete ${a.name}? This removes their login and 
             <td><span class="status">${esc(ROLE_LABELS[u.role] || u.role)}</span></td>
             <td>${esc(u.client_number)}</td>
             <td class="actions">
-${rowActions(`u-${u.id}`, csrf, `Delete ${u.full_name}? Their admin-panel login stops working immediately. It cannot be undone.`)}
+${rowActions(`u-${u.id}`, csrf, u.full_name, Boolean(u.archived))}
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No panel accounts yet.</td></tr>';
@@ -1259,9 +1268,17 @@ ${rowActions(`u-${u.id}`, csrf, `Delete ${u.full_name}? Their admin-panel login 
         Reset password.</p>
     </div>` : ''}
 
+    <!-- Active staff by default; archived ones only when asked for, so nobody
+         is mistaken for a current member of the team. -->
+    <p style="margin:18px 0 12px">
+      ${showArchived
+    ? '<a class="btn outline" href="/admin/staff">&larr; Back to active staff</a>'
+    : '<a class="btn outline" href="/admin/staff?show=archived">Show archived staff</a>'}
+    </p>
+
     <div class="client-card">
       <table class="portal-table">
-        <caption>Every sales agent</caption>
+        <caption>${showArchived ? 'Archived sales agents' : 'Every sales agent'}</caption>
         <thead>
           <tr>
             <th scope="col">Name</th>
