@@ -48,35 +48,14 @@ const HANDLE_RE = /^\/admin\/enquiries\/(\d+)\/(handle|reopen)$/;
 /** Paths an unauthenticated visitor may reach. */
 const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
 
-/* The roles that may hold an admin session at all. 'client' is not one of them:
-   a client reaching /admin is sent to their own portal. */
-const STAFF_ROLES = new Set(['admin', 'manager']);
-
-/**
- * What a manager may reach inside the panel.
- *
- * This is an allowlist, not a list of forbidden pages, so a route added later is
- * closed to managers by default rather than accidentally open.
- *
- * The Sales page is /admin/analytics — /admin/sales is its per-sale detail page,
- * which is why both appear. Sub-paths of each (a lead's detail, a sale, the
- * ledger) are covered by the prefix test.
- */
-const MANAGER_PATHS = [
-  '/admin/analytics',
-  '/admin/sales',
-  '/admin/leads',
-  '/admin/activity-logs'
-];
-
-function managerMayReach(pathname) {
-  /* The overview only; not every /admin/* path, which is why this is exact. */
-  if (pathname === '/admin') return true;
-  return MANAGER_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
+/* The roles that may hold an admin session at all, and what each may do. The
+   table itself lives in permissions.js so the router and the navigation read the
+   same facts. 'client' is not a staff role: a client reaching /admin is sent to
+   their own portal. */
+const { isStaffRole, mayReach, mayPerform } = require('./permissions');
 
 function isAdmin(user) {
-  return Boolean(user && STAFF_ROLES.has(user.role));
+  return Boolean(user && isStaffRole(user.role));
 }
 
 /* Flash messages keyed by the ?ok= flag a redirect carries back. */
@@ -442,7 +421,7 @@ async function handleAdmin(req, res, ctx) {
     /* Credentials were valid, but this may be an ordinary client. Tear the
        session down before the cookie is ever issued, so a client can never
        hold an admin-capable session token. */
-    if (!STAFF_ROLES.has(result.user.role)) {
+    if (!isStaffRole(result.user.role)) {
       await auth.destroySession(result.token);
       await audit('admin_login', 'denied', {
         userId: result.user.id, clientNumber, detail: 'not an admin account', ip
@@ -494,11 +473,24 @@ async function handleAdmin(req, res, ctx) {
   /* A manager is a restricted admin — sales, leads and the activity log only.
      Checked here, once, before any page route below runs, so no individual route
      has to remember. */
-  if (user.role === 'manager' && !managerMayReach(pathname)) {
+  /* Two separate questions, asked here, once, before any page route below runs
+     so no individual route has to remember:
+       1. may this role open this page at all?
+       2. may this role perform this method on it?
+     The second only matters for a role that is read-only, or read-only on this
+     part of the panel. */
+  if (!mayReach(user.role, pathname)) {
     await audit('admin_access', 'denied', {
-      userId: user.id, detail: `${method} ${pathname} (manager role)`, ip
+      userId: user.id, detail: `${method} ${pathname} (${user.role} role)`, ip
     });
     return h.redirect(res, '/admin?error=denied'), true;
+  }
+
+  if (!mayPerform(user.role, method, pathname)) {
+    await audit('admin_access', 'denied', {
+      userId: user.id, detail: `${method} ${pathname} (${user.role} is view-only here)`, ip
+    });
+    return h.redirect(res, '/admin?error=readonly'), true;
   }
 
   /* ══ Sales analytics ═══════════════════════════════════════════════════
@@ -810,12 +802,15 @@ async function handleAdmin(req, res, ctx) {
     const recent = (await enquiries.all()).slice(0, 5);
     await audit('admin_view', 'success', { userId: user.id, detail: 'overview', ip });
 
-    /* A manager who reached for a page outside their remit is redirected here
-       rather than shown a bare error page. */
+    /* A role that reached for a page outside its remit, or tried to change
+       something it may only read, lands here rather than on a bare error page. */
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const error = url.searchParams.get('error') === 'denied'
+    const flag = url.searchParams.get('error');
+    const error = flag === 'denied'
       ? 'Access denied. You do not have permission to view this page.'
-      : '';
+      : flag === 'readonly'
+        ? 'Your role is view-only here. That change was not saved.'
+        : '';
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Overview', active: '/admin', user, csrf,
@@ -1725,7 +1720,8 @@ async function handleAdmin(req, res, ctx) {
           body: views.renderLeads({
             leads: await leads.all(), agents: await agents.list(),
             projects: await admin.projectsWithCounts(),
-            user, csrf, error: message, values: typed
+            user, csrf, error: message, values: typed,
+            readOnly: !mayPerform(user.role, 'POST', '/admin/leads')
           })
         }));
       };
@@ -1779,6 +1775,9 @@ async function handleAdmin(req, res, ctx) {
         agents: await agents.list(),
         projects: await admin.projectsWithCounts(),
         user, csrf,
+        /* A form the router would refuse is worse than no form, so the view is
+           told whether this role may actually post it. */
+        readOnly: !mayPerform(user.role, 'POST', '/admin/leads'),
         notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
       })
     }));
@@ -1823,6 +1822,7 @@ async function handleAdmin(req, res, ctx) {
         agents: await agents.list(),
         availableStands: await admin.availableStands(lead.project_id),
         user, csrf,
+        readOnly: !mayPerform(user.role, 'POST', '/admin/leads'),
         notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.' : '',
         error: url.searchParams.get('error') || ''
       })
@@ -1861,7 +1861,8 @@ async function handleAdmin(req, res, ctx) {
           notes: await leadNotes.forLead(leadId),
           agents: await agents.list(),
           availableStands: await admin.availableStands(lead.project_id),
-          user, csrf, error: message
+          user, csrf, error: message,
+          readOnly: !mayPerform(user.role, 'POST', '/admin/leads')
         })
       }));
     };

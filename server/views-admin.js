@@ -30,20 +30,21 @@ const NAV = [
   ['/admin/content', 'Content']
 ];
 
-/* What a manager may see. Kept beside NAV so the two cannot drift apart — and
-   every entry here must also appear in MANAGER_PATHS in admin.js, which is what
-   actually enforces it. Hiding a link is not access control. */
-const MANAGER_NAV = new Set([
-  '/admin',
-  '/admin/analytics',
-  '/admin/leads',
-  '/admin/activity-logs'
-]);
+const { visiblePrefixes } = require('./permissions');
 
-/** The nav links a given user may see. Everyone who is not a manager sees all. */
+/**
+ * The nav links a given user may see.
+ *
+ * Driven by the same table the router enforces, so a link can never point at a
+ * page that would refuse the user. Hiding a link is presentation only — the
+ * router is what actually keeps them out.
+ */
 function navFor(user) {
-  if (!user || user.role !== 'manager') return NAV;
-  return NAV.filter(([href]) => MANAGER_NAV.has(href));
+  const role = user && user.role;
+  if (!role) return [];
+  const prefixes = visiblePrefixes(role);
+  if (prefixes === null) return NAV;          // admin: everything
+  return NAV.filter(([href]) => prefixes.includes(href));
 }
 
 async function adminLayout({ title, active = '', user, csrf, body }) {
@@ -927,7 +928,7 @@ ${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects
 const { LEAD_STATUSES } = require('./lead-input');
 
 function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
-  values = {}, notice = '', error = '' }) {
+  values = {}, readOnly = false, notice = '', error = '' }) {
   /* What was typed, so a rejected form comes back filled in rather than blank. */
   const v = (key) => esc(values[key] == null ? '' : values[key]);
   /* One row, reused inside every folder.
@@ -1009,7 +1010,7 @@ ${folders}
       <p class="field-hint" style="margin-top:12px">Open a lead to view, edit or convert it.</p>
     </div>
 
-    <div class="client-card" style="margin-top:20px">
+    ${readOnly ? '' : `<div class="client-card" style="margin-top:20px">
       <h2>Add a lead</h2>
       <form method="post" action="/admin/leads">
         <input type="hidden" name="csrf" value="${esc(csrf)}">
@@ -1043,7 +1044,7 @@ ${agents.map((a) => `          <option value="${esc(a.id)}"${String(values.assig
 
         <button class="btn primary" type="submit">Add lead</button>
       </form>
-    </div>
+    </div>`}
   </section>`;
 }
 
@@ -1056,7 +1057,7 @@ ${agents.map((a) => `          <option value="${esc(a.id)}"${String(values.assig
  * it takes the agent list as well as the lead.
  */
 function renderAdminLeadDetail({ lead, notes = [], agents = [], availableStands = [],
-  user, csrf, notice = '', error = '' }) {
+  user, csrf, readOnly = false, notice = '', error = '' }) {
   const noteItems = notes.length ? notes.map((n) => `        <li>
           <span class="muted">${esc(formatDate(n.created_at))} &middot; ${esc(n.agent_name)}</span><br>
           ${esc(n.note_text)}
@@ -1136,7 +1137,8 @@ ${field('Follow-up date', lead.follow_up_date)}
 ${field('Added', formatDate(lead.created_at))}
       </div>
     </div>
-${convertCard}
+${readOnly ? `<p class="field-hint" style="margin-top:20px">Your role is view-only on leads, so
+      there is nothing to edit here.</p>` : `${convertCard}
 
     <div class="client-card" style="margin-top:20px">
       <h2>Update this lead</h2>
@@ -1164,7 +1166,7 @@ ${agentOptions}
 
         <button class="btn primary" type="submit">Save changes</button>
       </form>
-    </div>
+    </div>`}
 
     <div class="client-card" style="margin-top:20px">
       <h2>Timeline (${notes.length})</h2>

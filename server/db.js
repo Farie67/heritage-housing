@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
   full_name       TEXT    NOT NULL,
   email           TEXT,
   role            TEXT    NOT NULL DEFAULT 'client'
-                          CHECK (role IN ('client','admin','manager')),
+                          CHECK (role IN ('client','admin','manager','ceo','finance','hr')),
   password_hash   TEXT    NOT NULL,
   created_at      TEXT    NOT NULL,
   disabled        INTEGER NOT NULL DEFAULT 0,
