@@ -1182,7 +1182,14 @@ ${noteItems}
 
 /** How a panel role is shown to the office. */
 const ROLE_LABELS = {
-  admin: 'Administrator', manager: 'Manager', ceo: 'CEO', finance: 'Finance', hr: 'HR'
+  admin: 'Administrator',
+  manager: 'Manager',
+  /* The same person, whichever value the account carries. 'md' is accepted as a
+     spelling of the role but 'ceo' is what the permissions table uses. */
+  ceo: 'Managing Director',
+  md: 'Managing Director',
+  finance: 'Finance',
+  hr: 'HR'
 };
 
 /**
@@ -1332,7 +1339,7 @@ ${accountRows}
         <select id="s-role" name="role">
           <option value="agent" selected>Sales Agent</option>
           <option value="admin">Administrator</option>
-          <option value="ceo">CEO</option>
+          <option value="ceo">Managing Director</option>
           <option value="finance">Finance</option>
           <option value="hr">HR</option>
         </select>
@@ -1354,9 +1361,16 @@ ${accountRows}
 
 /* ── Edit one staff member ──────────────────────────────────────────────── */
 
-/** The panel roles a user account can hold, in the order the office thinks of them. */
+/**
+ * The panel roles a user account can hold, in the order the office thinks of
+ * them.
+ *
+ * The value is what the record is compared against when pre-selecting the
+ * current role, so it must be a stored role — not a display label. 'ceo' covers
+ * the Managing Director; 'md' is accepted elsewhere as a spelling of the same
+ * thing, but is not offered here so one account cannot carry two values.
+ */
 const PANEL_ROLE_CHOICES = ['admin', 'manager', 'ceo', 'finance', 'hr'];
-
 /**
  * Edit page for one member of staff.
  *
@@ -1371,12 +1385,17 @@ function renderStaffEdit({ kind, record, user, csrf, notice = '', error = '' }) 
   const name = isAgent ? record.name : record.full_name;
   const email = record.email || '';
 
+  /* Pre-select by EFFECTIVE role. Every executive is stored as 'admin', so
+     comparing against record.role would open this page showing "Administrator"
+     for the Managing Director and invite someone to "correct" it. */
+  const currentRole = isAgent ? 'agent' : getEffectiveRole(record);
+
   const roleField = isAgent
     ? `        <label for="e-role">Role</label>
         <input id="e-role" type="text" value="Sales Agent" disabled>`
     : `        <label for="e-role">Role</label>
         <select id="e-role" name="role">
-${PANEL_ROLE_CHOICES.map((r) => `          <option value="${esc(r)}"${r === record.role ? ' selected' : ''}>${esc(ROLE_LABELS[r] || r)}</option>`).join('\n')}
+${PANEL_ROLE_CHOICES.map((r) => `          <option value="${esc(r)}"${r === currentRole ? ' selected' : ''}>${esc(ROLE_LABELS[r] || r)}</option>`).join('\n')}
         </select>`;
 
   return `  <section class="container inner-page">

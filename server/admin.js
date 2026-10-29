@@ -70,7 +70,8 @@ const PANEL_ROLE_PREFIX = { admin: 'ADMIN', ceo: 'CEO', finance: 'FIN', hr: 'HR'
 
 /** How each role is described back to whoever added them. */
 const ROLE_LABEL = {
-  agent: 'Sales Agent', admin: 'Administrator', ceo: 'CEO', finance: 'Finance', hr: 'HR'
+  agent: 'Sales Agent', admin: 'Administrator', manager: 'Manager',
+  ceo: 'Managing Director', md: 'Managing Director', finance: 'Finance', hr: 'HR'
 };
 
 /**
@@ -2005,7 +2006,7 @@ async function handleAdmin(req, res, ctx) {
       /* 'agent' lives in the agents table; everything else is a users row. The
          two are different tables on purpose — see db.js — so the choice is made
          here rather than in one shared insert. */
-      const PANEL_ROLES = ['admin', 'ceo', 'finance', 'hr'];
+      const PANEL_ROLES = ['admin', 'ceo', 'md', 'finance', 'hr'];
       const isAgent = role === 'agent';
 
       const refuse = async (message) => {
@@ -2067,7 +2068,13 @@ async function handleAdmin(req, res, ctx) {
          keys. Those roles are saved as 'admin' and resolved back by
          getEffectiveRole, which reads the email address and the staff-ID
          prefix. Same arrangement the edit route uses. */
-      const STORED_ROLE = { ceo: 'admin', finance: 'admin', hr: 'admin' };
+      /* Every role the users table cannot hold is stored as 'admin'. 'manager' is
+      in the list because the live CHECK allows only client and admin — the
+      manager value was rejected there too, which is the error the edit form was
+      throwing. What the office picked is resolved by getEffectiveRole. */
+      const STORED_ROLE = {
+        ceo: 'admin', md: 'admin', manager: 'admin', finance: 'admin', hr: 'admin'
+      };
       const storedRole = STORED_ROLE[role] || role;
       const substituted = storedRole !== role;
 
@@ -2291,7 +2298,7 @@ async function handleAdmin(req, res, ctx) {
 
       /* Panel accounts only. A client card must never be re-roled from here. */
       const role = String(body.role || '').trim().toLowerCase();
-      const allowed = ['admin', 'manager', 'ceo', 'finance', 'hr'];
+      const allowed = ['admin', 'manager', 'ceo', 'md', 'finance', 'hr'];
       if (!allowed.includes(role)) {
         h.sendHtml(res, 400, await views.adminLayout({
           title: 'Edit', active: '/admin/staff', user, csrf,
@@ -2325,7 +2332,13 @@ async function handleAdmin(req, res, ctx) {
          *intent* recorded outside the role column. If neither the address nor
          the staff ID identifies the role, the account simply stays a full
          administrator — so the notice below says which route took effect. */
-      const STORED_ROLE = { ceo: 'admin', finance: 'admin', hr: 'admin' };
+      /* Every role the users table cannot hold is stored as 'admin'. 'manager' is
+      in the list because the live CHECK allows only client and admin — the
+      manager value was rejected there too, which is the error the edit form was
+      throwing. What the office picked is resolved by getEffectiveRole. */
+      const STORED_ROLE = {
+        ceo: 'admin', md: 'admin', manager: 'admin', finance: 'admin', hr: 'admin'
+      };
       const storedRole = STORED_ROLE[role] || role;
       const substituted = storedRole !== role;
 
