@@ -1369,8 +1369,14 @@ ${accountRows}
  * current role, so it must be a stored role — not a display label. 'ceo' covers
  * the Managing Director; 'md' is accepted elsewhere as a spelling of the same
  * thing, but is not offered here so one account cannot carry two values.
+ *
+ * 'manager' is deliberately absent. Nothing in the database identifies a manager
+ * — the role cannot be stored, there is no staff-ID prefix for it and no address
+ * mapping — so choosing it would quietly produce a full administrator, which is
+ * the opposite of what a read-only manager is for. Administrator and Managing
+ * Director cover what the office actually needs.
  */
-const PANEL_ROLE_CHOICES = ['admin', 'manager', 'ceo', 'finance', 'hr'];
+const PANEL_ROLE_CHOICES = ['admin', 'ceo', 'finance', 'hr'];
 /**
  * Edit page for one member of staff.
  *

@@ -2296,9 +2296,14 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      /* Panel accounts only. A client card must never be re-roled from here. */
+      /* Panel accounts only. A client card must never be re-roled from here.
+
+         'manager' is not accepted. It used to be, and because the database
+         stores it as 'admin' with nothing to mark it, choosing it granted full
+         administrator rights. Refusing it here closes the hole for a hand-made
+         POST as well as for the form, which no longer offers it. */
       const role = String(body.role || '').trim().toLowerCase();
-      const allowed = ['admin', 'manager', 'ceo', 'md', 'finance', 'hr'];
+      const allowed = ['admin', 'ceo', 'md', 'finance', 'hr'];
       if (!allowed.includes(role)) {
         h.sendHtml(res, 400, await views.adminLayout({
           title: 'Edit', active: '/admin/staff', user, csrf,
