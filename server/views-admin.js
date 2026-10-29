@@ -31,6 +31,7 @@ const NAV = [
 ];
 
 const { visiblePrefixes, getEffectiveRole } = require('./permissions');
+const { maskEmail, maskPhone } = require('./format');
 
 /**
  * The nav links a given user may see.
@@ -932,6 +933,16 @@ function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
   values = {}, readOnly = false, notice = '', error = '' }) {
   /* What was typed, so a rejected form comes back filled in rather than blank. */
   const v = (key) => esc(values[key] == null ? '' : values[key]);
+
+  /* Only a true administrator sees a lead's contact details in full. The office
+     roles may know a lead exists — that is the point of showing them the table —
+     but not how to reach the person directly. Derived here rather than passed in,
+     so no call site can forget it. Masking is presentation only; anyone who can
+     open the lead can still see the full record there. */
+  const maskContacts = getEffectiveRole(user) !== 'admin';
+  const showContact = (value, mask) => (value
+    ? esc(maskContacts ? mask(value) : value)
+    : '<span class="muted">&mdash;</span>');
   /* One row, reused inside every folder.
      The "Assigned to" column is gone: the folder heading now says whose leads
      these are, so repeating it on every row was noise. */
@@ -946,8 +957,8 @@ function renderLeads({ leads = [], agents = [], projects = [], user, csrf,
      they are not the row's data. */
   const leadRow = (l) => `            <tr${l.created_by === 'admin' ? ' style="color:var(--red)"' : ''}>
               <td><strong>${esc(l.full_name)}</strong></td>
-              <td>${l.phone ? esc(l.phone) : '<span class="muted">&mdash;</span>'}</td>
-              <td>${l.email ? esc(l.email) : '<span class="muted">&mdash;</span>'}</td>
+              <td>${showContact(l.phone, maskPhone)}</td>
+              <td>${showContact(l.email, maskEmail)}</td>
               <td>${l.source ? esc(l.source) : '<span class="muted">&mdash;</span>'}</td>
               <td>${esc(l.status)}</td>
               <td>${l.budget ? esc(l.budget) : '<span class="muted">&mdash;</span>'}</td>
@@ -1222,6 +1233,29 @@ function rowActions(ref, csrf, label, archived) {
 
 function renderStaff({ agents = [], accounts = [], showArchived = false,
   user, csrf, notice = '', error = '', generatedPassword = '', generatedFor = '' }) {
+  /* Edit, Archive and Reset password are the Super Admin's alone. HR can open
+     this page and see who is on the team, but may not change anyone's account.
+     admin.js refuses the same actions server-side, so hiding the buttons is
+     convenience, not the control. */
+  const canManage = getEffectiveRole(user) === 'admin';
+
+  const agentsActions = (a) => (canManage
+    ? `<form method="post" action="/admin/staff/${esc(a.id)}/reset-password" class="inline-form"
+                    data-confirm="Reset this agent's password? Their current one stops working and they are signed out.">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Reset password</button>
+              </form>
+${rowActions(`a-${a.id}`, csrf, a.name, !a.active)}`
+    : '<span class="muted">View only</span>');
+
+  const accountsActions = (u) => (canManage
+    ? `<form method="post" action="/admin/staff/user/${esc(u.id)}/reset-password" class="inline-form"
+                    data-confirm="Reset ${esc(u.full_name)}'s password? Their current one stops working and they are signed out.">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Reset password</button>
+              </form>
+${rowActions(`u-${u.id}`, csrf, u.full_name, Boolean(u.archived))}`
+    : '<span class="muted">View only</span>');
   const rows = agents.length ? agents.map((a) => `          <tr>
             <td><strong>${esc(a.name)}</strong>${a.active ? '' : ' <span class="status open">ARCHIVED</span>'}</td>
             <td>${a.email ? esc(a.email) : '<span class="muted">&mdash;</span>'}</td>
@@ -1230,12 +1264,7 @@ function renderStaff({ agents = [], accounts = [], showArchived = false,
     ? '<span class="status">Can sign in</span>'
     : '<span class="status open">No login</span>'}</td>
             <td class="actions">
-              <form method="post" action="/admin/staff/${esc(a.id)}/reset-password" class="inline-form"
-                    data-confirm="Reset this agent's password? Their current one stops working and they are signed out.">
-                <input type="hidden" name="csrf" value="${esc(csrf)}">
-                <button class="text-btn" type="submit">Reset password</button>
-              </form>
-${rowActions(`a-${a.id}`, csrf, a.name, !a.active)}
+              ${agentsActions(a)}
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No agents yet. Add the first one below.</td></tr>';
@@ -1253,12 +1282,7 @@ ${rowActions(`a-${a.id}`, csrf, a.name, !a.active)}
             <td><span class="status">${esc(ROLE_LABELS[getEffectiveRole(u)] || getEffectiveRole(u))}</span></td>
             <td>${esc(u.client_number)}</td>
             <td class="actions">
-              <form method="post" action="/admin/staff/user/${esc(u.id)}/reset-password" class="inline-form"
-                    data-confirm="Reset ${esc(u.full_name)}'s password? Their current one stops working and they are signed out.">
-                <input type="hidden" name="csrf" value="${esc(csrf)}">
-                <button class="text-btn" type="submit">Reset password</button>
-              </form>
-${rowActions(`u-${u.id}`, csrf, u.full_name, Boolean(u.archived))}
+              ${accountsActions(u)}
             </td>
           </tr>`).join('\n')
     : '          <tr><td colspan="5">No panel accounts yet.</td></tr>';

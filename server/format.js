@@ -166,7 +166,55 @@ function staffLogOpen(now = new Date()) {
 /** The window as a label, for the notice that explains it. */
 const STAFF_LOG_WINDOW = '07:50 and 17:10';
 
+/* ── Contact masking ────────────────────────────────────────────────────────
+   For roles that may see a lead exists but not how to reach them. The domain is
+   kept so the office can still tell a business address from a personal one.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Hides the first three characters of the local part.
+ *
+ *   carden@heritagehousing.co.zw  ->  ***den@heritagehousing.co.zw
+ *
+ * A local part of three characters or fewer is hidden entirely, so masking a
+ * short address cannot leak it by showing the whole thing.
+ */
+function maskEmail(email) {
+  const value = String(email == null ? '' : email).trim();
+  if (!value) return '';
+
+  const at = value.lastIndexOf('@');
+  if (at < 1) return '***';            // no local part to keep
+
+  const local = value.slice(0, at);
+  const domain = value.slice(at);
+  if (local.length <= 3) return `***${domain}`;
+
+  return `***${local.slice(3)}${domain}`;
+}
+
+/**
+ * Hides the last three characters of a phone number.
+ *
+ *   0771234567  ->  0771234***
+ *
+ * Everything except the final three characters is kept — the brief also says
+ * "keep the first 6", but its own worked example keeps seven of ten, so the
+ * example is what this follows: mask the tail, keep the rest.
+ *
+ * The last three characters rather than the last three *digits* so a number
+ * written "+263 771 234 567" masks its tail whether or not it ends in a space.
+ */
+function maskPhone(phone) {
+  const value = String(phone == null ? '' : phone).trim();
+  if (!value) return '';
+  if (value.length <= 3) return '***';
+
+  return `${value.slice(0, value.length - 3)}***`;
+}
+
 module.exports = {
   money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify, todayIso,
-  utcRangeForLocalDate, harareMinutes, staffLogOpen, STAFF_LOG_WINDOW
+  utcRangeForLocalDate, harareMinutes, staffLogOpen, STAFF_LOG_WINDOW,
+  maskEmail, maskPhone
 };

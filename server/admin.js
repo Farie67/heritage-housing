@@ -1759,7 +1759,7 @@ async function handleAdmin(req, res, ctx) {
             leads: await leads.all(), agents: await agents.list(),
             projects: await admin.projectsWithCounts(),
             user, csrf, error: message, values: typed,
-            readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
+            readOnly: getEffectiveRole(user) !== 'admin'
           })
         }));
       };
@@ -1815,7 +1815,7 @@ async function handleAdmin(req, res, ctx) {
         user, csrf,
         /* A form the router would refuse is worse than no form, so the view is
            told whether this role may actually post it. */
-        readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads'),
+        readOnly: getEffectiveRole(user) !== 'admin',
         notice: url.searchParams.get('ok') === 'added' ? 'Lead added.' : ''
       })
     }));
@@ -1860,7 +1860,7 @@ async function handleAdmin(req, res, ctx) {
         agents: await agents.list(),
         availableStands: await admin.availableStands(lead.project_id),
         user, csrf,
-        readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads'),
+        readOnly: getEffectiveRole(user) !== 'admin',
         notice: url.searchParams.get('ok') === 'updated' ? 'Lead updated.' : '',
         error: url.searchParams.get('error') || ''
       })
@@ -1900,7 +1900,7 @@ async function handleAdmin(req, res, ctx) {
           agents: await agents.list(),
           availableStands: await admin.availableStands(lead.project_id),
           user, csrf, error: message,
-          readOnly: !mayPerform(getEffectiveRole(user), 'POST', '/admin/leads')
+          readOnly: getEffectiveRole(user) !== 'admin'
         })
       }));
     };
@@ -1995,6 +1995,38 @@ async function handleAdmin(req, res, ctx) {
     accounts: await users.staffAccounts(showArchived),
     user, csrf, showArchived, ...rest
   });
+
+  /**
+   * Editing, archiving and password resets are the Administrator's alone.
+   *
+   * Called at the top of each route, before any work. Hiding the buttons is
+   * convenience; this is the control — it refuses a guessed URL and a hand-made
+   * POST the same way.
+   *
+   * Returns true when it has already answered the request.
+   */
+  const refusedByRole = async () => {
+    const role = getEffectiveRole(user);
+    if (role === 'admin') return false;
+
+    await audit('admin_access', 'denied', {
+      userId: user.id, detail: `staff management as ${role} at ${method} ${pathname}`, ip
+    });
+
+    /* The label comes from a fixed table, so nothing here needs escaping — and
+       admin.js deliberately does not import esc. */
+    h.sendHtml(res, 403, await views.adminLayout({
+      title: 'Forbidden', active: '/admin', user, csrf,
+      body: `  <section class="container inner-page">
+    <span class="eyebrow dark">FORBIDDEN</span>
+    <h1>Not available to your role</h1>
+    <p>Managing other people's accounts is limited to an Administrator. You are
+      signed in as ${ROLE_LABEL[role] || 'an unknown role'}.</p>
+    <p><a class="btn primary" href="/admin/staff">Back to staff</a></p>
+  </section>`
+    }));
+    return true;
+  };
 
   if (pathname === '/admin/staff') {
     if (method === 'POST') {
@@ -2146,6 +2178,7 @@ async function handleAdmin(req, res, ctx) {
   /* ── Staff: reset a password ── */
   const agentResetMatch = pathname.match(/^\/admin\/staff\/(\d+)\/reset-password$/);
   if (agentResetMatch) {
+    if (await refusedByRole()) return true;
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
     const agentId = Number(agentResetMatch[1]);
@@ -2189,6 +2222,7 @@ async function handleAdmin(req, res, ctx) {
   const userResetMatch = pathname.match(/^\/admin\/staff\/user\/(\d+)\/reset-password$/);
 
   if (userResetMatch) {
+    if (await refusedByRole()) return true;
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
     const accountId = Number(userResetMatch[1]);
@@ -2230,6 +2264,7 @@ async function handleAdmin(req, res, ctx) {
   const staffRefMatch = pathname.match(/^\/admin\/staff\/([au])-(\d+)\/(edit|archive|restore)$/);
 
   if (staffRefMatch) {
+    if (await refusedByRole()) return true;
     const kind = staffRefMatch[1] === 'a' ? 'agent' : 'user';
     const recordId = Number(staffRefMatch[2]);
     const action = staffRefMatch[3];
