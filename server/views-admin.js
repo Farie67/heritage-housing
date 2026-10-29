@@ -1235,13 +1235,22 @@ ${rowActions(`a-${a.id}`, csrf, a.name, !a.active)}
 
   /* Panel accounts are rows in users, not agents — a different table with a
      different role column, so they get their own table rather than being
-     squeezed into the agents grid. */
+     squeezed into the agents grid.
+
+     The role shown is the EFFECTIVE one. The database stores 'admin' for every
+     executive because its CHECK cannot hold the new values, so printing
+     u.role here would label the CEO and the Finance manager as administrators. */
   const accountRows = accounts.length ? accounts.map((u) => `          <tr>
             <td><strong>${esc(u.full_name)}</strong></td>
             <td>${u.email ? esc(u.email) : '<span class="muted">&mdash;</span>'}</td>
-            <td><span class="status">${esc(ROLE_LABELS[u.role] || u.role)}</span></td>
+            <td><span class="status">${esc(ROLE_LABELS[getEffectiveRole(u)] || getEffectiveRole(u))}</span></td>
             <td>${esc(u.client_number)}</td>
             <td class="actions">
+              <form method="post" action="/admin/staff/user/${esc(u.id)}/reset-password" class="inline-form"
+                    data-confirm="Reset ${esc(u.full_name)}'s password? Their current one stops working and they are signed out.">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="text-btn" type="submit">Reset password</button>
+              </form>
 ${rowActions(`u-${u.id}`, csrf, u.full_name, Boolean(u.archived))}
             </td>
           </tr>`).join('\n')

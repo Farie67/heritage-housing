@@ -17,7 +17,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const config = require('./config');
-const { audit, admin, enquiries, users, agents, staffSessions, leads, staffLogs,
+const { audit, admin, enquiries, users, agents, sessions, staffSessions, leads, staffLogs,
   leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
   STAND_STATUSES, PROJECT_STATUSES, findLeadByPhone } = require('./db');
 const contentSchema = require('./content');
@@ -2170,6 +2170,48 @@ async function handleAdmin(req, res, ctx) {
         notice: `Password reset for ${agent.name}.`,
         generatedPassword: password,
         generatedFor: agent.name
+      })
+    }));
+    return true;
+  }
+
+  /* ── Staff: reset a panel account's password ──
+     A separate route from the agent one because it writes to `users`, which has
+     its own id sequence. Spelled out in the path rather than prefixed, so the
+     two resets cannot be confused. */
+  const userResetMatch = pathname.match(/^\/admin\/staff\/user\/(\d+)\/reset-password$/);
+
+  if (userResetMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const accountId = Number(userResetMatch[1]);
+    const account = await users.byId(accountId);
+
+    if (!account || account.role === 'client') {
+      h.sendHtml(res, 404, await views.adminLayout({
+        title: 'Not found', active: '/admin/staff', user, csrf,
+        body: '<section class="container inner-page"><h1>Account not found</h1><p><a class="btn primary" href="/admin/staff">Back to staff</a></p></section>'
+      }));
+      return true;
+    }
+
+    const password = generatePassword(20);
+    await users.setPassword(accountId, await auth.hashPassword(password));
+
+    /* A new password must end every session the old one opened. */
+    await sessions.destroyAllForUser(accountId);
+
+    await audit('staff_user_password_reset', 'success', {
+      userId: user.id, detail: `user ${accountId} (${account.full_name})`, ip
+    });
+
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: 'Staff', active: '/admin/staff', user, csrf,
+      body: await staffView({
+        user, csrf,
+        notice: `Password reset for ${account.full_name}.`,
+        generatedPassword: password,
+        generatedFor: account.full_name
       })
     }));
     return true;

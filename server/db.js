@@ -702,6 +702,24 @@ const users = {
   },
 
   /**
+   * Sets a new password and clears everything that was holding the account shut.
+   *
+   * A reset that left a locked or archived row locked would be useless — the
+   * point is that the person can sign in again. Only staff roles are touched;
+   * a client password is reset from the client page, where the ownership and
+   * payment history sits.
+   */
+  async setPassword(id, hash) {
+    const info = await prepare(`
+      UPDATE users
+         SET password_hash = ?, disabled = 0, archived = 0,
+             failed_attempts = 0, locked_until = NULL
+       WHERE id = ? AND role <> 'client'
+    `).run(hash, id);
+    return Number(info.changes) > 0;
+  },
+
+  /**
    * Removes a panel account.
    *
    * Refuses to touch a 'client' at all — every financial row in the system

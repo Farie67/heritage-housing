@@ -101,6 +101,9 @@ const CEO_EMAIL = 'ceo@heritagehousing.co.zw';
  */
 const ROLE_BY_EMAIL = new Map([
   [CEO_EMAIL, 'ceo'],
+  /* The MD's account was created with this address rather than the CEO one
+     above; both map to the same role, so either spelling works. */
+  ['md@heritagehousing.co.zw', 'ceo'],
   ['finance@heritagehousing.co.zw', 'finance'],
   ['hr@heritagehousing.co.zw', 'hr']
 ]);
