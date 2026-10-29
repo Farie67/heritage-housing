@@ -35,15 +35,49 @@ const { maskEmail, maskPhone } = require('./format');
 const { sanitizeRichText } = require('./sanitize');
 
 /**
- * The body of an activity log entry.
+ * Unwraps HTML entities so already-escaped text can be read as markup.
  *
- * Rendered through the sanitiser, which escapes everything and then revives only
- * bare allowlisted tags (strong, em, p, br, ul/ol/li …). That gives the office
- * the formatting the agent wrote without handing them a way to inject markup
- * into an administrator's page — the same treatment views-staff.js gives it.
+ * Some activity logs were stored with their markup already escaped
+ * (`&lt;br&gt;`, `&amp;nbsp;`) rather than as tags. Handed straight to the
+ * sanitiser that stays inert and the office reads the literal characters
+ * "<br>". Unwrapping first lets the sanitiser see the real tag.
+ *
+ * This is safe only because sanitizeRichText is the gate immediately after:
+ * every `<` this produces is escaped again and only bare allowlisted tags are
+ * revived, so an unwrapped `<script>` is still removed. The loop is bounded so
+ * a deliberately nested payload cannot be decoded into something new.
+ */
+const NAMED_ENTITIES = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  '#39': "'", '#x27': "'", '#x27': "'"
+};
+
+function decodeEntities(html) {
+  let out = String(html == null ? '' : html);
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = out.replace(/&(nbsp|amp|lt|gt|quot|apos|#39|#x27);/gi,
+      (match, name) => {
+        const key = name.toLowerCase();
+        return Object.hasOwn(NAMED_ENTITIES, key) ? NAMED_ENTITIES[key] : match;
+      });
+    if (next === out) break;
+    out = next;
+  }
+
+  return out;
+}
+
+/**
+ * The body of an activity log entry, as markup.
+ *
+ * Unwrap the escaping, then let sanitizeRichText revive only bare allowlisted
+ * tags (strong, em, p, br, ul/ol/li …). That renders the formatting the agent
+ * wrote and cannot let markup through: anything not on the allowlist comes back
+ * as visible text.
  */
 function logBody(text) {
-  return sanitizeRichText(text);
+  return sanitizeRichText(decodeEntities(text));
 }
 
 /**
