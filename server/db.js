@@ -731,9 +731,12 @@ const qInsertSession = prepare(`
   INSERT INTO sessions (token_hash, user_id, created_at, expires_at, ip, user_agent)
   VALUES (?, ?, ?, ?, ?, ?)
 `);
+/* email is carried into the session because permissions.js resolves an
+   executive's role from the address — without it, a CEO saved as 'admin' would
+   sign in as a full administrator. */
 const qFindSession = prepare(`
   SELECT s.token_hash, s.user_id, s.expires_at,
-         u.client_number, u.full_name, u.role, u.disabled, u.archived
+         u.client_number, u.full_name, u.email, u.role, u.disabled, u.archived
   FROM sessions s
   JOIN users u ON u.id = s.user_id
   WHERE s.token_hash = ?

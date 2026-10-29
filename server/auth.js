@@ -103,6 +103,9 @@ async function sessionUser(token) {
     id: row.user_id,
     clientNumber: row.client_number,
     fullName: row.full_name,
+    /* Carried so permissions.js can resolve an executive's role from the
+       address. Without it the CEO would be a plain administrator. */
+    email: row.email,
     role: row.role
   };
 }
@@ -329,6 +332,9 @@ async function signIn(clientNumber, password, { ip, userAgent }) {
       id: user.id,
       clientNumber: user.client_number,
       fullName: user.full_name,
+      /* Same reason as sessionUser: permissions.js reads the address to work
+         out an executive's role. */
+      email: user.email,
       role: user.role
     }
   };

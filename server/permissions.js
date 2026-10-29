@@ -100,7 +100,9 @@ const CEO_EMAIL = 'ceo@heritagehousing.co.zw';
  * person the role without touching the schema.
  */
 const ROLE_BY_EMAIL = new Map([
-  [CEO_EMAIL, 'ceo']
+  [CEO_EMAIL, 'ceo'],
+  ['finance@heritagehousing.co.zw', 'finance'],
+  ['hr@heritagehousing.co.zw', 'hr']
 ]);
 
 /**

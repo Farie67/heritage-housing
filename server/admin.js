@@ -2062,17 +2062,26 @@ async function handleAdmin(req, res, ctx) {
       const prefix = PANEL_ROLE_PREFIX[role];
       const clientNumber = await nextStaffNumber(prefix);
 
+      /* The users table cannot hold ceo/finance/hr — its CHECK still allows only
+         client, admin and manager, and the rebuild keeps failing on foreign
+         keys. Those roles are saved as 'admin' and resolved back by
+         getEffectiveRole, which reads the email address and the staff-ID
+         prefix. Same arrangement the edit route uses. */
+      const STORED_ROLE = { ceo: 'admin', finance: 'admin', hr: 'admin' };
+      const storedRole = STORED_ROLE[role] || role;
+      const substituted = storedRole !== role;
+
       try {
         await users.insert({
           clientNumber,
           fullName: name,
           email: email || null,
-          role,
+          role: storedRole,
           passwordHash: await auth.hashPassword(password)
         });
       } catch (err) {
-        /* The live database still has CHECK (role IN ('client','admin','manager')).
-           Asking it for 'ceo' fails there, and a raw 500 would be baffling. */
+        /* Belt and braces: if the substitution above ever misses a role the
+           CHECK still rejects, say so instead of throwing a raw 500. */
         if (/CHECK constraint failed/i.test(String(err.message))) {
           await refuse(
             `The database does not accept the "${role}" role yet. Its users table still `
@@ -2084,14 +2093,28 @@ async function handleAdmin(req, res, ctx) {
       }
 
       await audit('staff_user_create', 'success', {
-        userId: user.id, detail: `user ${clientNumber} (${name}, ${role})`, ip
+        userId: user.id,
+        detail: `user ${clientNumber} (${name}, ${role}${substituted ? ' stored as admin' : ''})`, ip
       });
+
+      /* Report what actually took effect, not what was asked for: the role is
+         only real if the email or the staff ID identifies it. */
+      let notice = `${name} added as ${ROLE_LABEL[role]} (${clientNumber}).`;
+      if (substituted) {
+        const row = await users.byClientNumber(clientNumber);
+        const actual = getEffectiveRole(row);
+        notice = actual === role
+          ? `${name} added as ${ROLE_LABEL[role]} (${clientNumber}).`
+          : `${name} was added, but their access is Administrator, not ${ROLE_LABEL[role]}. `
+            + `Neither their email nor their staff ID (${clientNumber}) identifies that role — `
+            + `give them a ${role} address to fix it.`;
+      }
 
       h.sendHtml(res, 200, await views.adminLayout({
         title: 'Staff', active: '/admin/staff', user, csrf,
         body: await staffView({
           user, csrf,
-          notice: `${name} added as ${ROLE_LABEL[role]} (${clientNumber}).`,
+          notice,
           generatedPassword: password,
           generatedFor: name
         })
