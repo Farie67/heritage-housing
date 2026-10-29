@@ -64,13 +64,21 @@ function sanitizeRichText(input) {
   /* Revive only bare open/close tags from the allowlist. The pattern demands
      that nothing at all sits between the tag name and the closing bracket, so
      any tag carrying an attribute fails to match and stays escaped text. */
-  return escaped.replace(/&lt;(\/?)([a-zA-Z0-9]+)(\s*\/?)&gt;/g, (match, slash, name) => {
+  const withTags = escaped.replace(/&lt;(\/?)([a-zA-Z0-9]+)(\s*\/?)&gt;/g, (match, slash, name) => {
     const tag = name.toLowerCase();
     if (!ALLOWED_TAGS.has(tag)) return '';
     /* <br> and <br/> are the only void tags we allow. */
     if (tag === 'br') return '<br>';
     return `<${slash}${tag}>`;
   });
+
+  /* Undo ONE level of escaping for a short list of harmless entities.
+     escapeHtml turns every & into &amp;, so a stored `&nbsp;` arrives here as
+     `&amp;nbsp;` and the browser would print the five visible characters
+     "&nbsp;". Decoding it back to `&nbsp;` makes it a space again.
+     This is safe because each replacement produces an entity reference, never a
+     tag: `&amp;lt;` becomes `&lt;`, which the browser shows as the text "<". */
+  return withTags.replace(/&amp;(nbsp|amp|lt|gt|quot|apos|#39|#x27);/gi, '&$1;');
 }
 
 /**

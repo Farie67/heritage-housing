@@ -32,6 +32,19 @@ const NAV = [
 
 const { visiblePrefixes, getEffectiveRole } = require('./permissions');
 const { maskEmail, maskPhone } = require('./format');
+const { sanitizeRichText } = require('./sanitize');
+
+/**
+ * The body of an activity log entry.
+ *
+ * Rendered through the sanitiser, which escapes everything and then revives only
+ * bare allowlisted tags (strong, em, p, br, ul/ol/li …). That gives the office
+ * the formatting the agent wrote without handing them a way to inject markup
+ * into an administrator's page — the same treatment views-staff.js gives it.
+ */
+function logBody(text) {
+  return sanitizeRichText(text);
+}
 
 /**
  * The nav links a given user may see.
@@ -1501,7 +1514,7 @@ function renderActivityLogs({ logs = [], agents = [], user, csrf,
   const rows = logs.length ? logs.map((g) => `          <tr>
             <td>${esc(formatDate(g.created_at))}</td>
             <td>${esc(g.agent_name)}</td>
-            <td>${esc(g.log_text)}${commentsFor(g)}</td>
+            <td><div class="rich-text">${logBody(g.log_text)}</div>${commentsFor(g)}</td>
           </tr>`).join('\n')
     : '          <tr><td colspan="3">No activity reported on this date.</td></tr>';
 
