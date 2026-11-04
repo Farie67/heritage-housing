@@ -52,7 +52,9 @@ const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
    table itself lives in permissions.js so the router and the navigation read the
    same facts. 'client' is not a staff role: a client reaching /admin is sent to
    their own portal. */
-const { isStaffRole, getEffectiveRole, mayReach, mayPerform, landingFor } = require('./permissions');
+const {
+  isStaffRole, getEffectiveRole, mayReach, mayPerform, landingFor, OVERVIEW
+} = require('./permissions');
 
 function isAdmin(user) {
   /* getEffectiveRole may only narrow a role, never widen it, so a client whose
