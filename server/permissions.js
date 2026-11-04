@@ -83,8 +83,13 @@ const ROLES = {
     writePatterns: [
       /^\/admin\/clients$/,
       /^\/admin\/clients\/new$/,
-      /* Save details, reset password, disable/enable, archive, record a payment. */
-      /^\/admin\/clients\/\d+\/(update|reset-password|disable|archive|payments)$/,
+      /* Save details, reset password, disable/enable, archive, record a payment,
+         and assign a stand — which is how a sale is closed from the client page.
+         `stand` is the form at /admin/clients/:id/stand.
+
+         `unlink` is deliberately NOT here: it undoes a sale, and removing a
+         client's property is an administrator's decision, not hers. */
+      /^\/admin\/clients\/\d+\/(update|reset-password|disable|archive|payments|stand)$/,
       /^\/admin\/properties$/
     ]
   }

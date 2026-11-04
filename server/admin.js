@@ -305,7 +305,11 @@ async function sendClientPage(res, h, id, opts) {
       /* Resolved from the signed-in user rather than passed in, so every caller
          gets the right answer without remembering to pass it. */
       canModifyPayments: mayPerform(
-        getEffectiveRole(opts.user), 'POST', `/admin/clients/${id}/payments/0/delete`)
+        getEffectiveRole(opts.user), 'POST', `/admin/clients/${id}/payments/0/delete`),
+      /* Unlinking a stand and deleting a document are administrator actions —
+         the CRM may assign a stand but not take one away. */
+      canManageClient: mayPerform(
+        getEffectiveRole(opts.user), 'POST', `/admin/clients/${id}/unlink`)
     })
   }));
 }

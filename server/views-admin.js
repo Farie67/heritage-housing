@@ -448,11 +448,6 @@ ${g.clients.map(clientRow).join('\n')}
     <div class="client-card">
 ${tables}
     </div>
-
-    <div class="notice info" style="margin-top:20px">
-      Editing clients, recording payments and uploading documents are the next
-      phase of this build. This view is read-only for now.
-    </div>
   </section>`;
 }
 
@@ -460,7 +455,8 @@ ${tables}
 
 function renderClientDetail({
   client, payments, stands, agents = [], documents = [], basePath, user, csrf,
-  notice = '', error = '', generatedPassword = '', canModifyPayments = true
+  notice = '', error = '', generatedPassword = '', canModifyPayments = true,
+  canManageClient = true
 }) {
   const purchase = client.purchase_price_cents || 0;
   /* Only confirmed money reduces the balance; anything else is money the
@@ -521,11 +517,11 @@ function renderClientDetail({
           <span>${esc(d.title)}<br><small class="muted">${esc(formatBytes(d.size_bytes))} &middot; ${esc(formatDate(d.uploaded_at))}</small></span>
           <span class="document-actions">
             <a href="/admin/clients/${esc(client.id)}/documents/${esc(d.id)}/download">Download</a>
-            <form method="post" action="${esc(basePath)}/documents/${esc(d.id)}/delete" class="inline-form"
+            ${canManageClient ? `<form method="post" action="${esc(basePath)}/documents/${esc(d.id)}/delete" class="inline-form"
                   data-confirm="Delete this document? The file is removed permanently.">
               <input type="hidden" name="csrf" value="${esc(csrf)}">
               <button class="link-danger" type="submit">Delete</button>
-            </form>
+            </form>` : ''}
           </span>
         </div>`).join('\n')
     : '        <p class="muted">No documents shared with this client yet.</p>';
@@ -613,11 +609,11 @@ function renderClientDetail({
           <div><small>Purchase price</small><strong>${esc(money(purchase))}</strong></div>
           <div><small>Purchased</small><strong>${esc(formatDate(client.purchase_date))}</strong></div>
         </div>
-        <form method="post" action="${esc(basePath)}/unlink" class="stack"
+        ${canManageClient ? `<form method="post" action="${esc(basePath)}/unlink" class="stack"
               data-confirm="Unlink this stand? The stand becomes available again.">
           <input type="hidden" name="csrf" value="${esc(csrf)}">
           <button class="btn outline" type="submit">Unlink stand</button>
-        </form>` : `
+        </form>` : ''}` : `
         <p class="muted">No stand linked to this client yet.</p>
         <form method="post" action="${esc(basePath)}/stand">
           <input type="hidden" name="csrf" value="${esc(csrf)}">
