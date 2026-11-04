@@ -22,6 +22,10 @@ const STAFF = ['/admin/staff'];
 const CLIENTS = ['/admin/clients'];
 const PROPERTIES = ['/admin/properties'];
 
+/* The CRM's own page for closing a sale. Deliberately separate from LEADS: she
+   needs to pick a lead and convert it, not to browse or edit the pipeline. */
+const RECORD_SALE = ['/admin/record-sale'];
+
 const OVERVIEW = '/admin';
 
 /**
@@ -67,18 +71,18 @@ const ROLES = {
   },
 
   /* Customer Relations Manager.
-     Two pages only: the Sales report and Properties. No Overview — landing on
-     /admin sends her to /admin/analytics instead.
+     Two pages, plus one purpose-built page for recording a sale. No Overview —
+     landing on /admin sends her to /admin/analytics instead.
 
      createPaths is the narrow grant the brief asks for: she may POST to a
-     create endpoint (adding a property) but nothing deeper, so editing or
-     deleting an existing record is refused even though she can open its page.
-     Contrast readOnly, which would block the add as well. */
+     create endpoint (adding a property, recording a sale) but nothing deeper,
+     so editing or deleting an existing record is refused even though she can
+     open its page. Contrast readOnly, which would block the add as well. */
   crm: {
-    paths: [...SALES, ...PROPERTIES],
+    paths: [...SALES, ...PROPERTIES, ...RECORD_SALE],
     readOnly: false,
     readOnlyPaths: [],
-    createPaths: [...PROPERTIES]
+    createPaths: [...PROPERTIES, ...RECORD_SALE]
   }
 };
 
@@ -242,5 +246,5 @@ function visiblePrefixes(userOrRole) {
 
 module.exports = {
   ROLES, STAFF_ROLES, isStaffRole, getEffectiveRole, mayReach, mayPerform, visiblePrefixes,
-  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES
+  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES, RECORD_SALE
 };

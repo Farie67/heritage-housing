@@ -20,6 +20,9 @@ const { PAYMENT_METHODS, PROPERTY_TYPES, STAND_STATUSES, PROJECT_STATUSES } = re
 const NAV = [
   ['/admin', 'Overview'],
   ['/admin/analytics', 'Sales'],
+  /* Third element: the roles that see this link. Omitted means every role that
+     can reach the page. */
+  ['/admin/record-sale', 'Record Sale', ['crm']],
   ['/admin/enquiries', 'Enquiries'],
   ['/admin/leads', 'Leads'],
   ['/admin/clients', 'Clients'],
@@ -91,9 +94,15 @@ function logBody(text) {
 function navFor(user) {
   const role = getEffectiveRole(user);
   if (!role) return [];
+
+  /* An entry may name the roles it belongs to. "Record Sale" is the CRM's
+     purpose-built page; an administrator converts leads from the lead itself,
+     so the link would only be a second way to do the same thing. */
+  const allowed = (entry) => !entry[2] || entry[2].includes(role);
+
   const prefixes = visiblePrefixes(role);
-  if (prefixes === null) return NAV;          // admin: everything
-  return NAV.filter(([href]) => prefixes.includes(href));
+  if (prefixes === null) return NAV.filter(allowed);          // admin: everything
+  return NAV.filter((entry) => allowed(entry) && prefixes.includes(entry[0]));
 }
 
 async function adminLayout({ title, active = '', user, csrf, body }) {
@@ -1618,6 +1627,71 @@ ${rows}
   </section>`;
 }
 
+/**
+ * The CRM's page for closing a sale.
+ *
+ * One form, two dropdowns and a price. She can convert a lead without ever
+ * seeing the pipeline: the leads offered here are already filtered to the open
+ * ones, and the property list to the stands still available.
+ *
+ * Takes an options object like every other view in this file, so a caller that
+ * forgets an argument gets an empty list rather than the whole dataset.
+ */
+function renderRecordSale({ leads = [], stands = [], user, csrf,
+  notice = '', error = '', values = {} }) {
+  const v = (key) => esc(values[key] == null ? '' : values[key]);
+
+  const leadOptions = leads.length
+    ? leads.map((l) => `            <option value="${esc(l.id)}"${String(l.id) === String(values.leadId) ? ' selected' : ''}>${esc(l.full_name)}${l.phone ? ` — ${esc(l.phone)}` : ''}</option>`).join('\n')
+    : '            <option value="">No open leads</option>';
+
+  const standOptions = stands.length
+    ? stands.map((s) => `            <option value="${esc(s.id)}"${String(s.id) === String(values.standId) ? ' selected' : ''}>${esc(s.stand_number)} — ${esc(s.project_name)}</option>`).join('\n')
+    : '            <option value="">No available properties</option>';
+
+  const ready = leads.length > 0 && stands.length > 0;
+
+  return `  <section class="container inner-page">
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">SALES</span>
+        <h1>Record a sale</h1>
+        <p class="muted">Close an open lead against an available property. The client
+          account is created at the same time.</p>
+      </div>
+    </div>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    ${ready ? '' : `<p class="notice info">A sale needs at least one open lead and one
+      available property. ${leads.length ? '' : 'There are no open leads right now. '}${stands.length ? '' : 'There are no available properties right now.'}</p>`}
+
+    <div class="client-card">
+      <h2>Sale details</h2>
+      <form method="post" action="/admin/record-sale">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+        <label for="rs-lead">Select a lead</label>
+        <select id="rs-lead" name="leadId"${ready ? ' required' : ' disabled'}>
+${leadOptions}
+        </select>
+
+        <label for="rs-stand">Select a property</label>
+        <select id="rs-stand" name="standId"${ready ? ' required' : ' disabled'}>
+${standOptions}
+        </select>
+
+        <label for="rs-price">Agreed sale price</label>
+        <input id="rs-price" name="price" type="text" inputmode="decimal"
+               placeholder="e.g. 8500.00" value="${v('price')}"${ready ? ' required' : ' disabled'}>
+
+        <button class="btn primary" type="submit"${ready ? '' : ' disabled'}>Record Sale &amp; Convert</button>
+      </form>
+    </div>
+  </section>`;
+}
+
 function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '',
   canModify = true }) {
   const canDelete = canModify && stand.sale_count === 0;
@@ -2214,5 +2288,5 @@ module.exports = {
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
   renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
-  renderActivityLogs, renderStaffEdit
+  renderActivityLogs, renderStaffEdit, renderRecordSale
 };

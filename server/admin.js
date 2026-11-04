@@ -1891,6 +1891,89 @@ async function handleAdmin(req, res, ctx) {
     return true;
   }
 
+  /* ── CRM: record a sale ──
+     A page of its own so the role can close a sale without being given the
+     leads pipeline. Reach is limited to the crm role by the permissions table;
+     this route trusts that gate like every other one in this file.
+
+     The conversion itself is the same function the lead page calls, so a sale
+     recorded here is indistinguishable from one recorded there. */
+  if (pathname === '/admin/record-sale') {
+    /* Already filtered: a closed lead cannot be sold again, and a stand with a
+       sale against it is no longer available. */
+    const openLeads = (await leads.all()).filter((l) => l.status !== 'Won' && l.status !== 'Lost');
+    const availableStands = await admin.availableStands(null);
+
+    const render = async (opts = {}) => h.sendHtml(res, opts.status || 200,
+      await views.adminLayout({
+        title: 'Record a sale', active: '/admin/record-sale', user, csrf,
+        body: views.renderRecordSale({
+          leads: openLeads, stands: availableStands, user, csrf,
+          notice: opts.notice || '', error: opts.error || '', values: opts.values || {}
+        })
+      }));
+
+    if (method === 'GET') {
+      await audit('admin_view', 'success', { userId: user.id, detail: 'record-sale', ip });
+      await render();
+      return true;
+    }
+
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const leadId = Number.parseInt(String(body.leadId || ''), 10);
+    const standId = Number.parseInt(String(body.standId || ''), 10);
+    const cents = parseMoneyToCents(body.price);
+    const typed = { leadId: body.leadId, standId: body.standId, price: body.price };
+
+    const lead = Number.isInteger(leadId) ? await leads.byId(leadId) : null;
+    if (!lead) {
+      await render({ status: 400, values: typed, error: 'Please choose a lead from the list.' });
+      return true;
+    }
+    if (lead.status === 'Won' || lead.status === 'Lost') {
+      await render({ status: 400, values: typed,
+        error: 'That lead is already closed. Choose an open lead.' });
+      return true;
+    }
+    if (!Number.isInteger(standId) || standId <= 0) {
+      await render({ status: 400, values: typed, error: 'Please choose a property from the list.' });
+      return true;
+    }
+    if (cents === null) {
+      await render({ status: 400, values: typed,
+        error: 'Sale price must be a positive amount, for example 8500 or 8500.00.' });
+      return true;
+    }
+
+    const result = await admin.convertLeadToClient(leadId, standId, cents, lead.assigned_agent_id);
+
+    if (!result.ok) {
+      const reasons = {
+        alreadyWon: 'That lead has already been converted.',
+        standTaken: 'That property is no longer available. Choose another.',
+        leadNotFound: 'That lead no longer exists.',
+        standNotFound: 'That property no longer exists.'
+      };
+      await render({ status: 400, values: typed,
+        error: reasons[result.reason] || 'The sale could not be recorded. Nothing was changed.' });
+      return true;
+    }
+
+    await audit('sale_record', 'success', {
+      userId: user.id, detail: `lead ${leadId} -> stand ${standId} (${lead.full_name})`, ip
+    });
+
+    /* The client's password is shown once. Without it the account exists but
+       nobody can sign in, so it belongs in the success message rather than a
+       separate step. */
+    await render({
+      notice: `Sale recorded successfully! Client account created. Password: ${result.password} `
+        + '— give this to the client now, it is not shown again.'
+    });
+    return true;
+  }
+
   /* ── Leads: convert to client ──
      Creates the portal account, links the stand and closes the lead, all in one
      transaction inside admin.convertLeadToClient. */
