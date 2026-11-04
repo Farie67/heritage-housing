@@ -866,7 +866,8 @@ ${optionsFrom(STAND_STATUSES, stand.status)}
         </div>`;
 }
 
-function renderProperties({ stands, projects, user, csrf, notice = '', error = '' }) {
+function renderProperties({ stands, projects, user, csrf, notice = '', error = '',
+  canModify = true }) {
   const available = stands.filter((s) => s.status === 'Available').length;
   const sold = stands.filter((s) => s.status === 'Sold').length;
 
@@ -883,7 +884,7 @@ function renderProperties({ stands, projects, user, csrf, notice = '', error = '
             <td>${statusTag(s.status)}${s.coming_soon
     ? ' <span class="tag tag-installment">Coming soon</span>' : ''}</td>
             <td class="actions">
-              <a class="text-btn" href="/admin/properties/${esc(s.id)}">Edit</a>
+              ${canModify ? `<a class="text-btn" href="/admin/properties/${esc(s.id)}">Edit</a>
               &middot;
               <form method="post" action="/admin/properties/${esc(s.id)}/coming-soon" class="inline-form">
                 <input type="hidden" name="csrf" value="${esc(csrf)}">
@@ -896,7 +897,8 @@ function renderProperties({ stands, projects, user, csrf, notice = '', error = '
                       data-confirm="Delete ${esc(s.stand_number)}? This cannot be undone.">
                   <input type="hidden" name="csrf" value="${esc(csrf)}">
                   <button class="link-danger" type="submit">Delete</button>
-                </form>`}
+                </form>`}`
+    : `<a class="text-btn" href="/admin/properties/${esc(s.id)}">View</a>`}
             </td>
           </tr>`;
 
@@ -1616,7 +1618,9 @@ ${rows}
   </section>`;
 }
 
-function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '' }) {  const canDelete = stand.sale_count === 0;
+function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '',
+  canModify = true }) {
+  const canDelete = canModify && stand.sale_count === 0;
 
   return `  <section class="container inner-page">
     <p><a class="text-btn" href="/admin/properties">&larr; All properties</a></p>
@@ -1634,6 +1638,8 @@ function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = 
 
     <div class="client-card">
       <h2>Property details</h2>
+      ${canModify ? '' : `<p class="field-hint">Your role can add new properties but not change an
+        existing one, so this card is read-only.</p>`}
       <form method="post" action="/admin/properties/${esc(stand.id)}" class="payment-form">
         <input type="hidden" name="csrf" value="${esc(csrf)}">
 ${propertyFields({ stand, projects, csrf })}

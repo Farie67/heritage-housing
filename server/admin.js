@@ -52,7 +52,7 @@ const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
    table itself lives in permissions.js so the router and the navigation read the
    same facts. 'client' is not a staff role: a client reaching /admin is sent to
    their own portal. */
-const { isStaffRole, getEffectiveRole, mayReach, mayPerform } = require('./permissions');
+const { isStaffRole, getEffectiveRole, mayReach, mayPerform, landingFor } = require('./permissions');
 
 function isAdmin(user) {
   /* getEffectiveRole may only narrow a role, never widen it, so a client whose
@@ -516,11 +516,18 @@ async function handleAdmin(req, res, ctx) {
   /* Resolved once and used for both the decision and the audit line, so the log
      always names the role the panel actually applied. */
   const role = getEffectiveRole(user);
+  const landing = landingFor(role);
 
   if (!mayReach(role, pathname)) {
     await audit('admin_access', 'denied', {
       userId: user.id, detail: `${method} ${pathname} (${role} role)`, ip
     });
+
+    /* A role with no Overview reach cannot be sent to /admin?error=denied —
+       that is itself unreachable, and the two would bounce forever. Send it to
+       the first page it is actually allowed to open. */
+    if (landing !== OVERVIEW) return h.redirect(res, landing), true;
+
     return h.redirect(res, '/admin?error=denied'), true;
   }
 
@@ -528,8 +535,20 @@ async function handleAdmin(req, res, ctx) {
     await audit('admin_access', 'denied', {
       userId: user.id, detail: `${method} ${pathname} (${role} is view-only here)`, ip
     });
-    return h.redirect(res, '/admin?error=readonly'), true;
+    return h.redirect(res, landing === OVERVIEW ? '/admin?error=readonly'
+      : `${landing}?error=readonly`), true;
   }
+
+  /**
+   * Whether this role may change an EXISTING record, as opposed to only adding
+   * a new one. Probed at a path beneath the create endpoint: the CRM role's
+   * exact-match createPaths allow /admin/properties but not /admin/properties/0,
+   * so the add form works while edit and delete stay refused.
+   *
+   * The views use it to decide which buttons to draw. The router above is what
+   * actually enforces it.
+   */
+  const mayModifyRecords = mayPerform(role, 'POST', '/admin/properties/0');
 
   /* ══ Sales analytics ═══════════════════════════════════════════════════
      Every figure is computed from the transaction records on each request,
@@ -1648,6 +1667,7 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: `${stand.stand_number} — property`, active: '/admin/properties', user, csrf,
           body: views.renderPropertyEdit({
+        canModify: mayModifyRecords,
             stand, projects, user, csrf, error: form.errors.join(' ')
           })
         }));
@@ -1676,6 +1696,7 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Properties', active: '/admin/properties', user, csrf,
           body: views.renderProperties({
+        canModify: mayModifyRecords,
             stands: await admin.standsForAdmin(), projects, user, csrf, error: form.errors.join(' ')
           })
         }));
@@ -1709,6 +1730,7 @@ async function handleAdmin(req, res, ctx) {
       h.sendHtml(res, 200, await views.adminLayout({
         title: `${stand.stand_number} — property`, active: '/admin/properties', user, csrf,
         body: views.renderPropertyEdit({
+        canModify: mayModifyRecords,
           stand, projects, user, csrf,
           notice: url.searchParams.get('ok') === 'saved'
             ? 'Property saved. The website now shows this.' : '',
@@ -1723,6 +1745,7 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Properties', active: '/admin/properties', user, csrf,
       body: views.renderProperties({
+        canModify: mayModifyRecords,
         stands: await admin.standsForAdmin(), projects, user, csrf,
         notice: url.searchParams.get('ok') === 'deleted' ? 'Property deleted.'
           : url.searchParams.get('ok') === 'comingsoon'

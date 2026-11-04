@@ -64,8 +64,38 @@ const ROLES = {
     paths: [OVERVIEW, ...STAFF, ...ACTIVITY, ...LEADS],
     readOnly: false,
     readOnlyPaths: [...LEADS]
+  },
+
+  /* Customer Relations Manager.
+     Two pages only: the Sales report and Properties. No Overview — landing on
+     /admin sends her to /admin/analytics instead.
+
+     createPaths is the narrow grant the brief asks for: she may POST to a
+     create endpoint (adding a property) but nothing deeper, so editing or
+     deleting an existing record is refused even though she can open its page.
+     Contrast readOnly, which would block the add as well. */
+  crm: {
+    paths: [...SALES, ...PROPERTIES],
+    readOnly: false,
+    readOnlyPaths: [],
+    createPaths: [...PROPERTIES]
   }
 };
+
+/* Where a role starts when its own landing page is not the Overview. */
+const LANDING = { crm: '/admin/analytics' };
+
+/**
+ * The first page this role should see.
+ *
+ * Anything without an entry opens the Overview as before. A role that cannot
+ * reach the Overview needs one, or signing in would bounce between /admin and
+ * the "denied" message forever.
+ */
+function landingFor(userOrRole) {
+  const role = typeof userOrRole === 'string' ? userOrRole : null;
+  return LANDING[role] || OVERVIEW;
+}
 
 const STAFF_ROLES = new Set(Object.keys(ROLES));
 
@@ -105,7 +135,8 @@ const ROLE_BY_EMAIL = new Map([
      above; both map to the same role, so either spelling works. */
   ['md@heritagehousing.co.zw', 'ceo'],
   ['finance@heritagehousing.co.zw', 'finance'],
-  ['hr@heritagehousing.co.zw', 'hr']
+  ['hr@heritagehousing.co.zw', 'hr'],
+  ['crm@heritagehousing.co.zw', 'crm']
 ]);
 
 /**
@@ -118,7 +149,8 @@ const ROLE_BY_EMAIL = new Map([
 const ROLE_BY_PREFIX = [
   ['CEO-', 'ceo'],
   ['FIN-', 'finance'],
-  ['HR-', 'hr']
+  ['HR-', 'hr'],
+  ['CRM-', 'crm']
 ];
 
 /**
@@ -184,6 +216,14 @@ function mayPerform(userOrRole, method, pathname) {
   if (!rule) return false;
   if (method === 'GET' || method === 'HEAD') return true;
   if (rule.readOnly) return false;
+
+  /* createPaths is an exact-match allowlist: this role may POST to the add
+     endpoint itself and nothing beneath it. With /admin/properties listed, the
+     add form works while /admin/properties/9/delete is refused. */
+  if (rule.createPaths && rule.createPaths.length) {
+    return rule.createPaths.includes(pathname);
+  }
+
   if (rule.readOnlyPaths.some((p) => matches(pathname, p))) return false;
   return true;
 }
@@ -202,5 +242,5 @@ function visiblePrefixes(userOrRole) {
 
 module.exports = {
   ROLES, STAFF_ROLES, isStaffRole, getEffectiveRole, mayReach, mayPerform, visiblePrefixes,
-  OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES
+  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES
 };
