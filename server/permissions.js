@@ -22,10 +22,6 @@ const STAFF = ['/admin/staff'];
 const CLIENTS = ['/admin/clients'];
 const PROPERTIES = ['/admin/properties'];
 
-/* The CRM's own page for closing a sale. Deliberately separate from LEADS: she
-   needs to pick a lead and convert it, not to browse or edit the pipeline. */
-const RECORD_SALE = ['/admin/record-sale'];
-
 const OVERVIEW = '/admin';
 
 /**
@@ -71,23 +67,31 @@ const ROLES = {
   },
 
   /* Customer Relations Manager.
-     Two pages, plus one purpose-built page for recording a sale. No Overview —
-     landing on /admin sends her to /admin/analytics instead.
+     Clients and Properties only. No Overview — signing in sends her to
+     /admin/clients.
 
-     createPaths is the narrow grant the brief asks for: she may POST to a
-     create endpoint (adding a property, recording a sale) but nothing deeper,
-     so editing or deleting an existing record is refused even though she can
-     open its page. Contrast readOnly, which would block the add as well. */
+     writePatterns is the narrow grant: she may POST to the client and property
+     endpoints the office asked her to run, and nothing else. Matching on the
+     pattern rather than a prefix is what lets her record a payment
+     (/admin/clients/7/payments) while the routes that ALTER an existing payment
+     (/admin/clients/7/payments/3, …/delete, …/status) stay refused — she can
+     take money in, but not rewrite the ledger. */
   crm: {
-    paths: [...SALES, ...PROPERTIES, ...RECORD_SALE],
+    paths: [...CLIENTS, ...PROPERTIES],
     readOnly: false,
     readOnlyPaths: [],
-    createPaths: [...PROPERTIES, ...RECORD_SALE]
+    writePatterns: [
+      /^\/admin\/clients$/,
+      /^\/admin\/clients\/new$/,
+      /* Save details, reset password, disable/enable, archive, record a payment. */
+      /^\/admin\/clients\/\d+\/(update|reset-password|disable|archive|payments)$/,
+      /^\/admin\/properties$/
+    ]
   }
 };
 
 /* Where a role starts when its own landing page is not the Overview. */
-const LANDING = { crm: '/admin/analytics' };
+const LANDING = { crm: '/admin/clients' };
 
 /**
  * The first page this role should see.
@@ -221,11 +225,11 @@ function mayPerform(userOrRole, method, pathname) {
   if (method === 'GET' || method === 'HEAD') return true;
   if (rule.readOnly) return false;
 
-  /* createPaths is an exact-match allowlist: this role may POST to the add
-     endpoint itself and nothing beneath it. With /admin/properties listed, the
-     add form works while /admin/properties/9/delete is refused. */
-  if (rule.createPaths && rule.createPaths.length) {
-    return rule.createPaths.includes(pathname);
+  /* writePatterns is an allowlist of exact route shapes: this role may POST
+     only where one of these matches. With the client payment pattern listed, a
+     new payment is accepted while editing, voiding or deleting one is refused. */
+  if (rule.writePatterns && rule.writePatterns.length) {
+    return rule.writePatterns.some((pattern) => pattern.test(pathname));
   }
 
   if (rule.readOnlyPaths.some((p) => matches(pathname, p))) return false;
@@ -246,5 +250,5 @@ function visiblePrefixes(userOrRole) {
 
 module.exports = {
   ROLES, STAFF_ROLES, isStaffRole, getEffectiveRole, mayReach, mayPerform, visiblePrefixes,
-  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES, RECORD_SALE
+  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES
 };

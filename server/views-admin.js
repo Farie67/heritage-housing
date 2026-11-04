@@ -22,7 +22,6 @@ const NAV = [
   ['/admin/analytics', 'Sales'],
   /* Third element: the roles that see this link. Omitted means every role that
      can reach the page. */
-  ['/admin/record-sale', 'Record Sale', ['crm']],
   ['/admin/enquiries', 'Enquiries'],
   ['/admin/leads', 'Leads'],
   ['/admin/clients', 'Clients'],
@@ -461,7 +460,7 @@ ${tables}
 
 function renderClientDetail({
   client, payments, stands, agents = [], documents = [], basePath, user, csrf,
-  notice = '', error = '', generatedPassword = ''
+  notice = '', error = '', generatedPassword = '', canModifyPayments = true
 }) {
   const purchase = client.purchase_price_cents || 0;
   /* Only confirmed money reduces the balance; anything else is money the
@@ -501,7 +500,7 @@ function renderClientDetail({
             <td>${esc(money(p.amount_cents))}</td>
             <td><span class="status${confirmed ? '' : ' open'}">&#9679; ${esc(String(p.status).toUpperCase())}</span></td>
             <td class="row-actions">
-              <form method="post" action="${esc(basePath)}/payments/${esc(p.id)}/status" class="inline-form">
+              ${canModifyPayments ? `<form method="post" action="${esc(basePath)}/payments/${esc(p.id)}/status" class="inline-form">
                 <input type="hidden" name="csrf" value="${esc(csrf)}">
                 <input type="hidden" name="status" value="${confirmed ? 'Pending' : 'Confirmed'}">
                 <button class="link-action" type="submit">${confirmed ? 'Mark pending' : 'Confirm'}</button>
@@ -511,7 +510,8 @@ function renderClientDetail({
                     data-confirm="Delete payment ${esc(p.reference)}? This cannot be undone.">
                 <input type="hidden" name="csrf" value="${esc(csrf)}">
                 <button class="link-danger" type="submit">Delete</button>
-              </form>
+              </form>`
+    : '<span class="muted">Recorded</span>'}
             </td>
           </tr>`;
   }).join('\n')
@@ -1627,71 +1627,6 @@ ${rows}
   </section>`;
 }
 
-/**
- * The CRM's page for closing a sale.
- *
- * One form, two dropdowns and a price. She can convert a lead without ever
- * seeing the pipeline: the leads offered here are already filtered to the open
- * ones, and the property list to the stands still available.
- *
- * Takes an options object like every other view in this file, so a caller that
- * forgets an argument gets an empty list rather than the whole dataset.
- */
-function renderRecordSale({ leads = [], stands = [], user, csrf,
-  notice = '', error = '', values = {} }) {
-  const v = (key) => esc(values[key] == null ? '' : values[key]);
-
-  const leadOptions = leads.length
-    ? leads.map((l) => `            <option value="${esc(l.id)}"${String(l.id) === String(values.leadId) ? ' selected' : ''}>${esc(l.full_name)}${l.phone ? ` — ${esc(l.phone)}` : ''}</option>`).join('\n')
-    : '            <option value="">No open leads</option>';
-
-  const standOptions = stands.length
-    ? stands.map((s) => `            <option value="${esc(s.id)}"${String(s.id) === String(values.standId) ? ' selected' : ''}>${esc(s.stand_number)} — ${esc(s.project_name)}</option>`).join('\n')
-    : '            <option value="">No available properties</option>';
-
-  const ready = leads.length > 0 && stands.length > 0;
-
-  return `  <section class="container inner-page">
-    <div class="dashboard-top">
-      <div>
-        <span class="eyebrow dark">SALES</span>
-        <h1>Record a sale</h1>
-        <p class="muted">Close an open lead against an available property. The client
-          account is created at the same time.</p>
-      </div>
-    </div>
-
-    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
-    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
-
-    ${ready ? '' : `<p class="notice info">A sale needs at least one open lead and one
-      available property. ${leads.length ? '' : 'There are no open leads right now. '}${stands.length ? '' : 'There are no available properties right now.'}</p>`}
-
-    <div class="client-card">
-      <h2>Sale details</h2>
-      <form method="post" action="/admin/record-sale">
-        <input type="hidden" name="csrf" value="${esc(csrf)}">
-
-        <label for="rs-lead">Select a lead</label>
-        <select id="rs-lead" name="leadId"${ready ? ' required' : ' disabled'}>
-${leadOptions}
-        </select>
-
-        <label for="rs-stand">Select a property</label>
-        <select id="rs-stand" name="standId"${ready ? ' required' : ' disabled'}>
-${standOptions}
-        </select>
-
-        <label for="rs-price">Agreed sale price</label>
-        <input id="rs-price" name="price" type="text" inputmode="decimal"
-               placeholder="e.g. 8500.00" value="${v('price')}"${ready ? ' required' : ' disabled'}>
-
-        <button class="btn primary" type="submit"${ready ? '' : ' disabled'}>Record Sale &amp; Convert</button>
-      </form>
-    </div>
-  </section>`;
-}
-
 function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '',
   canModify = true }) {
   const canDelete = canModify && stand.sale_count === 0;
@@ -2288,5 +2223,5 @@ module.exports = {
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
   renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
-  renderActivityLogs, renderStaffEdit, renderRecordSale
+  renderActivityLogs, renderStaffEdit
 };
