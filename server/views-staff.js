@@ -181,10 +181,44 @@ function commentBadge(unread) {
   return ` <span class="status open" style="color:var(--gold);font-weight:700">${esc(n)} new comment${n === 1 ? '' : 's'}</span>`;
 }
 
+/* ── Top Sales Agents: period filter ─────────────────────────────────────── */
+
+/** What the card's subtitle says for each window. */
+const PERIOD_CAPTIONS = {
+  all: 'Stands sold, all time.',
+  month: 'Stands sold this month.',
+  week: 'Stands sold in the last 7 days.'
+};
+
+/** The three windows, in the order they are offered. */
+const PERIOD_LINKS = [
+  ['all', 'All Time'],
+  ['month', 'This Month'],
+  ['week', 'This Week']
+];
+
+/**
+ * Three plain links above the leaderboard.
+ *
+ * Reuses the .tabs class already used on the content pages — it gives the pill
+ * shape and, through a[aria-current="page"], a visible active state with no
+ * script and no new CSS. aria-current is the accessible half of that: a screen
+ * reader announces which window is showing, not just the colour.
+ */
+function periodNav(active) {
+  const links = PERIOD_LINKS.map(([value, label]) =>
+    `        <a href="/staff?sales_period=${value}"${value === active ? ' aria-current="page"' : ''}>${esc(label)}</a>`
+  ).join('\n');
+
+  return `        <div class="tabs" style="padding-bottom:0;border-bottom:0;margin-bottom:10px">
+${links}
+        </div>`;
+}
+
 function staffDashboard(settings, {
   agent, csrf = '', leads = [], logs = [], followUps = [], projects = [],
   topSales = [], topOverdue = [], values = {}, recentLeadNotes = [], unread = 0,
-  notice = '', error = ''
+  notice = '', error = '', salesPeriod = 'all'
 } = {}) {
   /* What the agent typed, so a rejected form comes back filled in rather than
      blank. Every field falls back to empty on a first render. */
@@ -266,7 +300,8 @@ ${followUps.map((f) => `        <li><strong>${esc(f.full_name)}</strong> &mdash;
     <div class="client-grid" style="grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));margin-top:20px">
       <div class="client-card">
         <h3>${icon('&#127942;')}Top Sales Agents</h3>
-        <p class="field-hint" style="margin-bottom:12px">Stands sold, all time.</p>
+        ${periodNav(salesPeriod)}
+        <p class="field-hint" style="margin-bottom:12px">${esc(PERIOD_CAPTIONS[salesPeriod] || PERIOD_CAPTIONS.all)}</p>
 ${leaderboard(topSales, (r) => `${r.sales} sale${r.sales === 1 ? '' : 's'}`, 'No sales recorded yet.')}
       </div>
 

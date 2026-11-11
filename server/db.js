@@ -1135,12 +1135,16 @@ const qStaffLogsOldest = prepare(`${STAFF_LOG_SELECT}
 
 /* Stands sold, per agent. A cancelled sale is not a sale, so it is excluded —
    the same test the public availability checks use. */
+/* `since` is null for "all time", which the first clause short-circuits. One
+   prepared statement rather than three: the driver caches by SQL text, so a
+   single shape keeps the hot path warm whichever period is chosen. */
 const qTopSalesAgents = prepare(`
   SELECT a.id, a.name, COUNT(*) AS sales
     FROM ownerships o
     JOIN agents a ON a.id = o.agent_id
    WHERE o.agent_id IS NOT NULL
      AND COALESCE(o.sale_status, 'Active') <> 'Cancelled'
+     AND (? IS NULL OR o.purchase_date >= ?)
    GROUP BY a.id, a.name
    ORDER BY sales DESC, a.name
    LIMIT ?
@@ -1398,10 +1402,46 @@ const staffLogs = {
 
 /* ── Staff dashboard leaderboards ───────────────────────────────────────── */
 
-/** The agents with the most completed sales — [{ id, name, sales }]. */
-async function getTopSalesAgents(limit = 3) {
+/** The periods the leaderboard offers. Anything else means "all". */
+const SALES_PERIODS = ['all', 'month', 'week'];
+
+/**
+ * The first purchase date inside a period, as an ISO date, or null for "all".
+ *
+ * Anchored on todayIso() — the office's local date — rather than SQLite's
+ * date('now'), which is UTC. Harare is two hours ahead, so a sale written at
+ * 00:30 on the 1st lands on the last day of the previous month in UTC, and a
+ * UTC boundary would quietly drop it from "this month".
+ *
+ * 'week' is the last seven days INCLUDING today, so it starts six days back.
+ * 'month' is the first of the current month.
+ *
+ * purchase_date is stored as a YYYY-MM-DD string, which sorts correctly as
+ * text, so no date parsing is needed in the query.
+ */
+function periodStartIso(period) {
+  if (period !== 'week' && period !== 'month') return null;
+
+  const [y, m, d] = todayIso().split('-').map(Number);
+  if (period === 'month') return `${y}-${String(m).padStart(2, '0')}-01`;
+
+  const start = new Date(Date.UTC(y, m - 1, d));
+  start.setUTCDate(start.getUTCDate() - 6);
+  return start.toISOString().slice(0, 10);
+}
+
+/**
+ * The agents with the most completed sales — [{ id, name, sales }].
+ *
+ * `period` is 'all' (default), 'month' or 'week'. An unknown value falls back
+ * to 'all' rather than throwing, so a hand-edited query string cannot break the
+ * dashboard.
+ */
+async function getTopSalesAgents(limit = 3, period = 'all') {
   const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 20) : 3;
-  return await qTopSalesAgents.all(n);
+  const safePeriod = SALES_PERIODS.includes(period) ? period : 'all';
+  const since = periodStartIso(safePeriod);
+  return await qTopSalesAgents.all(since, since, n);
 }
 
 /** The agents sitting on the most overdue follow-ups — [{ id, name, overdue }]. */
@@ -2468,7 +2508,7 @@ const admin = {
 
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
-  leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents,
+  leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents, SALES_PERIODS,
   findLeadByPhone, normalisePhone,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,

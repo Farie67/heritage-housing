@@ -19,7 +19,7 @@ const crypto = require('node:crypto');
 const config = require('./config');
 const { audit, users, sessions, portal, enquiries, admin, content, db,
   leads, staffLogs, leadNotes, agents, getTopSalesAgents, getTopOverdueAgents,
-  findLeadByPhone } = require('./db');
+  SALES_PERIODS, findLeadByPhone } = require('./db');
 const {
   parseCookies, sessionCookie, clearSessionCookie, csrfCookie, newCsrfToken,
   securityHeaders, csrfOk, RateLimiter, STATE_CHANGING,
@@ -676,8 +676,15 @@ const server = http.createServer(async (req, res) => {
            id from the request, so there is no id to tamper with. */
         const unread = await staffLogs.unreadCountForAgent(agent.id);
 
+        /* Which window the Top Sales Agents board counts. An unrecognised value
+           falls back to "all time" rather than erroring, so a hand-edited query
+           string cannot break the dashboard — and it is validated here, not
+           passed straight into SQL. */
+        const requestedPeriod = String(url.searchParams.get('sales_period') || '').trim();
+        const salesPeriod = SALES_PERIODS.includes(requestedPeriod) ? requestedPeriod : 'all';
+
         sendHtml(res, 200, viewsStaff.staffDashboard(await content.settings(), {
-          agent, csrf, unread,
+          agent, csrf, unread, salesPeriod,
           notice: url.searchParams.get('ok') === 'logged' ? 'Update posted.'
             : url.searchParams.get('ok') === 'lead' ? 'Lead added successfully.'
               : url.searchParams.get('ok') === 'deleted' ? 'Lead deleted.'
@@ -688,7 +695,7 @@ const server = http.createServer(async (req, res) => {
           leads: await leads.forAgent(agent.id),
           followUps: await leads.dueForAgent(agent.id, todayIso()),
           projects: await admin.projectsWithCounts(),
-          topSales: await getTopSalesAgents(),
+          topSales: await getTopSalesAgents(3, salesPeriod),
           topOverdue: await getTopOverdueAgents(todayIso()),
           logs: await staffLogs.forAgent(agent.id, 5),
           recentLeadNotes: await leadNotes.recentForAgent(agent.id, 10),
