@@ -17,12 +17,14 @@
     "coverage": "node tools/content-coverage.js"
   },
   "dependencies": {
-    "@libsql/client": "^0.14.0"
+    "@libsql/client": "^0.14.0",
+    "resend": "^4.0.0"
   },
   "devDependencies": {},
   "comments": {
     "database": "The data layer is asynchronous and runs on one of two engines, chosen at start-up by server/driver.js. With TURSO_DATABASE_URL set it uses the remote Turso database through @libsql/client; with it unset it falls back to the local node:sqlite file so development and the test suite need no network. Every caller awaits the same methods either way.",
     "install": "@libsql/client is only required for the Turso path. Without TURSO_DATABASE_URL the server starts and the whole 214-check suite passes with no install step at all; the driver throws a clear error rather than silently writing to a local file if Turso is configured but the package is missing.",
+    "resend": "Only needed for the instalment reminder emails. It is required lazily inside scripts/send-reminders.js, so a site without it still boots and the dashboard reports that email is not configured instead of failing at start-up.",
     "node-version": "node:sqlite requires Node 22.5 or newer. Developed and tested on Node 24."
   }
 }
