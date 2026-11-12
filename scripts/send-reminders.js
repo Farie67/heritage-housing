@@ -72,7 +72,7 @@ function buildHtml(client) {
     <img src="${LOGO_URL}" style="max-width: 180px; height: auto; display: block; margin: 0 auto 15px auto;" alt="Heritage Housing Projects" />
     <p style="margin: 5px 0;"><strong>Heritage Housing Projects (Pvt) Ltd</strong></p>
     <p style="margin: 5px 0;">NetOne Building, Office PD30, Gweru, Zimbabwe</p>
-    <p style="margin: 5px 0;">Phone: +263 542 22697 | WhatsApp: +263 774 476 799</p>
+    <p style="margin: 5px 0;">Phone: +263 542 22697 | WhatsApp: +263 777 446 558</p>
     <p style="margin: 5px 0;"><a href="https://heritagehousingprojects.co.zw" style="color: #283090;">heritagehousingprojects.co.zw</a></p>
     <p style="margin: 15px 0 0 0; font-style: italic; color: #999;">This is an automated message. Please do not reply to this email. For enquiries, contact us on the numbers above.</p>
   </div>
