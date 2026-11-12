@@ -222,7 +222,8 @@ async function renderLogin({ error = '', csrf = '', notice = '' }) {
 
 /* ── Overview ───────────────────────────────────────────────────────────── */
 
-function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf, error = '' }) {
+function renderDashboard({ counts, recent, clientsByDevelopment = [], overdue = [],
+  canRunReminders = false, notice = '', user, csrf, error = '' }) {
   const rows = recent.length
     ? recent.map((e) => `        <tr>
           <td>${esc(formatDate(e.created_at))}</td>
@@ -246,6 +247,37 @@ function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf
       </a>`).join('\n')
     : '      <p class="muted">No clients yet.</p>';
 
+  /* The Automated Reminders table.
+     A client with no usable address is marked here rather than discovered when
+     the run reports fewer sends than rows — the placeholder created by lead
+     conversion would otherwise look like a working email. */
+  const overdueRows = overdue.length
+    ? `      <table class="portal-table">
+        <thead>
+          <tr><th scope="col">Name</th><th scope="col">Stand</th>
+              <th scope="col">Balance</th><th scope="col">Last payment</th></tr>
+        </thead>
+        <tbody>
+${overdue.map((c) => `          <tr>
+            <td><a href="/admin/clients/${esc(c.client_id)}"><strong>${esc(c.name)}</strong></a>
+              ${usableEmail(c.email) ? '' : ' <span class="muted">(no email)</span>'}</td>
+            <td>${esc(c.stand_number)}</td>
+            <td>${esc(money(c.balance_cents))}</td>
+            <td>${c.last_payment_date ? esc(formatDate(c.last_payment_date)) : '<span class="muted">never</span>'}</td>
+          </tr>`).join('\n')}
+        </tbody>
+      </table>
+      <p style="margin-top:16px">
+        ${canRunReminders
+    ? `<form method="post" action="/admin/reminders/run" class="inline-form"
+               data-confirm="Email ${overdue.filter((c) => usableEmail(c.email)).length} client(s) a payment reminder now?">
+             <input type="hidden" name="csrf" value="${esc(csrf)}">
+             <button class="btn primary" type="submit">Run Reminder Check</button>
+           </form>`
+    : '<span class="muted">Only an Administrator can send reminders.</span>'}
+      </p>`
+    : '      <p class="muted">No overdue payments found.</p>';
+
   return `  <section class="container inner-page">
     <div class="dashboard-top">
       <div>
@@ -256,6 +288,7 @@ function renderDashboard({ counts, recent, clientsByDevelopment = [], user, csrf
       <a class="btn primary" href="/admin/enquiries">Open enquiries${counts.open_enquiries ? ` (${counts.open_enquiries})` : ''}</a>
     </div>
 
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
     <div class="portal-stat-grid">
@@ -292,6 +325,13 @@ ${rows}
 ${folderTiles}
       </div>
       <p style="margin-top:16px"><a class="text-btn" href="/admin/clients">View all clients &rarr;</a></p>
+    </div>
+
+    <div class="client-card" style="margin-top:20px">
+      <h2>Automated Reminders</h2>
+      <p class="field-hint" style="margin-bottom:14px">Clients with an outstanding balance who have
+        not paid for more than 30 days. Running the check emails each of them once.</p>
+${overdueRows}
     </div>
   </section>`;
 }
@@ -1245,9 +1285,22 @@ ${noteItems}
   </section>`;
 }
 
+
+/**
+ * True when an address is worth sending to.
+ *
+ * Lead conversion writes a placeholder at the company's own domain when a lead
+ * had no email (client-0771234567@heritagehousing.co.zw). Mail to it bounces,
+ * so the overview marks those clients "(no email)" and the send run skips them.
+ */
+function usableEmail(email) {
+  const value = String(email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(value)) return false;
+  return !value.toLowerCase().endsWith('@heritagehousing.co.zw');
+}
+
 /** How a panel role is shown to the office. */
-const ROLE_LABELS = {
-  admin: 'Administrator',
+const ROLE_LABELS = {  admin: 'Administrator',
   manager: 'Manager',
   /* The same person, whichever value the account carries. 'md' is accepted as a
      spelling of the role but 'ceo' is what the permissions table uses. */

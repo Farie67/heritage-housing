@@ -19,7 +19,7 @@ const crypto = require('node:crypto');
 const config = require('./config');
 const { audit, admin, enquiries, users, agents, sessions, staffSessions, leads, staffLogs,
   leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
-  STAND_STATUSES, PROJECT_STATUSES, findLeadByPhone } = require('./db');
+  STAND_STATUSES, PROJECT_STATUSES, getOverdueClients, findLeadByPhone } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
@@ -885,16 +885,57 @@ async function handleAdmin(req, res, ctx) {
       ? 'Access denied. You do not have permission to view this page.'
       : flag === 'readonly'
         ? 'Your role is view-only here. That change was not saved.'
-        : '';
+        : flag === 'reminders'
+          ? `The reminder check could not run: ${url.searchParams.get('why') || 'unknown error'}`
+          : '';
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Overview', active: '/admin', user, csrf,
       body: views.renderDashboard({
         counts, recent, clientsByDevelopment: await admin.clientsByDevelopment(),
+        overdue: await getOverdueClients(),
+        canRunReminders: role === 'admin',
+        notice: url.searchParams.get('ok') === 'reminders'
+          ? `Reminder check complete. ${url.searchParams.get('n') || 0} emails sent.`
+          : '',
         user, csrf, error
       })
     }));
     return true;
+  }
+
+  /* ── Reminders: run the check ──
+     Administrator only — the router's reach table already refuses everyone
+     else, since no other role lists this path.
+
+     The send loop lives in scripts/send-reminders.js so a cron job can run the
+     same code. It is required lazily: the module loads `resend` inside a
+     function, so a missing package or API key reports here instead of stopping
+     the server from booting. */
+  if (pathname === '/admin/reminders/run') {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const back = (query) => h.redirect(res, `/admin?${query}`);
+
+    let result;
+    try {
+      const { runReminderCheck } = require('../scripts/send-reminders');
+      result = await runReminderCheck();
+    } catch (err) {
+      /* The usual cause is the package or key not being configured yet. It is
+         not a crash: the office is told plainly and nothing is half-sent. */
+      await audit('reminders_run', 'failure', {
+        userId: user.id, detail: String(err.message).slice(0, 180), ip
+      });
+      return back(`error=reminders&why=${encodeURIComponent(err.message)}`), true;
+    }
+
+    await audit('reminders_run', 'success', {
+      userId: user.id,
+      detail: `sent ${result.sent}, skipped ${result.skipped}, failed ${result.failed}`, ip
+    });
+
+    return back(`ok=reminders&n=${result.sent}`), true;
   }
 
   /* ── Enquiries ── */

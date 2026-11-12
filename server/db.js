@@ -1431,7 +1431,54 @@ function periodStartIso(period) {
 }
 
 /**
- * The agents with the most completed sales — [{ id, name, sales }].
+ * Clients whose instalments have gone quiet.
+ *
+ * "Overdue" means: an active sale, a balance still owed, and no confirmed
+ * payment for more than `days` days. A client who has NEVER paid is measured
+ * from the sale date — otherwise they would be invisible here forever, which is
+ * the opposite of what a reminder is for.
+ *
+ * balance_cents is computed, not stored: the schema has no balance column, so
+ * it is price less net collections every time.
+ *
+ * Returns [{ client_id, client_number, name, email, stand_number, ownership_id,
+ *            price_cents, net_cents, balance_cents, last_payment_date }].
+ */
+async function getOverdueClients(days = 30) {
+  const window = Number.isInteger(days) && days > 0 ? days : 30;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - window);
+  const pad = (n) => String(n).padStart(2, '0');
+  const cutoffIso = `${cutoff.getFullYear()}-${pad(cutoff.getMonth() + 1)}-${pad(cutoff.getDate())}`;
+
+  const rows = await qOverdueClients.all();
+
+  return rows
+    .map((r) => {
+      const price = Number(r.price_cents) || 0;
+      const net = Number(r.net_cents) || 0;
+      return {
+        client_id: r.client_id,
+        client_number: r.client_number,
+        name: r.name,
+        email: r.email,
+        stand_number: r.stand_number,
+        ownership_id: r.ownership_id,
+        price_cents: price,
+        net_cents: net,
+        balance_cents: Math.max(price - net, 0),
+        last_payment_date: r.last_paid_on || null,
+        /* Never paid: measure from the sale, not from nothing. */
+        anchor_date: r.last_paid_on || r.sale_date || null
+      };
+    })
+    .filter((r) => r.balance_cents > 0)
+    .filter((r) => r.anchor_date != null && String(r.anchor_date) < cutoffIso);
+}
+
+/* ── Staff dashboard leaderboards ───────────────────────────────────────── */
+
+/** The agents with the most completed sales — [{ id, name, sales }].
  *
  * `period` is 'all' (default), 'month' or 'week'. An unknown value falls back
  * to 'all' rather than throwing, so a hand-edited query string cannot break the
@@ -2004,8 +2051,42 @@ const qUpdatePayment = prepare(`
    written, so the balance query cannot be fooled by an unexpected string. */
 const PAYMENT_STATUSES = ['Confirmed', 'Pending'];
 
-/* ── Admin: documents ───────────────────────────────────────────────────── */
+/* ── Instalment reminders ───────────────────────────────────────────────────
+   Follows the same balance rule as analytics.js: only confirmed, non-voided
+   transactions count, deposits/instalments/finals are collections and a refund
+   comes off them. Duplicating the rule here rather than importing analytics
+   keeps this query readable — but if that rule ever changes, both move. */
+const qOverdueClients = prepare(`
+  SELECT u.id            AS client_id,
+         u.client_number,
+         u.full_name     AS name,
+         u.email,
+         s.stand_number,
+         o.id            AS ownership_id,
+         o.sale_date,
+         COALESCE(o.sale_price_cents, o.purchase_price_cents) AS price_cents,
+         COALESCE(t.collected, 0) - COALESCE(t.refunds, 0)    AS net_cents,
+         t.last_paid_on
+    FROM ownerships o
+    JOIN users u ON u.id = o.user_id
+    JOIN stands s ON s.id = o.stand_id
+    LEFT JOIN (
+      SELECT ownership_id,
+             SUM(CASE WHEN type IN ('DEPOSIT','INSTALLMENT','FINAL_PAYMENT')
+                      THEN amount_cents ELSE 0 END) AS collected,
+             SUM(CASE WHEN type = 'REFUND' THEN amount_cents ELSE 0 END) AS refunds,
+             MAX(paid_on) AS last_paid_on
+        FROM payments
+       WHERE voided_at IS NULL AND status = 'Confirmed' AND ownership_id IS NOT NULL
+       GROUP BY ownership_id
+    ) t ON t.ownership_id = o.id
+   WHERE o.sale_status <> 'Cancelled'
+     AND o.sale_status <> 'Completed'
+     AND u.role = 'client'
+     AND u.archived = 0
+`);
 
+/* ── Admin: documents ───────────────────────────────────────────────────── */
 const qDocumentsForUser = prepare(`
   SELECT id, title, stored_name, mime, size_bytes, uploaded_at
   FROM documents
@@ -2509,6 +2590,7 @@ const admin = {
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
   leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents, SALES_PERIODS,
+  getOverdueClients,
   findLeadByPhone, normalisePhone,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,
