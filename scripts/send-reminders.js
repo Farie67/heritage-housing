@@ -23,6 +23,16 @@ const { money } = require('../server/format');
 
 const FROM = 'Heritage Housing <reminders@heritagehousingprojects.co.zw>';
 
+/* Replies are refused rather than bouncing back to the sending mailbox — the
+   footer tells the client not to reply, so a stray reply should not land in an
+   address nobody reads. */
+const REPLY_TO = 'no-reply@heritagehousingprojects.co.zw';
+
+/* The logo is served from /assets/img/logo.png — that is where branding.js keeps
+   it and what the site itself references. An absolute URL is required because an
+   email client has no page to resolve a relative path against. */
+const LOGO_URL = 'https://heritagehousingprojects.co.zw/assets/img/logo.png';
+
 /* Anything at the company's own domain is a placeholder the lead-conversion
    wrote (client-0771234567@heritagehousing.co.zw) because no real address was
    ever captured. Sending to it would bounce, so those clients are skipped and
@@ -49,10 +59,24 @@ function buildHtml(client) {
     minimumFractionDigits: 2, maximumFractionDigits: 2
   });
 
-  return `<p>Dear ${esc(client.name)},</p>`
-    + `<p>This is a reminder that your payment for Stand <strong>${esc(client.stand_number)}</strong> `
-    + `is due. Your outstanding balance is <strong>US$${balance}</strong>.</p>`
-    + '<p>Please make a payment to avoid penalties.</p>';
+  /* Table-free markup with inline styles: email clients strip <style> blocks and
+     ignore most modern CSS, so the footer is laid out with inline rules only. */
+  return `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+  <p>Dear ${esc(client.name)},</p>
+  <p>This is a reminder that your payment for Stand <strong>${esc(client.stand_number)}</strong> is due. Your outstanding balance is <strong>US$${balance}</strong>.</p>
+  <p>Please make a payment to avoid penalties.</p>
+  
+  <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;" />
+  
+  <div style="font-size: 12px; color: #666; text-align: center;">
+    <img src="${LOGO_URL}" style="max-width: 180px; height: auto; display: block; margin: 0 auto 15px auto;" alt="Heritage Housing Projects" />
+    <p style="margin: 5px 0;"><strong>Heritage Housing Projects (Pvt) Ltd</strong></p>
+    <p style="margin: 5px 0;">NetOne Building, Office PD30, Gweru, Zimbabwe</p>
+    <p style="margin: 5px 0;">Phone: +263 542 22697 | WhatsApp: +263 774 476 799</p>
+    <p style="margin: 5px 0;"><a href="https://heritagehousingprojects.co.zw" style="color: #283090;">heritagehousingprojects.co.zw</a></p>
+    <p style="margin: 15px 0 0 0; font-style: italic; color: #999;">This is an automated message. Please do not reply to this email. For enquiries, contact us on the numbers above.</p>
+  </div>
+</div>`;
 }
 
 /**
@@ -107,6 +131,7 @@ async function runReminderCheck({ dryRun = false, days = 30 } = {}) {
     try {
       const { error } = await resend.emails.send({
         from: FROM,
+        replyTo: REPLY_TO,
         to,
         subject: `Payment Reminder for Stand ${client.stand_number}`,
         html: buildHtml(client)
@@ -128,7 +153,7 @@ async function runReminderCheck({ dryRun = false, days = 30 } = {}) {
   return result;
 }
 
-module.exports = { runReminderCheck, getOverdueClients, deliverableEmail, buildHtml, FROM };
+module.exports = { runReminderCheck, getOverdueClients, deliverableEmail, buildHtml, FROM, REPLY_TO, LOGO_URL };
 
 /* Run as a script, not when required by admin.js. */
 if (require.main === module) {
