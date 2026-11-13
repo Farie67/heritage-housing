@@ -12,7 +12,7 @@
    ========================================================================== */
 
 const { esc, money, moneyIn, formatDate, formatBytes } = require('./views');
-const { passwordField } = require('./views-parts');
+const { passwordField, resetForm } = require('./views-parts');
 
 const { logoAbsolute, faviconAbsolute, brandName } = require('./branding');
 const { buildReference } = require('./references');
@@ -197,26 +197,30 @@ async function renderLogin({ error = '', csrf = '', notice = '' }) {
       </div>
       <p class="brand-tag">STAFF ADMINISTRATION</p>
 
-      <h1 style="font-size:30px">Admin sign in</h1>
-      <p class="muted">For Heritage staff. Client accounts sign in at the <a href="/portal.html">client portal</a>.</p>
+      <div id="login-view">
+        <h1 style="font-size:30px">Admin sign in</h1>
+        <p class="muted">For Heritage staff. Client accounts sign in at the <a href="/portal.html">client portal</a>.</p>
 
-      ${notice ? `<p class="notice info">${esc(notice)}</p>` : ''}
-      ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+        ${notice ? `<p class="notice info">${esc(notice)}</p>` : ''}
+        ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
-      <form method="post" action="/admin/login" class="login-form">
-        <input type="hidden" name="csrf" value="${esc(csrf)}">
-        <label for="clientNumber">Staff ID</label>
-        <input id="clientNumber" name="clientNumber" type="text" autocomplete="username" required autofocus>
+        <form method="post" action="/admin/login" class="login-form">
+          <input type="hidden" name="csrf" value="${esc(csrf)}">
+          <label for="clientNumber">Staff ID</label>
+          <input id="clientNumber" name="clientNumber" type="text" autocomplete="username" required autofocus>
 
-        <label for="password">Password</label>
-        ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
+          <label for="password">Password</label>
+          ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
 
-        <button class="btn primary full" type="submit">Sign in</button>
-      </form>
+          <button class="btn primary full" type="submit">Sign in</button>
+        </form>
 
-      <p class="muted" style="margin-top:14px;text-align:center">
-        <a href="#" class="text-btn" data-password-reset="admin">Forgot password?</a>
-      </p>
+        <p class="muted" style="margin-top:14px;text-align:center">
+          <a href="#" class="text-btn" data-password-reset="admin">Forgot password?</a>
+        </p>
+      </div>
+
+${resetForm('admin')}
     </div>
   </section>
 </main>

@@ -43,4 +43,53 @@ ${inputHtml}
         </div>`;
 }
 
-module.exports = { passwordField, EYE, esc };
+/**
+ * The three-step reset form, as markup that lives inside the login card.
+ *
+ * Hidden until site.js swaps the card's #login-view for this one. Kept in the
+ * template rather than built by JavaScript so the fields sit in the same card,
+ * inherit the same form styling, and are present even before a script runs.
+ *
+ * The default `method`/`action` are never used: password-reset.js intercepts
+ * the buttons and talks to /api/auth/* instead. They are here so an
+ * unscripted submit reloads the page rather than doing something surprising.
+ */
+function resetForm(portalType) {
+  const portal = esc(portalType);
+
+  return `      <div id="reset-view" style="display: none;">
+        <h1 style="font-size:30px">Reset password</h1>
+        <p class="muted">We will email you a 6-digit code.</p>
+
+        <p class="pr-status" role="status" aria-live="polite"></p>
+
+        <form class="login-form pr-step" data-step="1">
+          <label for="pr-identifier">Email or client number</label>
+          <input id="pr-identifier" type="text" autocomplete="username">
+          <button type="button" class="btn primary full" data-action="send">Send OTP</button>
+        </form>
+
+        <form class="login-form pr-step" data-step="2" hidden>
+          <label for="pr-otp">6-digit code</label>
+          <input id="pr-otp" type="text" inputmode="numeric" maxlength="6"
+                 autocomplete="one-time-code" pattern="[0-9]{6}">
+          <button type="button" class="btn primary full" data-action="verify">Verify</button>
+        </form>
+
+        <form class="login-form pr-step" data-step="3" hidden>
+          <label for="pr-password">New password</label>
+          <input id="pr-password" type="password" autocomplete="new-password">
+          <label for="pr-password2">Confirm new password</label>
+          <input id="pr-password2" type="password" autocomplete="new-password">
+          <button type="button" class="btn primary full" data-action="reset">Reset Password</button>
+        </form>
+
+        <p class="muted" style="margin-top:14px;text-align:center">
+          <a href="#" class="text-btn" data-action="back">Back to Sign in</a>
+        </p>
+
+        <span data-portal="${portal}" hidden></span>
+      </div>`;
+}
+
+module.exports = { passwordField, resetForm, EYE, esc };

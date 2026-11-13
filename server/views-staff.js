@@ -12,7 +12,7 @@
    ========================================================================== */
 
 const { esc, formatDate } = require('./views');
-const { passwordField } = require('./views-parts');
+const { passwordField, resetForm } = require('./views-parts');
 const { sanitizeRichText } = require('./sanitize');
 const { staffLogOpen, STAFF_LOG_WINDOW } = require('./format');
 
@@ -130,23 +130,27 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
     canonicalPath: 'staff/login',
     body: `  <section class="staff-login-bg">
     <div class="portal-panel narrow" style="text-align:center">
-      <h1 style="font-size:30px">Staff sign-in</h1>
-      <p class="muted">For the Heritage Housing Projects sales team.</p>
+      <div id="login-view">
+        <h1 style="font-size:30px">Staff sign-in</h1>
+        <p class="muted">For the Heritage Housing Projects sales team.</p>
 
-      ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+        ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
 
-      <form method="post" action="/staff/login" class="login-form" style="text-align:left">
-        <input type="hidden" name="csrf" value="${esc(csrf)}">
-        <label for="identifier">Email or name</label>
-        <input id="identifier" name="identifier" type="text" autocomplete="username" required>
-        <label for="password">Password</label>
-        ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
-        <button class="btn primary full" type="submit">Sign in</button>
-      </form>
+        <form method="post" action="/staff/login" class="login-form" style="text-align:left">
+          <input type="hidden" name="csrf" value="${esc(csrf)}">
+          <label for="identifier">Email or name</label>
+          <input id="identifier" name="identifier" type="text" autocomplete="username" required>
+          <label for="password">Password</label>
+          ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
+          <button class="btn primary full" type="submit">Sign in</button>
+        </form>
 
-      <p class="muted" style="margin-top:14px">
-        <a href="#" class="text-btn" data-password-reset="staff">Forgot password?</a>
-      </p>
+        <p class="muted" style="margin-top:14px">
+          <a href="#" class="text-btn" data-password-reset="staff">Forgot password?</a>
+        </p>
+      </div>
+
+${resetForm('staff')}
 
       <p class="muted" style="margin-top:18px"><a class="text-btn" href="/">Back to the website</a></p>
     </div>
