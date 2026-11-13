@@ -13,8 +13,7 @@
 const config = require('./config');
 const driver = require('./driver');
 /* format.js has no dependencies of its own, so this cannot create a cycle. */
-const { slugify, todayIso, utcRangeForLocalDate } = require('./format');
-/* passwords.js also has no dependencies beyond node:crypto. */
+const { slugify, todayIso, utcRangeForLocalDate } = require('./format');/* passwords.js also has no dependencies beyond node:crypto. */
 const { generatePassword } = require('./passwords');
 
 /* Every statement returns a Promise, whichever engine is underneath. */
@@ -92,6 +91,19 @@ CREATE TABLE IF NOT EXISTS projects (
   description TEXT    NOT NULL,
   image_url   TEXT
 );
+
+/* Cost tracking. The budget lives on the development itself, so a project and
+   its budget cannot drift apart — and a development created before this column
+   existed simply starts at 0. */
+CREATE TABLE IF NOT EXISTS project_costs (
+  id           INTEGER PRIMARY KEY,
+  project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  description  TEXT    NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  date         TEXT    NOT NULL,
+  created_at   TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_costs_project ON project_costs(project_id);
 
 CREATE TABLE IF NOT EXISTS stands (
   id            INTEGER PRIMARY KEY,
@@ -225,6 +237,7 @@ await ensureColumn('users', 'archived', 'INTEGER NOT NULL DEFAULT 0');
    development can be finished being built (Completed) and sold out at the same
    time, and collapsing the two would lose one of them. */
 await ensureColumn('projects', 'sold_out', 'INTEGER NOT NULL DEFAULT 0');
+await ensureColumn('projects', 'budget_cents', 'INTEGER NOT NULL DEFAULT 0');
 
 /* Whether a development has been announced but not released yet.
    A third independent fact, for the same reason the second one is: a
@@ -2691,10 +2704,122 @@ const admin = {
 };
 
 
+
+/* ── Projects and cost tracking ─────────────────────────────────────────────
+   The development IS the project: a budget belongs to Ridgeview, not to a
+   second table that would have to be kept in step with it. Spend is summed
+   from project_costs, so the remaining figure is always derived and cannot
+   drift away from the recorded costs. */
+
+const qProjectsWithSpend = prepare(`
+  SELECT p.id, p.name, p.location, p.status, p.type,
+         COALESCE(p.budget_cents, 0) AS budget_cents,
+         COALESCE(c.spent_cents, 0)  AS spent_cents
+    FROM projects p
+    LEFT JOIN (
+      SELECT project_id, SUM(amount_cents) AS spent_cents
+        FROM project_costs
+       GROUP BY project_id
+    ) c ON c.project_id = p.id
+   ORDER BY p.name COLLATE NOCASE
+`);
+
+const qProjectById = prepare(`
+  SELECT p.id, p.name, p.location, p.status, p.type, p.description,
+         COALESCE(p.budget_cents, 0) AS budget_cents
+    FROM projects p
+   WHERE p.id = ?
+`);
+
+const qCostsForProject = prepare(`
+  SELECT id, project_id, description, amount_cents, date, created_at
+    FROM project_costs
+   WHERE project_id = ?
+   ORDER BY date DESC, id DESC
+`);
+
+const qInsertProjectCost = prepare(`
+  INSERT INTO project_costs (project_id, description, amount_cents, date, created_at)
+  VALUES (?, ?, ?, ?, ?)
+`);
+
+const qSetProjectBudget = prepare('UPDATE projects SET budget_cents = ? WHERE id = ?');
+const qDeleteProjectCost = prepare('DELETE FROM project_costs WHERE id = ? AND project_id = ?');
+
+/**
+ * Every project with its budget, spend and remaining figure.
+ *
+ * remaining_cents is computed here rather than in the view so a negative
+ * overrun is visible to the caller instead of being clamped somewhere else.
+ */
+async function getProjects() {
+  const rows = await qProjectsWithSpend.all();
+  return rows.map((r) => ({
+    ...r,
+    budget_cents: Number(r.budget_cents) || 0,
+    spent_cents: Number(r.spent_cents) || 0,
+    remaining_cents: (Number(r.budget_cents) || 0) - (Number(r.spent_cents) || 0)
+  }));
+}
+
+/** One project, its costs, and the totals. Null when the id is unknown. */
+async function getProjectById(id) {
+  const project = await qProjectById.get(id);
+  if (!project) return null;
+
+  const costs = await qCostsForProject.all(id);
+  const spent = costs.reduce((sum, c) => sum + (Number(c.amount_cents) || 0), 0);
+  const budget = Number(project.budget_cents) || 0;
+
+  return {
+    ...project,
+    budget_cents: budget,
+    costs,
+    spent_cents: spent,
+    remaining_cents: budget - spent
+  };
+}
+
+/**
+ * Records one cost against a project.
+ *
+ * Returns { ok, id } or { ok:false, reason }. The amount must be positive: a
+ * zero-cost line is almost always a mistyped form rather than a real expense.
+ */
+async function addProjectCost(projectId, description, amountCents, date) {
+  const text = String(description || '').trim().slice(0, 200);
+  const amount = Number(amountCents);
+  const when = String(date || '').trim() || todayIso();
+
+  if (!text) return { ok: false, reason: 'description' };
+  if (!Number.isInteger(amount) || amount <= 0) return { ok: false, reason: 'amount' };
+
+  const project = await qProjectById.get(projectId);
+  if (!project) return { ok: false, reason: 'notFound' };
+
+  const info = await qInsertProjectCost.run(projectId, text, amount, when, nowIso());
+  return { ok: true, id: Number(info.lastInsertRowid) };
+}
+
+/** Sets or corrects a project's budget. Returns true when a row changed. */
+async function setProjectBudget(projectId, budgetCents) {
+  const amount = Number(budgetCents);
+  if (!Number.isInteger(amount) || amount < 0) return false;
+  const info = await qSetProjectBudget.run(amount, projectId);
+  return Number(info.changes) > 0;
+}
+
+/** Removes one cost line, scoped to its project so an id cannot be reused. */
+async function deleteProjectCost(projectId, costId) {
+  const info = await qDeleteProjectCost.run(costId, projectId);
+  return Number(info.changes) > 0;
+}
+
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
   leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents, SALES_PERIODS,
   getOverdueClients, passwordResets,
+  getProjects, getProjectById, addProjectCost, setProjectBudget, deleteProjectCost,
   findLeadByPhone, normalisePhone,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,

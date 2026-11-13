@@ -21,6 +21,8 @@ const ACTIVITY = ['/admin/activity-logs'];
 const STAFF = ['/admin/staff'];
 const CLIENTS = ['/admin/clients'];
 const PROPERTIES = ['/admin/properties'];
+/* Development budgets and cost tracking. */
+const PROJECTS = ['/admin/projects'];
 
 const OVERVIEW = '/admin';
 
@@ -43,7 +45,7 @@ const ROLES = {
   },
 
   ceo: {
-    paths: [OVERVIEW, ...SALES, ...LEADS, ...ACTIVITY, ...STAFF],
+    paths: [OVERVIEW, ...SALES, ...LEADS, ...ACTIVITY, ...STAFF, ...PROJECTS],
     readOnly: true,
     readOnlyPaths: []
   },
@@ -53,13 +55,15 @@ const ROLES = {
      clients and properties, so it can edit those too — that is what granting
      those prefixes means. */
   finance: {
-    paths: [OVERVIEW, ...SALES, ...CLIENTS, ...PROPERTIES],
+    paths: [OVERVIEW, ...SALES, ...CLIENTS, ...PROPERTIES, ...PROJECTS],
     readOnly: false,
     readOnlyPaths: []
   },
 
   /* HR runs the staff list, so it may add agents and reset passwords. It reads
      activity logs and leads, but is view-only on leads per the brief. */
+  /* PROJECTS is absent from manager, hr and crm by design: budgets are the
+     office's, not the sales team's. */
   hr: {
     paths: [OVERVIEW, ...STAFF, ...ACTIVITY, ...LEADS],
     readOnly: false,
@@ -255,5 +259,5 @@ function visiblePrefixes(userOrRole) {
 
 module.exports = {
   ROLES, STAFF_ROLES, isStaffRole, getEffectiveRole, mayReach, mayPerform, visiblePrefixes,
-  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES
+  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES, PROJECTS
 };

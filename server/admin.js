@@ -19,7 +19,8 @@ const crypto = require('node:crypto');
 const config = require('./config');
 const { audit, admin, enquiries, users, agents, sessions, staffSessions, leads, staffLogs,
   leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
-  STAND_STATUSES, PROJECT_STATUSES, getOverdueClients, findLeadByPhone } = require('./db');
+  STAND_STATUSES, PROJECT_STATUSES, getOverdueClients, getProjects, getProjectById,
+  addProjectCost, setProjectBudget, deleteProjectCost, findLeadByPhone } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
@@ -2637,6 +2638,7 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Projects', active: '/admin/projects', user, csrf,
           body: views.renderProjects({ projects, user, csrf, error: form.errors.join(' ') })
+          + views.renderProjectBudgets({ projects: await getProjects(), user, csrf, error: form.errors.join(' ') })
         }));
         return true;
       }
@@ -2685,6 +2687,7 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Projects', active: '/admin/projects', user, csrf,
       body: views.renderProjects({ projects, user, csrf, notice, error })
+          + views.renderProjectBudgets({ projects: await getProjects(), user, csrf, notice, error })
     }));
     return true;
   }
@@ -2764,6 +2767,59 @@ async function handleAdmin(req, res, ctx) {
     return true;
   }
 
+
+  /* ── Projects: budget and costs ──
+     Sits before the /admin/projects/:id route so these paths are matched first;
+     otherwise the detail route would swallow them as "project \d+". */
+  const projectBudgetMatch = pathname.match(/^\/admin\/projects\/(\d+)\/budget$/);
+  const projectCostMatch = pathname.match(/^\/admin\/projects\/(\d+)\/costs$/);
+  const projectCostDeleteMatch = pathname.match(/^\/admin\/projects\/(\d+)\/costs\/(\d+)\/delete$/);
+
+  if (projectBudgetMatch || projectCostMatch || projectCostDeleteMatch) {
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
+
+    const costProjectId = Number((projectBudgetMatch || projectCostMatch || projectCostDeleteMatch)[1]);
+
+    if (projectBudgetMatch) {
+      const cents = parseMoneyToCents(body.budget);
+      if (cents === null) {
+        return h.redirect(res,
+          `/admin/projects/${costProjectId}?error=${encodeURIComponent('Budget must be a positive amount.')}`), true;
+      }
+      await setProjectBudget(costProjectId, cents);
+      await audit('project_budget', 'success', {
+        userId: user.id, detail: `project ${costProjectId} budget ${cents}`, ip
+      });
+      return h.redirect(res, `/admin/projects/${costProjectId}?ok=budget`), true;
+    }
+
+    if (projectCostMatch) {
+      const cents = parseMoneyToCents(body.amount);
+      if (cents === null) {
+        return h.redirect(res,
+          `/admin/projects/${costProjectId}?error=${encodeURIComponent('Cost must be a positive amount, for example 1200 or 1200.00.')}`), true;
+      }
+      const result = await addProjectCost(costProjectId, body.description, cents, body.date);
+      if (!result.ok) {
+        const why = result.reason === 'description' ? 'Please describe the cost.'
+          : result.reason === 'amount' ? 'Cost must be a positive amount.'
+            : 'That project no longer exists.';
+        return h.redirect(res, `/admin/projects/${costProjectId}?error=${encodeURIComponent(why)}`), true;
+      }
+      await audit('project_cost_add', 'success', {
+        userId: user.id, detail: `project ${costProjectId} cost ${cents}`, ip
+      });
+      return h.redirect(res, `/admin/projects/${costProjectId}?ok=cost`), true;
+    }
+
+    const costId = Number(projectCostDeleteMatch[2]);
+    const removed = await deleteProjectCost(costProjectId, costId);
+    await audit('project_cost_delete', 'success', {
+      userId: user.id, detail: `project ${costProjectId} cost ${costId}`, ip
+    });
+    return h.redirect(res, `/admin/projects/${costProjectId}?ok=${removed ? 'costDeleted' : 'none'}`), true;
+  }
+
   const projectMatch = pathname.match(/^\/admin\/projects\/(\d+)$/);
   if (projectMatch) {
     const projectId = Number(projectMatch[1]);
@@ -2795,6 +2851,7 @@ async function handleAdmin(req, res, ctx) {
             project, stands: await admin.standsForProject(projectId),
             pricing: await admin.pricingFor(projectId),
             steps: await admin.progressSteps(projectId), user, csrf,
+          extra: views.renderProjectCosts({ project: await getProjectById(projectId), user, csrf, notice, error }),
             error: form.errors.join(' ')
           })
         }));
@@ -2833,7 +2890,11 @@ async function handleAdmin(req, res, ctx) {
         steps: await admin.progressSteps(projectId),
         user, csrf,
         notice,
-        error: url.searchParams.get('error') || ''
+        error: url.searchParams.get('error') || '',
+        extra: views.renderProjectCosts({
+          project: await getProjectById(projectId), user, csrf,
+          notice: '', error: url.searchParams.get('error') || ''
+        })
       })
     }));
     return true;
@@ -2862,6 +2923,7 @@ async function handleAdmin(req, res, ctx) {
             project, stands: await admin.standsForProject(projectId),
             pricing: await admin.pricingFor(projectId),
             steps: await admin.progressSteps(projectId), user, csrf,
+          extra: views.renderProjectCosts({ project: await getProjectById(projectId), user, csrf, notice, error }),
             error: 'Please give the step a label.'
           })
         }));
@@ -2899,6 +2961,7 @@ async function handleAdmin(req, res, ctx) {
           project, stands: await admin.standsForProject(projectId),
           pricing: await admin.pricingFor(projectId),
           steps: await admin.progressSteps(projectId), user, csrf,
+          extra: views.renderProjectCosts({ project: await getProjectById(projectId), user, csrf, notice, error }),
           error: 'A step needs a label and a valid state.'
         })
       }));

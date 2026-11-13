@@ -13,6 +13,7 @@
 
 const { esc, money, moneyIn, formatDate, formatBytes } = require('./views');
 const { passwordField, resetForm } = require('./views-parts');
+const { todayIso } = require('./format');
 
 const { logoAbsolute, faviconAbsolute, brandName } = require('./branding');
 const { buildReference } = require('./references');
@@ -1583,6 +1584,125 @@ ${isAgent ? `        <label for="e-phone">Phone</label>
   </section>`;
 }
 
+
+/* ── Projects: budgets and cost tracking ─────────────────────────────────
+   Rendered as a section on the existing Projects pages rather than at new
+   URLs: /admin/projects already lists the developments, and a budget belongs
+   to a development. */
+
+/** KPI + table of every project's budget, spend and remaining. */
+function renderProjectBudgets({ projects = [], user, csrf, notice = '', error = '' }) {
+  const totalBudget = projects.reduce((s2, p2) => s2 + (p2.budget_cents || 0), 0);
+  const totalSpent = projects.reduce((s2, p2) => s2 + (p2.spent_cents || 0), 0);
+
+  const rows = projects.length
+    ? projects.map((p2) => {
+      const over = (p2.remaining_cents || 0) < 0;
+      return `          <tr>
+            <td><a href="/admin/projects/${esc(p2.id)}"><strong>${esc(p2.name)}</strong></a></td>
+            <td>${esc(p2.location)}</td>
+            <td>${esc(money(p2.budget_cents))}</td>
+            <td>${esc(money(p2.spent_cents))}</td>
+            <td>${over
+    ? `<span class="status open">${esc(money(Math.abs(p2.remaining_cents)))} over</span>`
+    : esc(money(p2.remaining_cents))}</td>
+            <td><span class="status">${esc(p2.status)}</span></td>
+          </tr>`;
+    }).join('\n')
+    : '          <tr><td colspan="6">No projects yet.</td></tr>';
+
+  return `    <div class="client-card" style="margin-top:20px">
+      <h2>Projects &amp; Cost Tracking</h2>
+
+      ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+      ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+      <div class="portal-stat-grid">
+        <div class="portal-stat"><small>Total budget allocated</small><strong>${esc(money(totalBudget))}</strong></div>
+        <div class="portal-stat"><small>Total spent</small><strong>${esc(money(totalSpent))}</strong></div>
+        <div class="portal-stat"><small>Remaining</small><strong>${esc(money(totalBudget - totalSpent))}</strong></div>
+      </div>
+
+      <table class="portal-table" style="margin-top:18px">
+        <caption>Budget against recorded cost, per development</caption>
+        <thead>
+          <tr><th scope="col">Project</th><th scope="col">Location</th><th scope="col">Budget</th>
+              <th scope="col">Spent</th><th scope="col">Remaining</th><th scope="col">Status</th></tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+/** Budget, spend, the cost form and the cost ledger for one project. */
+function renderProjectCosts({ project, user, csrf, notice = '', error = '', values = {} }) {
+  const v = (k) => esc(values[k] == null ? '' : values[k]);
+
+  const rows = project.costs.length
+    ? project.costs.map((c) => `          <tr>
+            <td>${esc(formatDate(c.date))}</td>
+            <td>${esc(c.description)}</td>
+            <td>${esc(money(c.amount_cents))}</td>
+            <td class="actions">
+              <form method="post" action="/admin/projects/${esc(project.id)}/costs/${esc(c.id)}/delete"
+                    class="inline-form" data-confirm="Delete this cost? It cannot be undone.">
+                <input type="hidden" name="csrf" value="${esc(csrf)}">
+                <button class="link-danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="4">No costs recorded yet.</td></tr>';
+
+  const over = project.remaining_cents < 0;
+
+  return `    <div class="client-card" style="margin-top:20px">
+      <h2>Budget &amp; Costs</h2>
+
+      ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+      ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+      <div class="portal-stat-grid">
+        <div class="portal-stat"><small>Budget</small><strong>${esc(money(project.budget_cents))}</strong></div>
+        <div class="portal-stat"><small>Total spent</small><strong>${esc(money(project.spent_cents))}</strong></div>
+        <div class="portal-stat"><small>${over ? 'Over budget by' : 'Remaining'}</small><strong>${esc(money(Math.abs(project.remaining_cents)))}</strong></div>
+      </div>
+
+      <h3 style="margin-top:20px">Budget</h3>
+      <form method="post" action="/admin/projects/${esc(project.id)}/budget" class="inline-form">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+        <label for="pc-budget">Total budget (US$)</label>
+        <input id="pc-budget" name="budget" type="text" inputmode="decimal"
+               placeholder="e.g. 250000.00" value="${esc((project.budget_cents / 100).toFixed(2))}">
+        <button class="btn primary" type="submit">Save budget</button>
+      </form>
+
+      <h3 style="margin-top:24px">Record a cost</h3>
+      <form method="post" action="/admin/projects/${esc(project.id)}/costs">
+        <input type="hidden" name="csrf" value="${esc(csrf)}">
+        <label for="pc-desc">Description</label>
+        <input id="pc-desc" name="description" type="text" maxlength="200" required value="${v('description')}">
+        <label for="pc-amount">Amount (US$)</label>
+        <input id="pc-amount" name="amount" type="text" inputmode="decimal" placeholder="e.g. 1200.00" required value="${v('amount')}">
+        <label for="pc-date">Date</label>
+        <input id="pc-date" name="date" type="date" value="${v('date') || esc(todayIso())}">
+        <button class="btn primary" type="submit">Record cost</button>
+      </form>
+
+      <h3 style="margin-top:24px">Costs</h3>
+      <table class="portal-table">
+        <caption>Every cost recorded against ${esc(project.name)}</caption>
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Actions</th></tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+    </div>`;
+}
+
 /* ── Activity logs ──────────────────────────────────────────────────────── */
 function renderActivityLogs({ logs = [], agents = [], user, csrf,
   agentId = null, sortOrder = 'DESC', date = '', today = '',
@@ -1884,6 +2004,7 @@ ${projectFields({ project: { type: 'Residential', status: 'Development' }, csrf 
 }
 
 function renderProjectDetail({ project, stands = [], pricing = [], steps, user, csrf,
+  extra = '',
   notice = '', error = '' }) {
   /* The published price list. Amounts stay as typed text because the list
      legitimately contains ranges. */
@@ -2049,6 +2170,7 @@ ${stateOptions('pending')}
         <button class="btn primary" type="submit">Add step</button>
       </form>
     </div>
+${extra}
   </section>`;
 }
 
@@ -2283,5 +2405,5 @@ module.exports = {
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
   renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
-  renderActivityLogs, renderStaffEdit
+  renderActivityLogs, renderStaffEdit, renderProjectBudgets, renderProjectCosts
 };
