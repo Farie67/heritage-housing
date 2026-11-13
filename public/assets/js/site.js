@@ -34,6 +34,71 @@
   }
 
   /* ── Mobile navigation ──────────────────────────────────────────────── */
+
+  /* ── Show/hide password ──────────────────────────────────────────────────
+     Registered as soon as this script runs, NOT inside boot(). boot() calls
+     several inits in order and a throw in any of them would stop the rest,
+     leaving the eye icon dead. Delegated from the document so it also covers
+     fields added later, such as the password-reset dialog's own inputs. */
+  document.addEventListener("click", function (event) {
+    var toggleBtn = event.target.closest(".toggle-password");
+    if (!toggleBtn) return;
+
+    event.preventDefault();
+
+    var wrapper = toggleBtn.closest(".password-wrapper");
+    if (!wrapper) return;
+
+    var input = wrapper.querySelector("input");
+    if (!input) return;
+
+    if (input.type === "password") {
+      input.type = "text";
+      toggleBtn.classList.add("active");
+      toggleBtn.setAttribute("aria-pressed", "true");
+      toggleBtn.setAttribute("aria-label", "Hide password");
+    } else {
+      input.type = "password";
+      toggleBtn.classList.remove("active");
+      toggleBtn.setAttribute("aria-pressed", "false");
+      toggleBtn.setAttribute("aria-label", "Show password");
+    }
+  });
+
+
+  /* ── Forgot-password: swap the login card between two views ──────────────
+     Both forms live inside the same .portal-panel; only one is visible. This is
+     a view swap, not a dialog: nothing is positioned, nothing is appended to
+     the body, and the card never changes size abruptly. */
+  function initPasswordResetViews() {
+    var loginView = document.getElementById("login-view");
+    var resetView = document.getElementById("reset-view");
+    if (!loginView || !resetView) return;
+
+    function showReset(event) {
+      if (event) event.preventDefault();
+      loginView.style.display = "none";
+      resetView.style.display = "";
+      var first = resetView.querySelector("input");
+      if (first) first.focus();
+    }
+
+    function showLogin(event) {
+      if (event) event.preventDefault();
+      resetView.style.display = "none";
+      loginView.style.display = "";
+      var forgot = loginView.querySelector("[data-password-reset]");
+      if (forgot) forgot.focus();
+    }
+
+    /* Delegated: password-reset.js re-renders nothing, but the links are plain
+       anchors and this also survives the reset form being re-shown. */
+    document.addEventListener("click", function (event) {
+      if (event.target.closest("[data-password-reset]")) return showReset(event);
+      if (event.target.closest('[data-action="back"]')) return showLogin(event);
+    });
+  }
+
   function initNav() {
     var toggle = $(".menu-toggle");
     var nav = $("#mainNav");
@@ -320,41 +385,6 @@
      without any error or console message, so the prompt never appeared and
      every delete went through on the first click. The wording lives in a
      data-confirm attribute instead, and this attaches the behaviour. */
-  /* -- Show/hide password ------------------------------------------------ */
-  /* Delegated from the document, so it also covers fields added later — the
-     password-reset dialog builds its own inputs after the page has loaded.
-     The icon carries data-target, but falls back to the input inside the same
-     wrapper, which is what the markup in the templates uses. */
-  function initPasswordToggles() {
-    document.addEventListener("click", function (event) {
-      var button = event.target.closest(".toggle-password");
-      if (!button) return;
-
-      event.preventDefault();
-
-      var wrapper = button.closest(".password-wrapper");
-      var field = null;
-
-      if (button.getAttribute("data-target")) {
-        field = document.getElementById(button.getAttribute("data-target"));
-      }
-      if (!field && wrapper) {
-        field = wrapper.querySelector("input");
-      }
-      if (!field) return;
-
-      var showing = field.type === "text";
-      field.type = showing ? "password" : "text";
-
-      /* aria-pressed is the accessible half: a screen reader says "pressed"
-         rather than relying on the icon, which it cannot see. */
-      button.classList.toggle("is-active", !showing);
-      button.setAttribute("aria-pressed", String(!showing));
-      button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
-      button.setAttribute("title", showing ? "Show password" : "Hide password");
-    });
-  }
-
   function initConfirms() {
     document.addEventListener("submit", function (e) {
       var form = e.target;
@@ -380,7 +410,7 @@
     initPortalLogin();
     initDashboard();
     initConfirms();
-    initPasswordToggles();
+    initPasswordResetViews();
   }
 
   if (document.readyState === "loading") {
