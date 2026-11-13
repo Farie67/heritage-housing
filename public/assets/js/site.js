@@ -320,6 +320,41 @@
      without any error or console message, so the prompt never appeared and
      every delete went through on the first click. The wording lives in a
      data-confirm attribute instead, and this attaches the behaviour. */
+  /* -- Show/hide password ------------------------------------------------ */
+  /* Delegated from the document, so it also covers fields added later — the
+     password-reset dialog builds its own inputs after the page has loaded.
+     The icon carries data-target, but falls back to the input inside the same
+     wrapper, which is what the markup in the templates uses. */
+  function initPasswordToggles() {
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest(".toggle-password");
+      if (!button) return;
+
+      event.preventDefault();
+
+      var wrapper = button.closest(".password-wrapper");
+      var field = null;
+
+      if (button.getAttribute("data-target")) {
+        field = document.getElementById(button.getAttribute("data-target"));
+      }
+      if (!field && wrapper) {
+        field = wrapper.querySelector("input");
+      }
+      if (!field) return;
+
+      var showing = field.type === "text";
+      field.type = showing ? "password" : "text";
+
+      /* aria-pressed is the accessible half: a screen reader says "pressed"
+         rather than relying on the icon, which it cannot see. */
+      button.classList.toggle("is-active", !showing);
+      button.setAttribute("aria-pressed", String(!showing));
+      button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+      button.setAttribute("title", showing ? "Show password" : "Hide password");
+    });
+  }
+
   function initConfirms() {
     document.addEventListener("submit", function (e) {
       var form = e.target;
@@ -345,6 +380,7 @@
     initPortalLogin();
     initDashboard();
     initConfirms();
+    initPasswordToggles();
   }
 
   if (document.readyState === "loading") {
