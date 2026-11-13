@@ -144,6 +144,10 @@ function parseBody(raw, contentType) {
 
 const loginLimiter = new RateLimiter(config.LOGIN_MAX_ATTEMPTS, config.LOGIN_WINDOW_MS);
 const enquiryLimiter = new RateLimiter(config.ENQUIRY_MAX_PER_HOUR, 60 * 60 * 1000);
+/* Password-reset requests are limited per address: each one sends an email, so
+   an unthrottled route would let anyone use the site to flood a stranger's
+   inbox. Five an hour is generous for a person who has genuinely forgotten. */
+const passwordResetLimiter = new RateLimiter(5, 60 * 60 * 1000);
 /* One address may make at most this many requests in the window, whatever the
    route. Set well above a normal browsing session so it only catches a client
    working systematically through the site. */
@@ -1214,6 +1218,35 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/auth/logout' && req.method === 'POST') {
       return await handleLogout(req, res, user);
+    }
+
+    /* ── Self-service password reset ──
+       Three steps, each its own request so a wrong code is answered without
+       losing the form. The heavy lifting lives in password-reset.js; these
+       wrappers only marshal the body and the reply. */
+    if (pathname === '/api/auth/forgot-password' && req.method === 'POST') {
+      const { forgotPassword } = require('./password-reset');
+      const limit = passwordResetLimiter.check(ip);
+      if (!limit.allowed) {
+        return sendJson(res, 429, {
+          error: `Too many reset attempts. Try again in ${Math.ceil((limit.retryAfterMs || 60000) / 60000)} minutes.`
+        });
+      }
+      passwordResetLimiter.hit(ip);
+      const result = await forgotPassword(body);
+      return sendJson(res, result.status, result.json);
+    }
+
+    if (pathname === '/api/auth/verify-otp' && req.method === 'POST') {
+      const { verifyOTP } = require('./password-reset');
+      const result = await verifyOTP(body);
+      return sendJson(res, result.status, result.json);
+    }
+
+    if (pathname === '/api/auth/reset-password-otp' && req.method === 'POST') {
+      const { resetPassword } = require('./password-reset');
+      const result = await resetPassword(body);
+      return sendJson(res, result.status, result.json);
     }
 
     /* ── Public enquiry form ── */

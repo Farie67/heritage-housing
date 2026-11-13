@@ -12,6 +12,7 @@
    ========================================================================== */
 
 const { esc, formatDate } = require('./views');
+const { passwordField } = require('./views-parts');
 const { sanitizeRichText } = require('./sanitize');
 const { staffLogOpen, STAFF_LOG_WINDOW } = require('./format');
 
@@ -89,6 +90,7 @@ ${button('insertUnorderedList', null, '&bull;', 'padding:6px 12px')}
         <button class="btn primary" type="submit" style="margin-top:12px">Post Update</button>
       </form>
 
+      <script src="/assets/js/site.js" defer></script>
       <script src="/assets/js/log-editor.js" defer></script>`;
 }
 const { LEAD_STATUSES } = require('./lead-input');
@@ -138,13 +140,18 @@ function staffLogin(settings, { csrf = '', error = '' } = {}) {
         <label for="identifier">Email or name</label>
         <input id="identifier" name="identifier" type="text" autocomplete="username" required>
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
         <button class="btn primary full" type="submit">Sign in</button>
       </form>
 
+      <p class="muted" style="margin-top:14px">
+        <a href="#" class="text-btn" data-password-reset="staff">Forgot password?</a>
+      </p>
+
       <p class="muted" style="margin-top:18px"><a class="text-btn" href="/">Back to the website</a></p>
     </div>
-  </section>`
+  </section>
+  <script src="/assets/js/password-reset.js" defer></script>`
   });
 }
 
@@ -415,16 +422,16 @@ ${logRows}
         <input type="hidden" name="csrf" value="${esc(csrf)}">
 
         <label for="currentPassword">Current password</label>
-        <input id="currentPassword" name="currentPassword" type="password"
-               autocomplete="current-password" required>
+        ${passwordField(`<input id="currentPassword" name="currentPassword" type="password"
+               autocomplete="current-password" required>`, 'currentPassword')}
 
         <label for="newPassword">New password</label>
-        <input id="newPassword" name="newPassword" type="password"
-               autocomplete="new-password" minlength="8" required>
+        ${passwordField(`<input id="newPassword" name="newPassword" type="password"
+               autocomplete="new-password" minlength="8" required>`, 'newPassword')}
 
         <label for="confirmPassword">Confirm new password</label>
-        <input id="confirmPassword" name="confirmPassword" type="password"
-               autocomplete="new-password" minlength="8" required>
+        ${passwordField(`<input id="confirmPassword" name="confirmPassword" type="password"
+               autocomplete="new-password" minlength="8" required>`, 'confirmPassword')}
 
         <button class="btn primary" type="submit">Update Password</button>
       </form>

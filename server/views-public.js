@@ -14,6 +14,7 @@
    ========================================================================== */
 
 const { esc, money, moneyIn, safeLink, whatsappButton, slugify } = require('./views');
+const { passwordField } = require('./views-parts');
 const fs = require('node:fs');
 const path = require('node:path');
 const config = require('./config');
@@ -689,7 +690,7 @@ function portal(settings) {
         <input id="clientNumber" name="clientNumber" type="text" autocomplete="username" placeholder="e.g. HP-10245" required>
 
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
 
         <button class="btn primary full" type="submit">Sign in</button>
       </form>

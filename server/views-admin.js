@@ -12,6 +12,7 @@
    ========================================================================== */
 
 const { esc, money, moneyIn, formatDate, formatBytes } = require('./views');
+const { passwordField } = require('./views-parts');
 
 const { logoAbsolute, faviconAbsolute, brandName } = require('./branding');
 const { buildReference } = require('./references');
@@ -208,13 +209,19 @@ async function renderLogin({ error = '', csrf = '', notice = '' }) {
         <input id="clientNumber" name="clientNumber" type="text" autocomplete="username" required autofocus>
 
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        ${passwordField(`<input id="password" name="password" type="password" autocomplete="current-password" required>`, 'password')}
 
         <button class="btn primary full" type="submit">Sign in</button>
       </form>
+
+      <p class="muted" style="margin-top:14px;text-align:center">
+        <a href="#" class="text-btn" data-password-reset="admin">Forgot password?</a>
+      </p>
     </div>
   </section>
 </main>
+<script src="/assets/js/site.js" defer></script>
+<script src="/assets/js/password-reset.js" defer></script>
 </body>
 </html>
 `;

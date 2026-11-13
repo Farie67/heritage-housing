@@ -64,6 +64,25 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_exp  ON sessions(expires_at);
 
+/* ── Self-service password resets ──
+   One row per identifier: a new code replaces any outstanding one, so a client
+   cannot accumulate a set of live codes by asking repeatedly.
+
+   The identifier is stored lower-cased and trimmed (see normaliseIdentifier) so
+   a code issued to "CEO@Example.com " is found by "ceo@example.com".
+
+   The code is stored as a salted scrypt hash, not in clear. A reader of this
+   table must not be able to take over an account. */
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          INTEGER PRIMARY KEY,
+  identifier  TEXT    NOT NULL UNIQUE,
+  otp_code    TEXT    NOT NULL,
+  expires_at  TEXT    NOT NULL,
+  user_type   TEXT    NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS projects (
   id          INTEGER PRIMARY KEY,
   name        TEXT    NOT NULL UNIQUE,
@@ -643,6 +662,9 @@ async function audit(action, outcome, { userId = null, clientNumber = null, deta
 
 const qUserByNumber = prepare('SELECT * FROM users WHERE client_number = ?');
 const qUserById     = prepare('SELECT * FROM users WHERE id = ?');
+/* Case-insensitive: an address typed into a reset form rarely matches the case
+   it was stored with. */
+const qUserByEmail  = prepare('SELECT * FROM users WHERE lower(email) = lower(?) LIMIT 1');
 const qBumpFailed   = prepare('UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?');
 const qLockUser     = prepare('UPDATE users SET locked_until = ?, failed_attempts = 0 WHERE id = ?');
 const qResetFailed  = prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?');
@@ -650,6 +672,8 @@ const qResetFailed  = prepare('UPDATE users SET failed_attempts = 0, locked_unti
 const users = {
   byClientNumber: async (n) => await qUserByNumber.get(n),
   byId: async (id) => await qUserById.get(id),
+  /** Looks a user up by email address, ignoring case. Used by password resets. */
+  byEmail: async (email) => await qUserByEmail.get(String(email || '').trim()),
   bumpFailed: async (id) => await qBumpFailed.run(id),
   lock: async (id, untilIso) => await qLockUser.run(untilIso, id),
   resetFailed: async (id) => await qResetFailed.run(id),
@@ -740,6 +764,86 @@ const users = {
       }
       throw err;
     }
+  },
+
+  /**
+   * Sets a password for the self-service reset, which has already proved the
+   * caller owns the inbox.
+   *
+   * Unlike setPassword above, this one ALLOWS a client: the whole point of the
+   * flow is that a locked-out buyer can get back in without phoning the office.
+   * The proof of identity here is the emailed code, not a staff session.
+   */
+  async setPasswordFromReset(id, hash) {
+    const info = await prepare(`
+      UPDATE users
+         SET password_hash = ?, disabled = 0, archived = 0,
+             failed_attempts = 0, locked_until = NULL
+       WHERE id = ?
+    `).run(hash, id);
+    return Number(info.changes) > 0;
+  }
+};
+
+/* ── Password-reset one-time codes ──────────────────────────────────────── */
+
+const qUpsertOTP = prepare(`
+  INSERT INTO password_resets (identifier, otp_code, expires_at, user_type, attempts, created_at)
+  VALUES (?, ?, ?, ?, 0, ?)
+  ON CONFLICT(identifier) DO UPDATE SET
+    otp_code   = excluded.otp_code,
+    expires_at = excluded.expires_at,
+    user_type  = excluded.user_type,
+    attempts   = 0,
+    created_at = excluded.created_at
+`);
+const qFindOTP = prepare(
+  'SELECT * FROM password_resets WHERE identifier = ? AND user_type = ?');
+const qDeleteOTP = prepare('DELETE FROM password_resets WHERE identifier = ?');
+const qBumpOTPAttempts = prepare(
+  'UPDATE password_resets SET attempts = attempts + 1 WHERE identifier = ?');
+const qPurgeExpiredOTP = prepare('DELETE FROM password_resets WHERE expires_at < ?');
+
+const MAX_OTP_ATTEMPTS = 5;
+
+const passwordResets = {
+  /** Stores a new code, replacing any outstanding one for this identifier. */
+  async createOTP(identifier, otpHash, userType, expiresAt) {
+    await qUpsertOTP.run(identifier, otpHash, expiresAt, userType, nowIso());
+  },
+
+  /**
+   * Returns the live row for this identifier and type, or null.
+   *
+   * Expired and over-attempted rows are deleted on sight, so a stale code
+   * cannot be retried later and does not linger in the table.
+   */
+  async findOTP(identifier, userType) {
+    const row = await qFindOTP.get(identifier, userType);
+    if (!row) return null;
+
+    if (new Date(row.expires_at).getTime() <= Date.now()) {
+      await qDeleteOTP.run(identifier);
+      return null;
+    }
+    if (Number(row.attempts) >= MAX_OTP_ATTEMPTS) {
+      await qDeleteOTP.run(identifier);
+      return null;
+    }
+    return row;
+  },
+
+  /** Counts a wrong guess so the code dies after a handful of them. */
+  async recordFailedAttempt(identifier) {
+    await qBumpOTPAttempts.run(identifier);
+  },
+
+  async deleteOTP(identifier) {
+    await qDeleteOTP.run(identifier);
+  },
+
+  async purgeExpired() {
+    await qPurgeExpiredOTP.run(nowIso());
   }
 };
 
@@ -2590,7 +2694,7 @@ const admin = {
 module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
   leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents, SALES_PERIODS,
-  getOverdueClients,
+  getOverdueClients, passwordResets,
   findLeadByPhone, normalisePhone,
   portal, enquiries, admin, content, nowIso,
   PAYMENT_STATUSES, TRANSACTION_TYPES, COLLECTION_TYPES, PAYMENT_METHODS,

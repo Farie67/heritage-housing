@@ -53,6 +53,7 @@ function whatsappButton(settings, className = 'btn light') {
    can use the same definitions without importing the view layer. Re-exported
    here because every existing caller imports them from views. */
 const { money, moneyIn, plainMoney, formatDate, formatBytes, percent, slugify } = require('./format');
+const { passwordField } = require('./views-parts');
 
 /* The brand mark comes from server/branding.js, which resolves the three
    files the wordmark needs. */
@@ -265,16 +266,16 @@ ${projectBlock}
         <input type="hidden" name="csrf" value="${esc(csrf)}">
 
         <label for="currentPassword">Current password</label>
-        <input id="currentPassword" name="currentPassword" type="password"
-               autocomplete="current-password" required>
+        ${passwordField(`<input id="currentPassword" name="currentPassword" type="password"
+               autocomplete="current-password" required>`, 'currentPassword')}
 
         <label for="newPassword">New password</label>
-        <input id="newPassword" name="newPassword" type="password"
-               autocomplete="new-password" required>
+        ${passwordField(`<input id="newPassword" name="newPassword" type="password"
+               autocomplete="new-password" required>`, 'newPassword')}
 
         <label for="confirmPassword">Confirm new password</label>
-        <input id="confirmPassword" name="confirmPassword" type="password"
-               autocomplete="new-password" required>
+        ${passwordField(`<input id="confirmPassword" name="confirmPassword" type="password"
+               autocomplete="new-password" required>`, 'confirmPassword')}
 
         <p class="field-hint">At least 5 characters, including one symbol such as
           @ # $ ! % &amp; or *</p>
