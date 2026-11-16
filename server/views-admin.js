@@ -1472,14 +1472,14 @@ ${accountRows}
         <label for="s-phone">Phone</label>
         <input id="s-phone" name="phone" type="tel" maxlength="40">
 
-        <label for="s-branch">Assigned branch</label>
+        <label for="s-branch" id="s-branch-label">Home Branch (Agent)</label>
         <select id="s-branch" name="branchId">
-          <option value="">All branches (no restriction)</option>
+          <option value="">No branch</option>
 ${branches.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join('\n')}
         </select>
-        <p class="field-hint">Choose a branch to make this person a Branch Manager. They will
-          see only that branch's clients and properties. Leave it on "All branches" for the
-          roles that should see everything.</p>
+        <p class="field-hint" id="s-branch-hint">For a sales agent this is their home branch,
+          which decides the staff list and activity logs they appear in — it does
+          <strong>not</strong> limit which properties they can sell.</p>
 
         <button class="btn primary" type="submit">Add team member</button>
       </form>

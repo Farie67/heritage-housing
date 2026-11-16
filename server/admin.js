@@ -560,14 +560,16 @@ async function handleAdmin(req, res, ctx) {
    * actually enforces it.
    */
   /* ── Branch isolation ──
-     A Branch Manager sees one development. Everything below keys off this one
-     helper, so a new route cannot quietly forget the filter.
+     Scoped purely by users.branch_id, NOT by role.
 
-     NULL means "not scoped": the main Admin, the MD and every other role keep
-     seeing every branch, which is why this returns null for them. */
-  const branchScope = role === 'branch_crm' && user.branch_id != null
-    ? Number(user.branch_id)
-    : null;
+     The distinction matters: Hazel (Bulawayo) and Nyasha (Kadoma) are ordinary
+     Administrators who happen to carry a branch, not 'branch_crm' accounts. A
+     role-based test would have returned null for them and quietly shown them
+     every branch. Keying on the column means "has a branch" is the whole rule.
+
+     NULL means unscoped, which is exactly ADMIN-001, the MD, Finance, HR and
+     every other account without a branch — they keep seeing everything. */
+  const branchScope = user.branch_id != null ? Number(user.branch_id) : null;
 
   /** True when this branch may touch a row belonging to that BRANCH. */
   const inBranch = (rowBranchId) => branchScope === null || Number(rowBranchId) === branchScope;
@@ -591,6 +593,9 @@ async function handleAdmin(req, res, ctx) {
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const filters = await analytics.filtersFrom(Object.fromEntries(url.searchParams));
+    /* Branch isolation for the sale side. Filtered by the PROPERTY's branch —
+       not the agent's — because an agent may sell across branches. */
+    if (branchScope !== null) filters.branchId = branchScope;
     const options = await analytics.filterOptions();
     const isLedger = pathname.endsWith('/ledger');
 
@@ -887,7 +892,7 @@ async function handleAdmin(req, res, ctx) {
   /* ── Overview ── */
   if (pathname === '/admin') {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
-    const counts = await admin.counts();
+    const counts = await admin.counts(branchScope);
     const recent = (await enquiries.all()).slice(0, 5);
     await audit('admin_view', 'success', { userId: user.id, detail: 'overview', ip });
 
@@ -1765,7 +1770,7 @@ async function handleAdmin(req, res, ctx) {
   const standComingSoonMatch = pathname.match(/^\/admin\/properties\/(\d+)\/coming-soon$/);
 
   if (pathname === '/admin/properties' || standEditMatch || standDeleteMatch || standComingSoonMatch) {
-    const projects = await admin.projectsWithCounts();
+    const projects = await admin.projectsWithCounts(branchScope);
 
     /* ── Branch isolation ──
        Every route in this block that names a property must first prove the
@@ -1983,8 +1988,8 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
-            leads: await leads.all(), agents: await agents.list(),
-            projects: await admin.projectsWithCounts(),
+            leads: await leads.all(branchScope), agents: await agents.list(),
+            projects: await admin.projectsWithCounts(branchScope),
             user, csrf, error: message, values: typed,
             readOnly: getEffectiveRole(user) !== 'admin'
           })
@@ -2218,9 +2223,9 @@ async function handleAdmin(req, res, ctx) {
      view so a new call site cannot forget one of the two lists, or show the
      wrong side of the archive. */
   const staffView = async ({ showArchived = false, ...rest } = {}) => views.renderStaff({
-    agents: await agents.listByActive(!showArchived),
-    accounts: await users.staffAccounts(showArchived),
-    branches: await admin.branches(),
+    agents: await agents.listByActive(!showArchived, branchScope),
+    accounts: await users.staffAccounts(showArchived, branchScope),
+    branches: branchScope === null ? await admin.branches() : (await admin.branches()).filter((b) => Number(b.id) === branchScope),
     user, csrf, showArchived, ...rest
   });
 
@@ -2297,8 +2302,17 @@ async function handleAdmin(req, res, ctx) {
       const password = generatePassword(20);
 
       if (isAgent) {
+        /* A scoped administrator's new agents always join their own branch;
+           the main Admin may choose. Agents carry a HOME branch — it decides
+           the staff list and activity logs, not which sales they appear in. */
+        const requestedAgentBranch = Number.parseInt(String(body.branchId || ''), 10);
+        const agentBranch = branchScope !== null
+          ? branchScope
+          : (Number.isInteger(requestedAgentBranch) && requestedAgentBranch > 0 ? requestedAgentBranch : null);
+
         const id = await agents.create({
-          name, email, phone, passwordHash: await auth.hashPassword(password)
+          name, email, phone, passwordHash: await auth.hashPassword(password),
+          branchId: agentBranch
         });
         await audit('agent_create', 'success', {
           userId: user.id, detail: `agent ${id} (${name})`, ip
@@ -2348,11 +2362,19 @@ async function handleAdmin(req, res, ctx) {
         });
 
         /* The branch, when one was chosen. This is what makes the account a
-           Branch Manager rather than an ordinary administrator. */
-        const branchId = Number.parseInt(String(body.branchId || ''), 10);
-        if (Number.isInteger(branchId) && branchId > 0) {
+           Branch Manager rather than an ordinary administrator.
+
+           A scoped Administrator cannot create staff outside their own branch,
+           so their branch overrides whatever the form posted — the locked
+           dropdown is presentation, this is the control. */
+        const requestedBranch = Number.parseInt(String(body.branchId || ''), 10);
+        const effectiveBranch = branchScope !== null
+          ? branchScope
+          : (Number.isInteger(requestedBranch) && requestedBranch > 0 ? requestedBranch : null);
+
+        if (effectiveBranch != null) {
           const row = await users.byClientNumber(clientNumber);
-          if (row) await users.setStaffBranch(row.id, branchId);
+          if (row) await users.setStaffBranch(row.id, effectiveBranch);
         }
       } catch (err) {
         /* Belt and braces: if the substitution above ever misses a role the
@@ -2730,7 +2752,7 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Activity Logs', active: '/admin/activity-logs', user, csrf,
       body: views.renderActivityLogs({
-        logs: await staffLogs.recent({ sortOrder, agentId, date }),
+        logs: await staffLogs.recent({ sortOrder, agentId, date, branchId: branchScope }),
         agents: await agents.list(),
         user, csrf,
         agentId, sortOrder, date, today,

@@ -253,6 +253,9 @@ CREATE TABLE IF NOT EXISTS branches (
 `);
 await ensureColumn('projects', 'branch_id', 'INTEGER REFERENCES branches(id)');
 await ensureColumn('users', 'branch_id', 'INTEGER REFERENCES branches(id)');
+/* Agents have a HOME branch, for the staff list and activity logs. Sales are
+   filtered by the property's branch instead, because agents sell across them. */
+await ensureColumn('agents', 'branch_id', 'INTEGER REFERENCES branches(id)');
 
 /* Whether a development has been announced but not released yet.
    A third independent fact, for the same reason the second one is: a
@@ -724,12 +727,13 @@ const users = {
    * same way the agents table does. Clients are excluded from both — this page
    * manages staff.
    */
-  staffAccounts: async (showArchived = false) => await prepare(`
+  staffAccounts: async (showArchived = false, branchId = null) => await prepare(`
     SELECT id, client_number, full_name, email, role, created_at, archived
       FROM users
      WHERE role <> 'client' AND archived = ?
+       AND (? IS NULL OR branch_id = ?)
      ORDER BY role, full_name COLLATE NOCASE
-  `).all(showArchived ? 1 : 0),
+  `).all(showArchived ? 1 : 0, branchId, branchId),
 
   /** Files a panel account away. `archived` is what auth.js refuses at login. */
   async archiveStaff(id) {
@@ -992,7 +996,16 @@ const agents = {
   list: async () => await qAgentsForAdmin.all(),
 
   /** Active staff, or the archived ones — never both. */
-  listByActive: async (active = true) => await qAgentsByActive.all(active ? 1 : 0),
+  /** Active or archived agents, optionally for one home branch. */
+  listByActive: async (active = true, branchId = null) => (branchId == null
+    ? await qAgentsByActive.all(active ? 1 : 0)
+    : await prepare(`
+        SELECT a.id, a.name, a.email, a.phone, a.active, a.created_at, a.branch_id,
+               CASE WHEN a.password_hash IS NULL THEN 0 ELSE 1 END AS has_password,
+               (SELECT COUNT(*) FROM leads l WHERE l.assigned_agent_id = a.id) AS lead_count
+          FROM agents a
+         WHERE a.active = ? AND a.branch_id = ?
+         ORDER BY a.name COLLATE NOCASE`).all(active ? 1 : 0, branchId)),
 
   /**
    * Files an agent away without deleting the row.
@@ -1017,10 +1030,16 @@ const agents = {
   nameTaken: async (name) => Boolean(await qAgentNameTaken.get(name)),
 
   /** Creates an agent with a login and returns the new id. */
-  async create({ name, email, phone, passwordHash }) {
+  async create({ name, email, phone, passwordHash, branchId = null }) {
     const info = await qInsertAgent.run(
       name, email || null, phone || null, passwordHash || null, nowIso());
-    return Number(info.lastInsertRowid);
+    const id = Number(info.lastInsertRowid);
+    /* Agents may be created without a branch (the main Admin is not required to
+       pick one); a scoped administrator always supplies theirs. */
+    if (branchId != null) {
+      await prepare('UPDATE agents SET branch_id = ? WHERE id = ?').run(branchId, id);
+    }
+    return id;
   },
 
   /** Edits an agent's contact details. The role is always Sales Agent. */
@@ -1258,7 +1277,8 @@ const STAFF_LOG_SELECT = `
     FROM staff_logs s
     JOIN agents a ON a.id = s.agent_id
    WHERE (? IS NULL OR s.agent_id = ?)
-     AND (? IS NULL OR (s.created_at >= ? AND s.created_at < ?))`;
+     AND (? IS NULL OR (s.created_at >= ? AND s.created_at < ?))
+     AND (? IS NULL OR a.branch_id = ?)`;
 
 /* Two statements rather than one, because ORDER BY cannot be a bound parameter
    and building it from a query string would be an injection point. The caller
@@ -1317,7 +1337,19 @@ const leads = {
     return Number(info.lastInsertRowid);
   },
   /** Every lead, with the owning agent's name, newest first. */
-  all: async () => await qLeadsAll.all(),
+  /**
+   * Every lead, or those for one branch.
+   *
+   * A lead belongs to a branch through the development it names. A lead with no
+   * project has no branch, so it is LEFT JOINed in and simply excluded when a
+   * branch is asked for — it cannot be attributed to anyone.
+   */
+  all: async (branchId = null) => {
+    if (branchId == null) return await qLeadsAll.all();
+    return await prepare(`${LEAD_SELECT}
+       WHERE l.project_id IN (SELECT id FROM projects WHERE branch_id = ?)
+       ORDER BY l.created_at DESC, l.id DESC`).all(branchId);
+  },
   /** Just the leads assigned to one agent — what the staff dashboard shows. */
   forAgent: async (agentId) => await qLeadsForAgent.all(agentId),
   byId: async (id) => await qLeadById.get(id),
@@ -1478,7 +1510,8 @@ const staffLogs = {
    * agent; null returns everyone. `date` is a local 'YYYY-MM-DD' and narrows to
    * that one day; null returns every day.
    */
-  async recent({ limit = 200, sortOrder = 'DESC', agentId = null, date = null } = {}) {
+  async recent({ limit = 200, sortOrder = 'DESC', agentId = null, date = null,
+    branchId = null } = {}) {
     const stmt = sortOrder === 'ASC' ? qStaffLogsOldest : qStaffLogsNewest;
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 1000) : 200;
 
@@ -1486,11 +1519,14 @@ const staffLogs = {
        falls back to "no date filter" rather than silently matching nothing. */
     const range = date ? utcRangeForLocalDate(date) : null;
 
+    /* The branch is the POSTING AGENT's home branch — a log belongs to whoever
+       wrote it, which is what the office asked for here. */
     return await attachLogComments(await stmt.all(
       agentId, agentId,
       range ? range.startIso : null,
       range ? range.startIso : null,
       range ? range.endIso : null,
+      branchId, branchId,
       safeLimit));
   },
 
@@ -2277,7 +2313,46 @@ function likePattern(q) {
 }
 
 const admin = {
-  counts: async () => await qAdminCounts.get(),
+  /**
+   * Dashboard totals.
+   *
+   * A scoped administrator's counts cover their branch only; a NULL branchId
+   * reproduces the original query unchanged, so ADMIN-001 and the MD are
+   * untouched. Customers are counted through the stand they bought, which is
+   * what ties a client to a branch at all.
+   */
+  async counts(branchId = null) {
+    if (branchId == null) return await qAdminCounts.get();
+
+    return await prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM users u
+          WHERE u.role = 'client' AND EXISTS (
+            SELECT 1 FROM ownerships o
+              JOIN stands st ON st.id = o.stand_id
+              JOIN projects pr ON pr.id = st.project_id
+             WHERE o.user_id = u.id AND pr.branch_id = ?)) AS clients,
+        (SELECT COUNT(*) FROM documents d
+          WHERE EXISTS (
+            SELECT 1 FROM ownerships o
+              JOIN stands st ON st.id = o.stand_id
+              JOIN projects pr ON pr.id = st.project_id
+             WHERE o.user_id = d.user_id AND pr.branch_id = ?)) AS documents,
+        (SELECT COUNT(*) FROM stands st
+              JOIN projects pr ON pr.id = st.project_id WHERE pr.branch_id = ?) AS stands,
+        (SELECT COUNT(*) FROM payments pm
+          WHERE EXISTS (
+            SELECT 1 FROM stands st
+              JOIN projects pr ON pr.id = st.project_id
+             WHERE st.id = pm.stand_id AND pr.branch_id = ?)) AS payments,
+        (SELECT COALESCE(SUM(amount_cents), 0) FROM payments pm
+          WHERE pm.status = 'Confirmed' AND EXISTS (
+            SELECT 1 FROM stands st
+              JOIN projects pr ON pr.id = st.project_id
+             WHERE st.id = pm.stand_id AND pr.branch_id = ?)) AS paid_cents,
+        (SELECT COUNT(*) FROM enquiries WHERE handled_at IS NULL) AS open_enquiries
+    `).get(branchId, branchId, branchId, branchId, branchId);
+  },
   clients: async () => await qClientsList.all(),
 
   /**
@@ -2483,7 +2558,22 @@ const admin = {
   async deleteDocument(id) { await qDeleteDocument.run(id); },
 
   projects: async () => await qProjects.all(),
-  projectsWithCounts: async () => await qProjectsWithCounts.all(),
+  /** Developments, optionally for one branch. */
+  projectsWithCounts: async (branchId = null) => {
+    if (branchId == null) return await qProjectsWithCounts.all();
+    return await prepare(`
+      SELECT p.*,
+             (SELECT COUNT(*) FROM progress WHERE project_id = p.id) AS step_count,
+             (SELECT COUNT(*) FROM stands s WHERE s.project_id = p.id) AS property_count,
+             (SELECT COUNT(*) FROM stands s WHERE s.project_id = p.id AND s.status = 'Available') AS available_count,
+             (SELECT COUNT(*) FROM stands s WHERE s.project_id = p.id AND s.status = 'Reserved')  AS reserved_count,
+             (SELECT COUNT(*) FROM stands s WHERE s.project_id = p.id AND s.status = 'On Hold')   AS on_hold_count,
+             (SELECT COUNT(*) FROM stands s WHERE s.project_id = p.id AND s.status = 'Sold')      AS sold_count
+        FROM projects p
+       WHERE p.branch_id = ?
+       ORDER BY p.name
+    `).all(branchId);
+  },
 
   /** Every branch, for the pickers. */
   branches: async () => await prepare(

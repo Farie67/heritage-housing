@@ -108,6 +108,10 @@ function saleWhere(f) {
   if (f.year) { w.push('o.sale_date >= ? AND o.sale_date <= ?'); args.push(`${f.year}-01-01`, `${f.year}-12-31`); }
   if (f.month) { w.push('o.sale_date >= ? AND o.sale_date <= ?'); args.push(`${f.month}-01`, `${f.month}-31`); }
   if (f.projectId) { w.push('st.project_id = ?'); args.push(f.projectId); }
+  /* Branch isolation for a scoped administrator. Filtered by the PROPERTY's
+     branch, never the agent's: agents may sell across branches, so an agent's
+     home branch must not hide a sale they made elsewhere. */
+  if (f.branchId) { w.push('pr.branch_id = ?'); args.push(f.branchId); }
   if (f.agentId) { w.push('o.agent_id = ?'); args.push(f.agentId); }
   if (f.clientId) { w.push('o.user_id = ?'); args.push(f.clientId); }
   if (f.standId) { w.push('o.stand_id = ?'); args.push(f.standId); }
