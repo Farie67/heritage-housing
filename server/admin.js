@@ -886,20 +886,42 @@ async function handleAdmin(req, res, ctx) {
       ? 'Access denied. You do not have permission to view this page.'
       : flag === 'readonly'
         ? 'Your role is view-only here. That change was not saved.'
-        : flag === 'reminders'
-          ? `The reminder check could not run: ${url.searchParams.get('why') || 'unknown error'}`
-          : '';
+        : '';
 
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Overview', active: '/admin', user, csrf,
       body: views.renderDashboard({
         counts, recent, clientsByDevelopment: await admin.clientsByDevelopment(),
-        overdue: await getOverdueClients(),
-        canRunReminders: role === 'admin',
-        notice: url.searchParams.get('ok') === 'reminders'
-          ? `Reminder check complete. ${url.searchParams.get('n') || 0} emails sent.`
-          : '',
         user, csrf, error
+      })
+    }));
+    return true;
+  }
+
+  /* ── Reminders ──
+     A page of its own. The Overview used to fetch the overdue list on every
+     visit, which meant a query nobody had asked for; it now happens only when
+     this page is opened. */
+  if (pathname === '/admin/reminders') {
+    if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
+
+    await audit('admin_view', 'success', { userId: user.id, detail: 'reminders', ip });
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const okCode = url.searchParams.get('ok');
+    const notice = okCode === 'reminders'
+      ? `Reminder check complete. ${url.searchParams.get('n') || 0} emails sent.`
+      : '';
+    const error = url.searchParams.get('error') === 'reminders'
+      ? `The reminder check could not run: ${url.searchParams.get('why') || 'unknown error'}`
+      : '';
+
+    h.sendHtml(res, 200, await views.adminLayout({
+      title: 'Reminders', active: '/admin/reminders', user, csrf,
+      body: views.renderReminders({
+        overdue: await getOverdueClients(),
+        canRun: role === 'admin',
+        notice, error, user, csrf
       })
     }));
     return true;
@@ -916,7 +938,7 @@ async function handleAdmin(req, res, ctx) {
   if (pathname === '/admin/reminders/run') {
     if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
-    const back = (query) => h.redirect(res, `/admin?${query}`);
+    const back = (query) => h.redirect(res, `/admin/reminders?${query}`);
 
     let result;
     try {
@@ -1285,11 +1307,26 @@ async function handleAdmin(req, res, ctx) {
       return true;
     }
 
-    /* ── Edit name / email ── */
+    /* ── Edit client number / name / email ── */
     if (action === 'update') {
       const fullName = String(body.fullName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
       const email = String(body.email || '').trim().slice(0, 160);
+      /* The identifier the client signs in with, and what a statement is headed
+         with. Upper-cased so a typed "hp-10245" is stored the way every other
+         number in the system is. */
+      const clientNumber = String(body.clientNumber || '').trim().toUpperCase().slice(0, 32);
 
+      if (!clientNumber) {
+        await sendClientPage(res, h, clientId, { user, csrf, error: 'Please enter a client number.' });
+        return true;
+      }
+      if (!/^[A-Z0-9][A-Z0-9-]{1,31}$/.test(clientNumber)) {
+        await sendClientPage(res, h, clientId, {
+          user, csrf,
+          error: 'A client number may contain letters, digits and hyphens, and must start with a letter or digit.'
+        });
+        return true;
+      }
       if (fullName.length < 2) {
         await sendClientPage(res, h, clientId, { user, csrf, error: 'Please enter the client\'s full name.' });
         return true;
@@ -1299,8 +1336,28 @@ async function handleAdmin(req, res, ctx) {
         return true;
       }
 
-      await admin.updateClient(clientId, { fullName, email });
-      await audit('client_update', 'success', { userId: user.id, detail: `client ${clientId} (${client.client_number})`, ip });
+      try {
+        await admin.updateClient(clientId, { fullName, email, clientNumber });
+      } catch (err) {
+        /* users.client_number is UNIQUE. Catching it here is what turns a raw
+           constraint error into something the office can act on. */
+        if (/UNIQUE constraint failed/i.test(String(err.message))) {
+          await sendClientPage(res, h, clientId, {
+            user, csrf, error: 'This Client Number is already in use by another client.'
+          });
+          return true;
+        }
+        throw err;
+      }
+
+      /* The old number is kept in the audit line when it changes, so the
+         statement trail can still be followed back. */
+      await audit('client_update', 'success', {
+        userId: user.id,
+        detail: `client ${clientId} (${client.client_number}${clientNumber === client.client_number
+          ? '' : ` -> ${clientNumber}`})`,
+        ip
+      });
       return h.sendHtml(res, 302, '', { Location: `/admin/clients/${clientId}?ok=saved` }), true;
     }
 

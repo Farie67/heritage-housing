@@ -1996,7 +1996,7 @@ const qClientById = prepare(`
   LIMIT 1
 `);
 
-const qUpdateClient = prepare('UPDATE users SET full_name = ?, email = ? WHERE id = ?');
+const qUpdateClient = prepare('UPDATE users SET client_number = ?, full_name = ?, email = ? WHERE id = ?');
 const qSetDisabled  = prepare('UPDATE users SET disabled = ? WHERE id = ?');
 const qSetArchived  = prepare('UPDATE users SET archived = ? WHERE id = ?');
 const qSetPassword  = prepare(
@@ -2336,8 +2336,10 @@ const admin = {
 
   clientById: async (id) => await qClientById.get(id),
 
-  async updateClient(id, { fullName, email }) {
-    await qUpdateClient.run(fullName, email || null, id);
+  async updateClient(id, { fullName, email, clientNumber }) {
+    /* The client number is UNIQUE. A clash throws, and the caller turns that
+       into a readable message rather than a 500. */
+    await qUpdateClient.run(clientNumber, fullName, email || null, id);
     return await qClientById.get(id);
   },
 

@@ -31,6 +31,7 @@ const NAV = [
   ['/admin/projects', 'Projects'],
   ['/admin/staff', 'Staff'],
   ['/admin/activity-logs', 'Activity Logs'],
+  ['/admin/reminders', 'Reminders'],
   ['/admin/content', 'Content']
 ];
 
@@ -234,8 +235,8 @@ ${resetForm('admin')}
 
 /* ── Overview ───────────────────────────────────────────────────────────── */
 
-function renderDashboard({ counts, recent, clientsByDevelopment = [], overdue = [],
-  canRunReminders = false, notice = '', user, csrf, error = '' }) {
+function renderDashboard({ counts, recent, clientsByDevelopment = [], notice = '',
+  user, csrf, error = '' }) {
   const rows = recent.length
     ? recent.map((e) => `        <tr>
           <td>${esc(formatDate(e.created_at))}</td>
@@ -259,36 +260,6 @@ function renderDashboard({ counts, recent, clientsByDevelopment = [], overdue = 
       </a>`).join('\n')
     : '      <p class="muted">No clients yet.</p>';
 
-  /* The Automated Reminders table.
-     A client with no usable address is marked here rather than discovered when
-     the run reports fewer sends than rows — the placeholder created by lead
-     conversion would otherwise look like a working email. */
-  const overdueRows = overdue.length
-    ? `      <table class="portal-table">
-        <thead>
-          <tr><th scope="col">Name</th><th scope="col">Stand</th>
-              <th scope="col">Balance</th><th scope="col">Last payment</th></tr>
-        </thead>
-        <tbody>
-${overdue.map((c) => `          <tr>
-            <td><a href="/admin/clients/${esc(c.client_id)}"><strong>${esc(c.name)}</strong></a>
-              ${usableEmail(c.email) ? '' : ' <span class="muted">(no email)</span>'}</td>
-            <td>${esc(c.stand_number)}</td>
-            <td>${esc(money(c.balance_cents))}</td>
-            <td>${c.last_payment_date ? esc(formatDate(c.last_payment_date)) : '<span class="muted">never</span>'}</td>
-          </tr>`).join('\n')}
-        </tbody>
-      </table>
-      <p style="margin-top:16px">
-        ${canRunReminders
-    ? `<form method="post" action="/admin/reminders/run" class="inline-form"
-               data-confirm="Email ${overdue.filter((c) => usableEmail(c.email)).length} client(s) a payment reminder now?">
-             <input type="hidden" name="csrf" value="${esc(csrf)}">
-             <button class="btn primary" type="submit">Run Reminder Check</button>
-           </form>`
-    : '<span class="muted">Only an Administrator can send reminders.</span>'}
-      </p>`
-    : '      <p class="muted">No overdue payments found.</p>';
 
   return `  <section class="container inner-page">
     <div class="dashboard-top">
@@ -339,12 +310,7 @@ ${folderTiles}
       <p style="margin-top:16px"><a class="text-btn" href="/admin/clients">View all clients &rarr;</a></p>
     </div>
 
-    <div class="client-card" style="margin-top:20px">
-      <h2>Automated Reminders</h2>
-      <p class="field-hint" style="margin-bottom:14px">Clients with an outstanding balance who have
-        not paid for more than 30 days. Running the check emails each of them once.</p>
-${overdueRows}
-    </div>
+
   </section>`;
 }
 
@@ -605,6 +571,14 @@ function renderClientDetail({
         <h2>Account details</h2>
         <form method="post" action="${esc(basePath)}/update">
           <input type="hidden" name="csrf" value="${esc(csrf)}">
+
+          <label for="clientNumber">Client number</label>
+          <input id="clientNumber" name="clientNumber" type="text"
+                 value="${esc(client.client_number)}" required maxlength="32">
+          <p class="field-hint">Warning: Changing the Client Number will affect how they log in
+            and how their statements are generated. Ensure it matches their Stand Number if that
+            is your company policy.</p>
+
           <label for="fullName">Full name</label>
           <input id="fullName" name="fullName" type="text" value="${esc(client.full_name)}" required>
 
@@ -617,7 +591,6 @@ function renderClientDetail({
 
       <div class="client-card">
         <h2>Account actions</h2>
-        <p class="field-hint">Client number <strong>${esc(client.client_number)}</strong> cannot be changed — it is printed on statements.</p>
 
         <form method="post" action="${esc(basePath)}/reset-password" class="stack">
           <input type="hidden" name="csrf" value="${esc(csrf)}">
@@ -1585,6 +1558,70 @@ ${isAgent ? `        <label for="e-phone">Phone</label>
 }
 
 
+
+/* ── Reminders ──────────────────────────────────────────────────────────── */
+
+/**
+ * Overdue clients and the button that emails them.
+ *
+ * A page of its own rather than a card on the Overview: the list is long enough
+ * to dominate that page, and running the check is a deliberate act that
+ * deserves its own place.
+ */
+function renderReminders({ overdue = [], canRun = false, notice = '', error = '', user, csrf }) {
+  const sendable = overdue.filter((c) => usableEmail(c.email)).length;
+
+  const rows = overdue.length
+    ? overdue.map((c) => `          <tr>
+            <td><a href="/admin/clients/${esc(c.client_id)}"><strong>${esc(c.name)}</strong></a>
+              ${usableEmail(c.email) ? '' : ' <span class="muted">(no email)</span>'}</td>
+            <td>${esc(c.stand_number)}</td>
+            <td>${esc(money(c.balance_cents))}</td>
+            <td>${c.last_payment_date ? esc(formatDate(c.last_payment_date)) : '<span class="muted">never</span>'}</td>
+          </tr>`).join('\n')
+    : '          <tr><td colspan="4">No overdue payments found.</td></tr>';
+
+  return `  <section class="container inner-page">
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">REMINDERS</span>
+        <h1>Payment reminders</h1>
+        <p class="muted">Clients with an outstanding balance who have not paid for more than 30 days.</p>
+      </div>
+    </div>
+
+    ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
+    ${error ? `<p class="notice error">${esc(error)}</p>` : ''}
+
+    <div class="client-card">
+      <h2>Automated Reminders</h2>
+      <p class="field-hint" style="margin-bottom:14px">Running the check emails each client below once.
+        A client with no real address is marked and skipped.</p>
+
+      <table class="portal-table">
+        <caption>${overdue.length} client${overdue.length === 1 ? '' : 's'} overdue</caption>
+        <thead>
+          <tr><th scope="col">Name</th><th scope="col">Stand</th>
+              <th scope="col">Balance</th><th scope="col">Last payment</th></tr>
+        </thead>
+        <tbody>
+${rows}
+        </tbody>
+      </table>
+
+      <p style="margin-top:16px">
+        ${canRun
+    ? `<form method="post" action="/admin/reminders/run" class="inline-form"
+               data-confirm="Email ${sendable} client(s) a payment reminder now?">
+             <input type="hidden" name="csrf" value="${esc(csrf)}">
+             <button class="btn primary" type="submit">Run Reminder Check</button>
+           </form>`
+    : '<span class="muted">Only an Administrator can send reminders.</span>'}
+      </p>
+    </div>
+  </section>`;
+}
+
 /* ── Projects: budgets and cost tracking ─────────────────────────────────
    Rendered as a section on the existing Projects pages rather than at new
    URLs: /admin/projects already lists the developments, and a budget belongs
@@ -2405,5 +2442,5 @@ module.exports = {
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
   renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
-  renderActivityLogs, renderStaffEdit, renderProjectBudgets, renderProjectCosts
+  renderActivityLogs, renderStaffEdit, renderProjectBudgets, renderProjectCosts, renderReminders
 };
