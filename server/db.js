@@ -241,6 +241,18 @@ await ensureColumn('projects', 'budget_cents', 'INTEGER NOT NULL DEFAULT 0');
 /* A Branch Manager's branch. NULL means "not scoped" — the main Admin, the MD
    and every other role still see everything. */
 await ensureColumn('users', 'project_id', 'INTEGER REFERENCES projects(id)');
+/* ── Branches ──
+   A branch (Gweru, Kadoma) holds many developments. Managers are scoped to a
+   branch, not to a single project. */
+await driver.exec(`
+CREATE TABLE IF NOT EXISTS branches (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT    NOT NULL UNIQUE,
+  created_at TEXT
+);
+`);
+await ensureColumn('projects', 'branch_id', 'INTEGER REFERENCES branches(id)');
+await ensureColumn('users', 'branch_id', 'INTEGER REFERENCES branches(id)');
 
 /* Whether a development has been announced but not released yet.
    A third independent fact, for the same reason the second one is: a
@@ -792,7 +804,7 @@ const users = {
    */
   /** Sets or clears a panel account's branch. NULL means every branch. */
   async setStaffBranch(id, projectId) {
-    const info = await prepare('UPDATE users SET project_id = ? WHERE id = ?')
+    const info = await prepare('UPDATE users SET branch_id = ? WHERE id = ?')
       .run(projectId == null ? null : projectId, id);
     return Number(info.changes) > 0;
   },
@@ -881,7 +893,7 @@ const qInsertSession = prepare(`
    sign in as a full administrator. */
 const qFindSession = prepare(`
   SELECT s.token_hash, s.user_id, s.expires_at,
-         u.client_number, u.full_name, u.email, u.role, u.disabled, u.archived, u.project_id
+         u.client_number, u.full_name, u.email, u.role, u.disabled, u.archived, u.branch_id
   FROM sessions s
   JOIN users u ON u.id = s.user_id
   WHERE s.token_hash = ?
@@ -2034,6 +2046,7 @@ const qStandsAll = prepare(`
 
 const STAND_SELECT = `
   SELECT st.*, p.name AS project_name, p.location AS project_location,
+         p.branch_id AS project_branch_id,
          p.description AS project_description, p.image_url AS project_image_url,
          p.sold_out AS project_sold_out,
          p.coming_soon AS project_coming_soon,
@@ -2304,12 +2317,12 @@ const admin = {
       `developmentId` narrows the list to one development — a project id, or
       the string 'unassigned' for clients with no sale at all. Both are needed
       by the overview's folder tiles. */
-  async searchClients(q, { includeArchived = false, developmentId = null } = {}) {
+  async searchClients(q, { includeArchived = false, developmentId = null, branchId = null } = {}) {
     const term = String(q || '').trim();
 
     /* The two simplest shapes are precompiled. A development filter changes the
        clause rather than just the bindings, so that case is built here. */
-    if (!developmentId && !term) {
+    if (!developmentId && !branchId && !term) {
       return await (includeArchived ? qClientsListAll : qClientsList).all();
     }
 
@@ -2317,6 +2330,16 @@ const admin = {
     const args = [];
 
     if (!includeArchived) clauses.push('u.archived = 0');
+
+    /* A branch filter is an EXISTS too, so a client with several stands in the
+       branch still appears once. */
+    if (Number.isInteger(branchId) && branchId > 0) {
+      clauses.push(`EXISTS (SELECT 1 FROM ownerships ow
+                              JOIN stands sw ON sw.id = ow.stand_id
+                              JOIN projects pw ON pw.id = sw.project_id
+                             WHERE ow.user_id = u.id AND pw.branch_id = ?)`);
+      args.push(branchId);
+    }
 
     if (developmentId === 'unassigned') {
       /* The same test qClientsUnassigned uses: no ownership row at all. */
@@ -2461,6 +2484,10 @@ const admin = {
 
   projects: async () => await qProjects.all(),
   projectsWithCounts: async () => await qProjectsWithCounts.all(),
+
+  /** Every branch, for the pickers. */
+  branches: async () => await prepare(
+    'SELECT id, name FROM branches ORDER BY name COLLATE NOCASE').all(),
 
   /**
    * Suggests the next free client number, e.g. HP-10246.
@@ -2674,8 +2701,8 @@ const admin = {
    * Filtered in SQL rather than in the view: a Branch Manager must never
    * receive another branch's rows at all, so there is nothing to leak.
    */
-  standsForBranch: async (projectId) => await prepare(
-    `${STAND_SELECT} WHERE st.project_id = ? ORDER BY p.name, st.stand_number`).all(projectId),
+  standsForBranch: async (branchId) => await prepare(
+    `${STAND_SELECT} WHERE p.branch_id = ? ORDER BY p.name, st.stand_number`).all(branchId),
   /** Every property belonging to one development. */
   standsForProject: async (projectId) => await prepare(`${STAND_SELECT} WHERE st.project_id = ? ORDER BY st.stand_number`).all(projectId),
   standById: async (id) => await qStandById.get(id),

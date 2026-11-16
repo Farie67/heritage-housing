@@ -565,12 +565,12 @@ async function handleAdmin(req, res, ctx) {
 
      NULL means "not scoped": the main Admin, the MD and every other role keep
      seeing every branch, which is why this returns null for them. */
-  const branchScope = role === 'branch_crm' && user.project_id != null
-    ? Number(user.project_id)
+  const branchScope = role === 'branch_crm' && user.branch_id != null
+    ? Number(user.branch_id)
     : null;
 
-  /** True when this branch may touch a property in that project. */
-  const inBranch = (projectId) => branchScope === null || Number(projectId) === branchScope;
+  /** True when this branch may touch a row belonging to that BRANCH. */
+  const inBranch = (rowBranchId) => branchScope === null || Number(rowBranchId) === branchScope;
 
   const mayModifyRecords = mayPerform(role, 'POST', '/admin/properties/0');
 
@@ -1092,8 +1092,13 @@ async function handleAdmin(req, res, ctx) {
 
     /* For a Branch Manager the branch IS the filter, whatever the query
        string asked for. */
-    const scopedDevelopmentId = branchScope === null ? developmentId : branchScope;
-    const clients = await admin.searchClients(q, { includeArchived: showArchived, developmentId: scopedDevelopmentId });
+    /* A Branch Manager's list is the branch, whatever the query string asked
+       for. The development filter still works for everyone else. */
+    const clients = await admin.searchClients(q, {
+      includeArchived: showArchived,
+      developmentId: branchScope === null ? developmentId : null,
+      branchId: branchScope
+    });
 
     /* The name of the active filter, so the page can say what it is showing. */
     let developmentName = null;
@@ -1141,8 +1146,9 @@ async function handleAdmin(req, res, ctx) {
       const owned = await db.prepare(`
         SELECT 1 AS ok
           FROM ownerships o
-          JOIN stands s ON s.id = o.stand_id
-         WHERE o.user_id = ? AND s.project_id = ?
+          JOIN stands s  ON s.id = o.stand_id
+          JOIN projects p ON p.id = s.project_id
+         WHERE o.user_id = ? AND p.branch_id = ?
          LIMIT 1`).get(id, branchScope);
       if (!owned) {
         h.sendHtml(res, 404, await views.adminLayout({
@@ -1772,7 +1778,7 @@ async function handleAdmin(req, res, ctx) {
 
     if (branchScope !== null && namedStandId !== null) {
       const target = await admin.standById(namedStandId);
-      if (!target || !inBranch(target.project_id)) {
+      if (!target || !inBranch(target.project_branch_id)) {
         h.sendHtml(res, 404, await views.adminLayout({
           title: 'Not found', active: '/admin/properties', user, csrf,
           body: '<section class="container inner-page"><h1>Property not found</h1><p><a class="btn primary" href="/admin/properties">Back to properties</a></p></section>'
@@ -1862,9 +1868,16 @@ async function handleAdmin(req, res, ctx) {
        Deliberately before the GET guard: this is a POST to the list URL. */
     if (pathname === '/admin/properties' && method === 'POST') {
       const form = readPropertyForm(body, projects);
-      /* A Branch Manager cannot choose the development: the property is always
-         filed under their own branch, whatever the form sent. */
-      if (branchScope !== null) form.value.projectId = branchScope;
+      /* A Branch Manager picks a DEVELOPMENT inside their own branch — Gweru's
+         manager may choose Heritage Park but not Munhumutapa. The choice is
+         verified here rather than trusted: the form's project list is filtered,
+         but a crafted POST can send any id. */
+      if (branchScope !== null && form.value.projectId != null) {
+        const chosen = projects.find((p2) => Number(p2.id) === Number(form.value.projectId));
+        if (!chosen || Number(chosen.branch_id) !== branchScope) {
+          form.errors.push('Please choose a development in your own branch.');
+        }
+      }
       const clash = await admin.standNumberTaken(form.value.standNumber, 0);
       if (clash) {
         form.errors.push(`Stand number ${form.value.standNumber} is already used by a property in `
@@ -1877,9 +1890,9 @@ async function handleAdmin(req, res, ctx) {
           body: views.renderProperties({
             canModify: mayModifyRecords,
             stands: branchScope === null ? await admin.standsForAdmin() : await admin.standsForBranch(branchScope),
-            projects: branchScope === null ? projects : projects.filter((p) => Number(p.id) === branchScope),
+            projects: branchScope === null ? projects : projects.filter((p) => Number(p.branch_id) === branchScope),
             fixedBranchName: branchScope === null ? null
-              : ((projects.find((p) => Number(p.id) === branchScope) || {}).name || null),
+              : ((projects.find((p) => Number(p.branch_id) === branchScope) || {}).name || null),
             user, csrf, error: form.errors.join(' ')
           })
         }));
@@ -1930,9 +1943,9 @@ async function handleAdmin(req, res, ctx) {
       body: views.renderProperties({
         canModify: mayModifyRecords,
         stands: branchScope === null ? await admin.standsForAdmin() : await admin.standsForBranch(branchScope),
-        projects: branchScope === null ? projects : projects.filter((p) => Number(p.id) === branchScope),
+        projects: branchScope === null ? projects : projects.filter((p) => Number(p.branch_id) === branchScope),
         fixedBranchName: branchScope === null ? null
-          : ((projects.find((p) => Number(p.id) === branchScope) || {}).name || null),
+          : ((projects.find((p) => Number(p.branch_id) === branchScope) || {}).name || null),
         user, csrf,
         notice: url.searchParams.get('ok') === 'deleted' ? 'Property deleted.'
           : url.searchParams.get('ok') === 'comingsoon'
@@ -2203,7 +2216,7 @@ async function handleAdmin(req, res, ctx) {
   const staffView = async ({ showArchived = false, ...rest } = {}) => views.renderStaff({
     agents: await agents.listByActive(!showArchived),
     accounts: await users.staffAccounts(showArchived),
-    branches: await admin.projectsWithCounts(),
+    branches: await admin.branches(),
     user, csrf, showArchived, ...rest
   });
 

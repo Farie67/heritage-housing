@@ -107,7 +107,7 @@ async function sessionUser(token) {
        address. Without it the CEO would be a plain administrator. */
     email: row.email,
     /* The branch this account is scoped to, if any. */
-    project_id: row.project_id,
+    branch_id: row.branch_id,
     role: row.role
   };
 }
@@ -337,7 +337,7 @@ async function signIn(clientNumber, password, { ip, userAgent }) {
       /* Same reason as sessionUser: permissions.js reads the address to work
          out an executive's role. */
       email: user.email,
-      project_id: user.project_id,
+      branch_id: user.branch_id,
       role: user.role
     }
   };

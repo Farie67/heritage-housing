@@ -840,10 +840,13 @@ function statusTag(status) {
 
 /* ── Properties (stands) ────────────────────────────────────────────────── */
 
-function propertyFields({ stand = {}, projects, csrf }) {
+function propertyFields({ stand = {}, projects, csrf, fixedBranchName = null }) {
   const price = stand.price_cents ? (stand.price_cents / 100).toFixed(2) : '';
   return `        <div class="field">
           <label for="p-project">Development</label>
+          ${fixedBranchName
+    ? `<p class="field-hint" style="margin:0 0 6px">Showing developments in ${esc(fixedBranchName)} only.</p>`
+    : ''}
           <select id="p-project" name="project" required>
 ${projectOptions(projects, stand.project_id)}
           </select>
@@ -897,7 +900,7 @@ ${optionsFrom(STAND_STATUSES, stand.status)}
 }
 
 function renderProperties({ stands, projects, user, csrf, notice = '', error = '',
-  canModify = true }) {
+  canModify = true, fixedBranchName = null }) {
   const available = stands.filter((s) => s.status === 'Available').length;
   const sold = stands.filter((s) => s.status === 'Sold').length;
 
@@ -997,7 +1000,7 @@ ${tables}
       <h2>Add a property</h2>
       <form method="post" action="/admin/properties" class="payment-form">
         <input type="hidden" name="csrf" value="${esc(csrf)}">
-${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects, csrf })}
+${propertyFields({ stand: { status: 'Available', type: 'Residential' }, projects, csrf, fixedBranchName })}
       </form>
     </div>
   </section>`;
@@ -1124,9 +1127,7 @@ ${folders}
         <label for="l-project">Location of interest</label>
         <select id="l-project" name="projectId">
           <option value="">Not decided yet</option>
-${fixedBranchName
-    ? `          <option value="${esc(values.projectId)}" selected>${esc(fixedBranchName)}</option>`
-    : projects.map((p) => `          <option value="${esc(p.id)}"${String(values.projectId) === String(p.id) ? ' selected' : ''}>${esc(p.name)}</option>`).join('\n')}
+${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.projectId) === String(p.id) ? ' selected' : ''}>${esc(p.name)}</option>`).join('\n')}
         </select>
 
         <label for="l-agent">Assign to agent</label>
@@ -1879,7 +1880,7 @@ function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = 
         existing one, so this card is read-only.</p>`}
       <form method="post" action="/admin/properties/${esc(stand.id)}" class="payment-form">
         <input type="hidden" name="csrf" value="${esc(csrf)}">
-${propertyFields({ stand, projects, csrf })}
+${propertyFields({ stand, projects, csrf, fixedBranchName })}
       </form>
     </div>
 

@@ -101,7 +101,7 @@ const ROLES = {
   },
 
   /* Branch Manager.
-     Clients and Properties for ONE branch only. The branch is users.project_id,
+     Clients and Properties for ONE branch only. The branch is users.branch_id,
      and it is applied by the routes in admin.js — this table decides which
      pages exist for the role, not which rows are visible. */
   branch_crm: {
