@@ -99,6 +99,35 @@
     });
   }
 
+
+  /* ── Add-a-team-member: one branch field, two meanings ───────────────────
+     The same value is an agent's HOME branch or a manager's ASSIGNED branch,
+     so the label follows the role. The server treats the field the same either
+     way — only the wording changes. */
+  function initStaffBranchLabel() {
+    var role = document.getElementById("s-role");
+    var label = document.getElementById("s-branch-label");
+    var hint = document.getElementById("s-branch-hint");
+    if (!role || !label) return;
+
+    function sync() {
+      var isAgent = role.value === "agent";
+      label.textContent = isAgent ? "Home Branch (Agent)" : "Assigned Branch (Manager)";
+      if (hint) {
+        hint.innerHTML = isAgent
+          ? "For a sales agent this is their home branch, which decides the staff list "
+            + "and activity logs they appear in — it does <strong>not</strong> limit which "
+            + "properties they can sell."
+          : "Choose a branch to scope this person's access. They will see only that "
+            + "branch's clients and properties. Leave it on \"No branch\" for roles that "
+            + "should see everything.";
+      }
+    }
+
+    role.addEventListener("change", sync);
+    sync();
+  }
+
   function initNav() {
     var toggle = $(".menu-toggle");
     var nav = $("#mainNav");
@@ -411,6 +440,7 @@
     initDashboard();
     initConfirms();
     initPasswordResetViews();
+    initStaffBranchLabel();
   }
 
   if (document.readyState === "loading") {
