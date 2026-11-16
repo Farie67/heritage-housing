@@ -1857,7 +1857,7 @@ ${rows}
 }
 
 function renderPropertyEdit({ stand, projects, user, csrf, notice = '', error = '',
-  canModify = true }) {
+  canModify = true, fixedBranchName = null }) {
   const canDelete = canModify && stand.sale_count === 0;
 
   return `  <section class="container inner-page">

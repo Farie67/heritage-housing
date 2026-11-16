@@ -1100,10 +1100,14 @@ async function handleAdmin(req, res, ctx) {
       branchId: branchScope
     });
 
-    /* The name of the active filter, so the page can say what it is showing. */
+    /* The name of the active filter, so the page can say what it is showing.
+       A Branch Manager's list is filtered by branch, not by development, so
+       there is no development name to show — the filter used is whichever one
+       actually reached searchClients above. */
+    const effectiveDevelopment = branchScope === null ? developmentId : null;
     let developmentName = null;
-    if (scopedDevelopmentId === 'unassigned') developmentName = 'Unassigned';
-    else if (scopedDevelopmentId) developmentName = ((await admin.projectById(scopedDevelopmentId)) || {}).name || null;
+    if (effectiveDevelopment === 'unassigned') developmentName = 'Unassigned';
+    else if (effectiveDevelopment) developmentName = ((await admin.projectById(effectiveDevelopment)) || {}).name || null;
 
     await audit('admin_view', 'success', {
       userId: user.id, detail: q ? `clients search "${q}"` : 'clients', ip
