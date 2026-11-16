@@ -559,6 +559,19 @@ async function handleAdmin(req, res, ctx) {
    * The views use it to decide which buttons to draw. The router above is what
    * actually enforces it.
    */
+  /* ── Branch isolation ──
+     A Branch Manager sees one development. Everything below keys off this one
+     helper, so a new route cannot quietly forget the filter.
+
+     NULL means "not scoped": the main Admin, the MD and every other role keep
+     seeing every branch, which is why this returns null for them. */
+  const branchScope = role === 'branch_crm' && user.project_id != null
+    ? Number(user.project_id)
+    : null;
+
+  /** True when this branch may touch a property in that project. */
+  const inBranch = (projectId) => branchScope === null || Number(projectId) === branchScope;
+
   const mayModifyRecords = mayPerform(role, 'POST', '/admin/properties/0');
 
   /**
@@ -1077,12 +1090,15 @@ async function handleAdmin(req, res, ctx) {
       developmentId = Number.parseInt(devParam, 10);
     }
 
-    const clients = await admin.searchClients(q, { includeArchived: showArchived, developmentId });
+    /* For a Branch Manager the branch IS the filter, whatever the query
+       string asked for. */
+    const scopedDevelopmentId = branchScope === null ? developmentId : branchScope;
+    const clients = await admin.searchClients(q, { includeArchived: showArchived, developmentId: scopedDevelopmentId });
 
     /* The name of the active filter, so the page can say what it is showing. */
     let developmentName = null;
-    if (developmentId === 'unassigned') developmentName = 'Unassigned';
-    else if (developmentId) developmentName = ((await admin.projectById(developmentId)) || {}).name || null;
+    if (scopedDevelopmentId === 'unassigned') developmentName = 'Unassigned';
+    else if (scopedDevelopmentId) developmentName = ((await admin.projectById(scopedDevelopmentId)) || {}).name || null;
 
     await audit('admin_view', 'success', {
       userId: user.id, detail: q ? `clients search "${q}"` : 'clients', ip
@@ -1117,6 +1133,25 @@ async function handleAdmin(req, res, ctx) {
     const id = Number(detailMatch[1]);
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const flag = (url.searchParams.get('ok') || '').trim();
+
+    /* Branch isolation. Checked before anything is rendered or logged, and it
+       answers 404 rather than 403 — a 403 would confirm the id exists, which is
+       exactly what an enumerating manager wants to learn. */
+    if (branchScope !== null) {
+      const owned = await db.prepare(`
+        SELECT 1 AS ok
+          FROM ownerships o
+          JOIN stands s ON s.id = o.stand_id
+         WHERE o.user_id = ? AND s.project_id = ?
+         LIMIT 1`).get(id, branchScope);
+      if (!owned) {
+        h.sendHtml(res, 404, await views.adminLayout({
+          title: 'Not found', active: '/admin/clients', user, csrf,
+          body: '<section class="container inner-page"><h1>Client not found</h1><p><a class="btn primary" href="/admin/clients">Back to clients</a></p></section>'
+        }));
+        return true;
+      }
+    }
 
     await audit('admin_view', 'success', { userId: user.id, detail: `client ${id}`, ip });
     await sendClientPage(res, h, id, {
@@ -1722,6 +1757,30 @@ async function handleAdmin(req, res, ctx) {
   if (pathname === '/admin/properties' || standEditMatch || standDeleteMatch || standComingSoonMatch) {
     const projects = await admin.projectsWithCounts();
 
+    /* ── Branch isolation ──
+       Every route in this block that names a property must first prove the
+       property belongs to the signed-in manager's branch. Guarding once, here,
+       covers the GET edit page, the POST edit, delete and coming-soon — and a
+       route added later cannot forget it.
+
+       404 rather than 403: a 403 would confirm the id exists, which is exactly
+       what someone enumerating other branches' properties wants to learn. */
+    const namedStandId = standEditMatch ? Number(standEditMatch[1])
+      : standDeleteMatch ? Number(standDeleteMatch[1])
+        : standComingSoonMatch ? Number(standComingSoonMatch[1])
+          : null;
+
+    if (branchScope !== null && namedStandId !== null) {
+      const target = await admin.standById(namedStandId);
+      if (!target || !inBranch(target.project_id)) {
+        h.sendHtml(res, 404, await views.adminLayout({
+          title: 'Not found', active: '/admin/properties', user, csrf,
+          body: '<section class="container inner-page"><h1>Property not found</h1><p><a class="btn primary" href="/admin/properties">Back to properties</a></p></section>'
+        }));
+        return true;
+      }
+    }
+
     /* ── Delete ── */
     if (standDeleteMatch) {
       if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
@@ -1803,6 +1862,9 @@ async function handleAdmin(req, res, ctx) {
        Deliberately before the GET guard: this is a POST to the list URL. */
     if (pathname === '/admin/properties' && method === 'POST') {
       const form = readPropertyForm(body, projects);
+      /* A Branch Manager cannot choose the development: the property is always
+         filed under their own branch, whatever the form sent. */
+      if (branchScope !== null) form.value.projectId = branchScope;
       const clash = await admin.standNumberTaken(form.value.standNumber, 0);
       if (clash) {
         form.errors.push(`Stand number ${form.value.standNumber} is already used by a property in `
@@ -1813,8 +1875,12 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Properties', active: '/admin/properties', user, csrf,
           body: views.renderProperties({
-        canModify: mayModifyRecords,
-            stands: await admin.standsForAdmin(), projects, user, csrf, error: form.errors.join(' ')
+            canModify: mayModifyRecords,
+            stands: branchScope === null ? await admin.standsForAdmin() : await admin.standsForBranch(branchScope),
+            projects: branchScope === null ? projects : projects.filter((p) => Number(p.id) === branchScope),
+            fixedBranchName: branchScope === null ? null
+              : ((projects.find((p) => Number(p.id) === branchScope) || {}).name || null),
+            user, csrf, error: form.errors.join(' ')
           })
         }));
         return true;
@@ -1863,7 +1929,11 @@ async function handleAdmin(req, res, ctx) {
       title: 'Properties', active: '/admin/properties', user, csrf,
       body: views.renderProperties({
         canModify: mayModifyRecords,
-        stands: await admin.standsForAdmin(), projects, user, csrf,
+        stands: branchScope === null ? await admin.standsForAdmin() : await admin.standsForBranch(branchScope),
+        projects: branchScope === null ? projects : projects.filter((p) => Number(p.id) === branchScope),
+        fixedBranchName: branchScope === null ? null
+          : ((projects.find((p) => Number(p.id) === branchScope) || {}).name || null),
+        user, csrf,
         notice: url.searchParams.get('ok') === 'deleted' ? 'Property deleted.'
           : url.searchParams.get('ok') === 'comingsoon'
             ? 'Coming-soon flag updated. The website now reflects this.' : '',
@@ -2133,6 +2203,7 @@ async function handleAdmin(req, res, ctx) {
   const staffView = async ({ showArchived = false, ...rest } = {}) => views.renderStaff({
     agents: await agents.listByActive(!showArchived),
     accounts: await users.staffAccounts(showArchived),
+    branches: await admin.projectsWithCounts(),
     user, csrf, showArchived, ...rest
   });
 
@@ -2251,13 +2322,21 @@ async function handleAdmin(req, res, ctx) {
       const substituted = storedRole !== role;
 
       try {
-        await users.insert({
+        const inserted = await users.insert({
           clientNumber,
           fullName: name,
           email: email || null,
           role: storedRole,
           passwordHash: await auth.hashPassword(password)
         });
+
+        /* The branch, when one was chosen. This is what makes the account a
+           Branch Manager rather than an ordinary administrator. */
+        const branchId = Number.parseInt(String(body.branchId || ''), 10);
+        if (Number.isInteger(branchId) && branchId > 0) {
+          const row = await users.byClientNumber(clientNumber);
+          if (row) await users.setStaffBranch(row.id, branchId);
+        }
       } catch (err) {
         /* Belt and braces: if the substitution above ever misses a role the
            CHECK still rejects, say so instead of throwing a raw 500. */

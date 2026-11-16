@@ -238,6 +238,9 @@ await ensureColumn('users', 'archived', 'INTEGER NOT NULL DEFAULT 0');
    time, and collapsing the two would lose one of them. */
 await ensureColumn('projects', 'sold_out', 'INTEGER NOT NULL DEFAULT 0');
 await ensureColumn('projects', 'budget_cents', 'INTEGER NOT NULL DEFAULT 0');
+/* A Branch Manager's branch. NULL means "not scoped" — the main Admin, the MD
+   and every other role still see everything. */
+await ensureColumn('users', 'project_id', 'INTEGER REFERENCES projects(id)');
 
 /* Whether a development has been announced but not released yet.
    A third independent fact, for the same reason the second one is: a
@@ -787,6 +790,13 @@ const users = {
    * flow is that a locked-out buyer can get back in without phoning the office.
    * The proof of identity here is the emailed code, not a staff session.
    */
+  /** Sets or clears a panel account's branch. NULL means every branch. */
+  async setStaffBranch(id, projectId) {
+    const info = await prepare('UPDATE users SET project_id = ? WHERE id = ?')
+      .run(projectId == null ? null : projectId, id);
+    return Number(info.changes) > 0;
+  },
+
   async setPasswordFromReset(id, hash) {
     const info = await prepare(`
       UPDATE users
@@ -871,7 +881,7 @@ const qInsertSession = prepare(`
    sign in as a full administrator. */
 const qFindSession = prepare(`
   SELECT s.token_hash, s.user_id, s.expires_at,
-         u.client_number, u.full_name, u.email, u.role, u.disabled, u.archived
+         u.client_number, u.full_name, u.email, u.role, u.disabled, u.archived, u.project_id
   FROM sessions s
   JOIN users u ON u.id = s.user_id
   WHERE s.token_hash = ?
@@ -2658,6 +2668,14 @@ const admin = {
 
   /* ── Stands, which the website shows as available properties ── */
   standsForAdmin: async () => await qStandsForAdmin.all(),
+  /**
+   * Every property belonging to one branch.
+   *
+   * Filtered in SQL rather than in the view: a Branch Manager must never
+   * receive another branch's rows at all, so there is nothing to leak.
+   */
+  standsForBranch: async (projectId) => await prepare(
+    `${STAND_SELECT} WHERE st.project_id = ? ORDER BY p.name, st.stand_number`).all(projectId),
   /** Every property belonging to one development. */
   standsForProject: async (projectId) => await prepare(`${STAND_SELECT} WHERE st.project_id = ? ORDER BY st.stand_number`).all(projectId),
   standById: async (id) => await qStandById.get(id),

@@ -1124,7 +1124,9 @@ ${folders}
         <label for="l-project">Location of interest</label>
         <select id="l-project" name="projectId">
           <option value="">Not decided yet</option>
-${projects.map((p) => `          <option value="${esc(p.id)}"${String(values.projectId) === String(p.id) ? ' selected' : ''}>${esc(p.name)}</option>`).join('\n')}
+${fixedBranchName
+    ? `          <option value="${esc(values.projectId)}" selected>${esc(fixedBranchName)}</option>`
+    : projects.map((p) => `          <option value="${esc(p.id)}"${String(values.projectId) === String(p.id) ? ' selected' : ''}>${esc(p.name)}</option>`).join('\n')}
         </select>
 
         <label for="l-agent">Assign to agent</label>
@@ -1323,7 +1325,7 @@ function rowActions(ref, csrf, label, archived) {
               ${action}`;
 }
 
-function renderStaff({ agents = [], accounts = [], showArchived = false,
+function renderStaff({ agents = [], accounts = [], branches = [], showArchived = false,
   user, csrf, notice = '', error = '', generatedPassword = '', generatedFor = '' }) {
   /* Edit, Archive and Reset password are the Super Admin's alone. HR can open
      this page and see who is on the team, but may not change anyone's account.
@@ -1468,6 +1470,15 @@ ${accountRows}
 
         <label for="s-phone">Phone</label>
         <input id="s-phone" name="phone" type="tel" maxlength="40">
+
+        <label for="s-branch">Assigned branch</label>
+        <select id="s-branch" name="branchId">
+          <option value="">All branches (no restriction)</option>
+${branches.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join('\n')}
+        </select>
+        <p class="field-hint">Choose a branch to make this person a Branch Manager. They will
+          see only that branch's clients and properties. Leave it on "All branches" for the
+          roles that should see everything.</p>
 
         <button class="btn primary" type="submit">Add team member</button>
       </form>

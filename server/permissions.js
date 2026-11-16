@@ -23,6 +23,8 @@ const CLIENTS = ['/admin/clients'];
 const PROPERTIES = ['/admin/properties'];
 /* Development budgets and cost tracking. */
 const PROJECTS = ['/admin/projects'];
+/* Automated instalment reminders. */
+const REMINDERS = ['/admin/reminders'];
 
 const OVERVIEW = '/admin';
 
@@ -45,7 +47,7 @@ const ROLES = {
   },
 
   ceo: {
-    paths: [OVERVIEW, ...SALES, ...LEADS, ...ACTIVITY, ...STAFF, ...PROJECTS],
+    paths: [OVERVIEW, ...SALES, ...LEADS, ...ACTIVITY, ...STAFF, ...PROJECTS, ...REMINDERS],
     readOnly: true,
     readOnlyPaths: []
   },
@@ -55,7 +57,7 @@ const ROLES = {
      clients and properties, so it can edit those too — that is what granting
      those prefixes means. */
   finance: {
-    paths: [OVERVIEW, ...SALES, ...CLIENTS, ...PROPERTIES, ...PROJECTS],
+    paths: [OVERVIEW, ...SALES, ...CLIENTS, ...PROPERTIES, ...PROJECTS, ...REMINDERS],
     readOnly: false,
     readOnlyPaths: []
   },
@@ -96,11 +98,27 @@ const ROLES = {
       /^\/admin\/clients\/\d+\/(update|reset-password|disable|archive|payments|stand)$/,
       /^\/admin\/properties$/
     ]
+  },
+
+  /* Branch Manager.
+     Clients and Properties for ONE branch only. The branch is users.project_id,
+     and it is applied by the routes in admin.js — this table decides which
+     pages exist for the role, not which rows are visible. */
+  branch_crm: {
+    paths: [...CLIENTS, ...PROPERTIES],
+    readOnly: false,
+    readOnlyPaths: [],
+    writePatterns: [
+      /^\/admin\/clients$/,
+      /^\/admin\/clients\/new$/,
+      /^\/admin\/clients\/\d+\/(update|reset-password|disable|archive|payments|stand)$/,
+      /^\/admin\/properties$/
+    ]
   }
 };
 
 /* Where a role starts when its own landing page is not the Overview. */
-const LANDING = { crm: '/admin/clients' };
+const LANDING = { crm: '/admin/clients', branch_crm: '/admin/clients' };
 
 /**
  * The first page this role should see.
@@ -153,7 +171,11 @@ const ROLE_BY_EMAIL = new Map([
   ['md@heritagehousing.co.zw', 'ceo'],
   ['finance@heritagehousing.co.zw', 'finance'],
   ['hr@heritagehousing.co.zw', 'hr'],
-  ['crm@heritagehousing.co.zw', 'crm']
+  ['crm@heritagehousing.co.zw', 'crm'],
+  /* Branch Managers. The role cannot be stored, so it is resolved here. */
+  ['kadoma@heritagehousing.co.zw', 'branch_crm'],
+  ['bulawayo@heritagehousing.co.zw', 'branch_crm'],
+  ['mutare@heritagehousing.co.zw', 'branch_crm']
 ]);
 
 /**
@@ -259,5 +281,5 @@ function visiblePrefixes(userOrRole) {
 
 module.exports = {
   ROLES, STAFF_ROLES, isStaffRole, getEffectiveRole, mayReach, mayPerform, visiblePrefixes,
-  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES, PROJECTS
+  landingFor, OVERVIEW, SALES, LEADS, ACTIVITY, STAFF, CLIENTS, PROPERTIES, PROJECTS, REMINDERS
 };
