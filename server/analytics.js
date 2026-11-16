@@ -86,6 +86,20 @@ function transactionWhere(f, opts = {}) {
   if (f.type) { w.push(`${p}.type = ?`); args.push(f.type); }
   if (f.method) { w.push(`${p}.method = ?`); args.push(f.method); }
   if (f.projectId) { w.push(`${st}.project_id = ?`); args.push(f.projectId); }
+
+  /* Branch isolation for the transaction side — the ledger, the totals and the
+     daily series all come through here.
+
+     Matched through the STAND's project, not the agent's branch: an agent may
+     sell in another branch, so their home branch must not hide or reveal a sale.
+
+     Written as a sub-select on ${st}.project_id rather than a join, because this
+     builder is called with several alias sets and not every caller joins
+     projects. Every caller does join stands, which is why this is the safe key. */
+  if (f.branchId) {
+    w.push(`${st}.project_id IN (SELECT id FROM projects WHERE branch_id = ?)`);
+    args.push(f.branchId);
+  }
   if (f.agentId) { w.push(`${o}.agent_id = ?`); args.push(f.agentId); }
   if (f.clientId) { w.push(`${p}.user_id = ?`); args.push(f.clientId); }
   if (f.standId) { w.push(`COALESCE(${p}.stand_id, ${o}.stand_id) = ?`); args.push(f.standId); }
