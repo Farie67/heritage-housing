@@ -937,7 +937,7 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Reminders', active: '/admin/reminders', user, csrf,
       body: views.renderReminders({
-        overdue: await getOverdueClients(),
+        overdue: await getOverdueClients(30, branchScope),
         canRun: role === 'admin',
         notice, error, user, csrf
       })
@@ -961,7 +961,8 @@ async function handleAdmin(req, res, ctx) {
     let result;
     try {
       const { runReminderCheck } = require('../scripts/send-reminders');
-      result = await runReminderCheck();
+      /* Scoped, so a branch manager's run emails only their own clients. */
+      result = await runReminderCheck({ branchId: branchScope });
     } catch (err) {
       /* The usual cause is the package or key not being configured yet. It is
          not a crash: the office is told plainly and nothing is half-sent. */
@@ -1988,7 +1989,8 @@ async function handleAdmin(req, res, ctx) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: 'Leads', active: '/admin/leads', user, csrf,
           body: views.renderLeads({
-            leads: await leads.all(branchScope), agents: await agents.list(),
+            leads: await leads.all(branchScope),
+        agents: branchScope === null ? await agents.list() : await agents.list(branchScope),
             projects: await admin.projectsWithCounts(branchScope),
             user, csrf, error: message, values: typed,
             readOnly: getEffectiveRole(user) !== 'admin'
@@ -2041,9 +2043,11 @@ async function handleAdmin(req, res, ctx) {
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Leads', active: '/admin/leads', user, csrf,
       body: views.renderLeads({
-        leads: await leads.all(),
-        agents: await agents.list(),
-        projects: await admin.projectsWithCounts(),
+        leads: await leads.all(branchScope),
+        /* The agent picker is scoped too, or a manager could file a lead against
+           another branch's agent and lose sight of it immediately. */
+        agents: branchScope === null ? await agents.list() : await agents.list(branchScope),
+        projects: await admin.projectsWithCounts(branchScope),
         user, csrf,
         /* A form the router would refuse is worse than no form, so the view is
            told whether this role may actually post it. */

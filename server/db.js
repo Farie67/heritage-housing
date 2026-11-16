@@ -993,7 +993,14 @@ const agents = {
   setPassword: async (id, hash) => await qSetAgentPassword.run(hash, id),
 
   /** Every agent, for the staff table on /admin/staff. */
-  list: async () => await qAgentsForAdmin.all(),
+  /** Every agent, optionally for one home branch. */
+  list: async (branchId = null) => {
+    const rows = await qAgentsForAdmin.all();
+    if (branchId == null) return rows;
+    const keep = await prepare('SELECT id FROM agents WHERE branch_id = ?').all(branchId);
+    const ids = new Set(keep.map((r) => Number(r.id)));
+    return rows.filter((r) => ids.has(Number(r.id)));
+  },
 
   /** Active staff, or the archived ones — never both. */
   /** Active or archived agents, optionally for one home branch. */
@@ -1338,16 +1345,19 @@ const leads = {
   },
   /** Every lead, with the owning agent's name, newest first. */
   /**
-   * Every lead, or those for one branch.
+   * Every lead, or those belonging to one branch.
    *
-   * A lead belongs to a branch through the development it names. A lead with no
-   * project has no branch, so it is LEFT JOINed in and simply excluded when a
-   * branch is asked for — it cannot be attributed to anyone.
+   * Matched by the ASSIGNED AGENT's branch — not the lead's project. A lead is
+   * the sales team's work, and the office wants a manager to see what their own
+   * agents are handling.
+   *
+   * An unassigned lead belongs to nobody, so the inner match on a.branch_id
+   * drops it for a scoped manager and keeps it for everyone else.
    */
   all: async (branchId = null) => {
     if (branchId == null) return await qLeadsAll.all();
     return await prepare(`${LEAD_SELECT}
-       WHERE l.project_id IN (SELECT id FROM projects WHERE branch_id = ?)
+       WHERE a.branch_id = ?
        ORDER BY l.created_at DESC, l.id DESC`).all(branchId);
   },
   /** Just the leads assigned to one agent — what the staff dashboard shows. */
@@ -1619,14 +1629,14 @@ function periodStartIso(period) {
  * Returns [{ client_id, client_number, name, email, stand_number, ownership_id,
  *            price_cents, net_cents, balance_cents, last_payment_date }].
  */
-async function getOverdueClients(days = 30) {
+async function getOverdueClients(days = 30, branchId = null) {
   const window = Number.isInteger(days) && days > 0 ? days : 30;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - window);
   const pad = (n) => String(n).padStart(2, '0');
   const cutoffIso = `${cutoff.getFullYear()}-${pad(cutoff.getMonth() + 1)}-${pad(cutoff.getDate())}`;
 
-  const rows = await qOverdueClients.all();
+  const rows = await qOverdueClients.all(branchId, branchId);
 
   return rows
     .map((r) => {
@@ -2244,8 +2254,9 @@ const qOverdueClients = prepare(`
          COALESCE(t.collected, 0) - COALESCE(t.refunds, 0)    AS net_cents,
          t.last_paid_on
     FROM ownerships o
-    JOIN users u ON u.id = o.user_id
+    JOIN users u  ON u.id = o.user_id
     JOIN stands s ON s.id = o.stand_id
+    JOIN projects p2 ON p2.id = s.project_id
     LEFT JOIN (
       SELECT ownership_id,
              SUM(CASE WHEN type IN ('DEPOSIT','INSTALLMENT','FINAL_PAYMENT')
@@ -2257,6 +2268,7 @@ const qOverdueClients = prepare(`
        GROUP BY ownership_id
     ) t ON t.ownership_id = o.id
    WHERE o.sale_status <> 'Cancelled'
+     AND (? IS NULL OR p2.branch_id = ?)
      AND o.sale_status <> 'Completed'
      AND u.role = 'client'
      AND u.archived = 0
