@@ -268,6 +268,7 @@ function renderDashboard({ counts, recent, clientsByDevelopment = [], notice = '
         <h1>Admin</h1>
         <p class="muted">Everything the office needs, in one place.</p>
       </div>
+      <a class="btn outline" href="/admin/projects" style="margin-right:8px">Project Budgets</a>
       <a class="btn primary" href="/admin/enquiries">Open enquiries${counts.open_enquiries ? ` (${counts.open_enquiries})` : ''}</a>
     </div>
 
@@ -1686,7 +1687,7 @@ ${rows}
 }
 
 /** Budget, spend, the cost form and the cost ledger for one project. */
-function renderProjectCosts({ project, user, csrf, notice = '', error = '', values = {} }) {
+function renderProjectBudget({ project, user, csrf, notice = '', error = '', values = {} }) {
   const v = (k) => esc(values[k] == null ? '' : values[k]);
 
   const rows = project.costs.length
@@ -1706,7 +1707,18 @@ function renderProjectCosts({ project, user, csrf, notice = '', error = '', valu
 
   const over = project.remaining_cents < 0;
 
-  return `    <div class="client-card" style="margin-top:20px">
+  return `  <section class="container inner-page">
+    <p><a class="text-btn" href="/admin/projects/${esc(project.id)}">&larr; Back to Project</a></p>
+
+    <div class="dashboard-top">
+      <div>
+        <span class="eyebrow dark">PROJECT</span>
+        <h1>${esc(project.name)}</h1>
+        <p class="muted">Budget and recorded costs for ${esc(project.name)}.</p>
+      </div>
+    </div>
+
+    <div class="client-card">
       <h2>Budget &amp; Costs</h2>
 
       ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
@@ -2114,6 +2126,7 @@ ${stateOptions(s.state)}
 
   return `  <section class="container inner-page">
     <p><a class="text-btn" href="/admin/projects">&larr; All projects</a></p>
+    <p style="margin-top:10px"><a class="btn primary" href="/admin/projects/${esc(project.id)}/budget">Manage Budget &amp; Costs &rarr;</a></p>
 
     <div class="dashboard-top">
       <div>
@@ -2454,5 +2467,5 @@ module.exports = {
   renderClientDetail, renderNewClient, renderProjects, renderProjectDetail,
   renderContentIndex, renderContentPage, renderSettings, renderPaymentEdit,
   renderProperties, renderPropertyEdit, renderStaff, renderLeads, renderAdminLeadDetail,
-  renderActivityLogs, renderStaffEdit, renderProjectBudgets, renderProjectCosts, renderReminders
+  renderActivityLogs, renderStaffEdit, renderProjectBudgets, renderProjectBudget, renderReminders
 };

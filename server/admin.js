@@ -2955,40 +2955,84 @@ async function handleAdmin(req, res, ctx) {
   const projectCostDeleteMatch = pathname.match(/^\/admin\/projects\/(\d+)\/costs\/(\d+)\/delete$/);
 
   if (projectBudgetMatch || projectCostMatch || projectCostDeleteMatch) {
-    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
-
     const costProjectId = Number((projectBudgetMatch || projectCostMatch || projectCostDeleteMatch)[1]);
+
+    /* Blockers, shared by every branch isolation check below. */
+    const budgetProject = await getProjectById(costProjectId);
+    const refuseMissing = async () => h.sendHtml(res, 404, await views.adminLayout({
+      title: 'Not found', active: '/admin/projects', user, csrf,
+      body: '<section class="container inner-page"><h1>Project not found</h1><p><a class="btn primary" href="/admin/projects">Back to projects</a></p></section>'
+    }));
+
+    if (!budgetProject) { await refuseMissing(); return true; }
+
+    /* Branch isolation. A scoped administrator may only reach the budget of a
+       development inside their own branch. 404 rather than 403, so an id cannot
+       be probed. Returns true when it has already answered. */
+    if (branchScope !== null) {
+      const owned = await db.prepare(
+        'SELECT 1 AS ok FROM projects WHERE id = ? AND branch_id = ?')
+        .get(costProjectId, branchScope);
+      if (!owned) { await refuseMissing(); return true; }
+    }
+
+    /* ── The budget page itself ── */
+    if (projectBudgetMatch && method === 'GET') {
+      await audit('admin_view', 'success', {
+        userId: user.id, detail: `project ${costProjectId} budget`, ip
+      });
+
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const okCode = url.searchParams.get('ok');
+      const notices = {
+        budget: 'Budget saved.',
+        cost: 'Cost recorded.',
+        costDeleted: 'Cost deleted.'
+      };
+
+      h.sendHtml(res, 200, await views.adminLayout({
+        title: `${budgetProject.name} budget`, active: '/admin/projects', user, csrf,
+        body: views.renderProjectBudget({
+          project: budgetProject, user, csrf,
+          notice: notices[okCode] || '',
+          error: url.searchParams.get('error') || ''
+        })
+      }));
+      return true;
+    }
+
+    if (method !== 'POST') return h.send(res, 405, 'Method not allowed'), true;
 
     if (projectBudgetMatch) {
       const cents = parseMoneyToCents(body.budget);
       if (cents === null) {
         return h.redirect(res,
-          `/admin/projects/${costProjectId}?error=${encodeURIComponent('Budget must be a positive amount.')}`), true;
+          `/admin/projects/${costProjectId}/budget?error=${encodeURIComponent('Budget must be a positive amount.')}`), true;
       }
       await setProjectBudget(costProjectId, cents);
       await audit('project_budget', 'success', {
         userId: user.id, detail: `project ${costProjectId} budget ${cents}`, ip
       });
-      return h.redirect(res, `/admin/projects/${costProjectId}?ok=budget`), true;
+      return h.redirect(res, `/admin/projects/${costProjectId}/budget?ok=budget`), true;
     }
 
     if (projectCostMatch) {
       const cents = parseMoneyToCents(body.amount);
       if (cents === null) {
         return h.redirect(res,
-          `/admin/projects/${costProjectId}?error=${encodeURIComponent('Cost must be a positive amount, for example 1200 or 1200.00.')}`), true;
+          `/admin/projects/${costProjectId}/budget?error=${encodeURIComponent('Cost must be a positive amount, for example 1200 or 1200.00.')}`), true;
       }
       const result = await addProjectCost(costProjectId, body.description, cents, body.date);
       if (!result.ok) {
         const why = result.reason === 'description' ? 'Please describe the cost.'
           : result.reason === 'amount' ? 'Cost must be a positive amount.'
             : 'That project no longer exists.';
-        return h.redirect(res, `/admin/projects/${costProjectId}?error=${encodeURIComponent(why)}`), true;
+        return h.redirect(res, `/admin/projects/${costProjectId}/budget?error=${encodeURIComponent(why)}`), true;
       }
       await audit('project_cost_add', 'success', {
         userId: user.id, detail: `project ${costProjectId} cost ${cents}`, ip
       });
-      return h.redirect(res, `/admin/projects/${costProjectId}?ok=cost`), true;
+      return h.redirect(res, `/admin/projects/${costProjectId}/budget?ok=cost`), true;
     }
 
     const costId = Number(projectCostDeleteMatch[2]);
@@ -2996,7 +3040,7 @@ async function handleAdmin(req, res, ctx) {
     await audit('project_cost_delete', 'success', {
       userId: user.id, detail: `project ${costProjectId} cost ${costId}`, ip
     });
-    return h.redirect(res, `/admin/projects/${costProjectId}?ok=${removed ? 'costDeleted' : 'none'}`), true;
+    return h.redirect(res, `/admin/projects/${costProjectId}/budget?ok=${removed ? 'costDeleted' : 'none'}`), true;
   }
 
   const projectMatch = pathname.match(/^\/admin\/projects\/(\d+)$/);
@@ -3030,7 +3074,6 @@ async function handleAdmin(req, res, ctx) {
             project, stands: await admin.standsForProject(projectId),
             pricing: await admin.pricingFor(projectId),
             steps: await admin.progressSteps(projectId), user, csrf,
-          extra: views.renderProjectCosts({ project: await getProjectById(projectId), user, csrf, notice, error }),
             error: form.errors.join(' ')
           })
         }));
@@ -3069,16 +3112,13 @@ async function handleAdmin(req, res, ctx) {
         steps: await admin.progressSteps(projectId),
         user, csrf,
         notice,
-        error: url.searchParams.get('error') || '',
-        extra: views.renderProjectCosts({
-          project: await getProjectById(projectId), user, csrf,
-          notice: '', error: url.searchParams.get('error') || ''
-        })
+        error: url.searchParams.get('error') || ''
       })
     }));
     return true;
   }
 
+  /* ── Progress steps: add, update, delete ── */
   const stepDeleteMatch = pathname.match(/^\/admin\/projects\/(\d+)\/progress\/(\d+)\/delete$/);
   const stepMatch = pathname.match(/^\/admin\/projects\/(\d+)\/progress\/(\d+)$/);
   const addStepMatch = pathname.match(/^\/admin\/projects\/(\d+)\/progress$/);
@@ -3089,12 +3129,12 @@ async function handleAdmin(req, res, ctx) {
     const match = addStepMatch || stepMatch || stepDeleteMatch;
     const projectId = Number(match[1]);
     const project = await admin.projectById(projectId);
-
     if (!project) return h.send(res, 404, 'Project not found'), true;
 
     /* ── Add ── */
     if (addStepMatch) {
       const label = String(body.label || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+
       if (label.length < 2) {
         h.sendHtml(res, 200, await views.adminLayout({
           title: project.name, active: '/admin/projects', user, csrf,
@@ -3102,7 +3142,6 @@ async function handleAdmin(req, res, ctx) {
             project, stands: await admin.standsForProject(projectId),
             pricing: await admin.pricingFor(projectId),
             steps: await admin.progressSteps(projectId), user, csrf,
-          extra: views.renderProjectCosts({ project: await getProjectById(projectId), user, csrf, notice, error }),
             error: 'Please give the step a label.'
           })
         }));
@@ -3140,7 +3179,6 @@ async function handleAdmin(req, res, ctx) {
           project, stands: await admin.standsForProject(projectId),
           pricing: await admin.pricingFor(projectId),
           steps: await admin.progressSteps(projectId), user, csrf,
-          extra: views.renderProjectCosts({ project: await getProjectById(projectId), user, csrf, notice, error }),
           error: 'A step needs a label and a valid state.'
         })
       }));
