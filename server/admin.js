@@ -21,7 +21,7 @@ const { audit, admin, enquiries, users, agents, sessions, staffSessions, leads, 
   leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
   STAND_STATUSES, PROJECT_STATUSES, getOverdueClients, getProjects, getProjectById,
   addProjectCost, setProjectBudget, deleteProjectCost, getOverdueFollowUps,
-  findLeadByPhone } = require('./db');
+  getTopSalesAgents, findLeadByPhone } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
