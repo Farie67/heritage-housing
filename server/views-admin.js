@@ -1767,6 +1767,7 @@ ${rows}
 /* ── Activity logs ──────────────────────────────────────────────────────── */
 function renderActivityLogs({ logs = [], agents = [], user, csrf,
   agentId = null, sortOrder = 'DESC', date = '', today = '',
+  showBoards = false, topSales = [], salesPeriod = 'all', overdueByAgent = [],
   notice = '', error = '' }) {
   /* Existing feedback, then the form to add more. The reveal is a <details>
      rather than a script, for the same reason as everywhere else: script-src
@@ -1845,7 +1846,47 @@ ${agentOptions}
     ? `<a class="btn outline" href="/admin/activity-logs">Today</a>` : ''}
     </form>
 
-    <h3>Activity for ${esc(date)}</h3>
+    
+    ${showBoards ? `    <div class="client-grid" style="grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));margin:24px 0">
+      <div class="client-card">
+        <h3>Top Sales Agents</h3>
+        <div class="tabs" style="padding-bottom:0;border-bottom:0;margin:10px 0 8px">
+          <a href="/admin/activity-logs?sales_period=all"   ${salesPeriod === 'all'   ? 'aria-current="page"' : ''}>All Time</a>
+          <a href="/admin/activity-logs?sales_period=month" ${salesPeriod === 'month' ? 'aria-current="page"' : ''}>This Month</a>
+          <a href="/admin/activity-logs?sales_period=week"  ${salesPeriod === 'week'  ? 'aria-current="page"' : ''}>This Week</a>
+        </div>
+        <p class="field-hint" style="margin-bottom:12px">${salesPeriod === 'all'
+    ? 'Stands sold, all time.' : salesPeriod === 'month'
+      ? 'Stands sold this month.' : 'Stands sold in the last 7 days.'}</p>
+        ${topSales.length
+    ? `<ol style="margin:0;padding-left:20px">
+          ${topSales.map((r, i) => `<li style="margin-bottom:6px${i === 0 ? ';font-weight:700;color:var(--gold)' : ''}">
+            ${esc(r.name)} &mdash; ${esc(r.sales)} sale${r.sales === 1 ? '' : 's'}</li>`).join('\n          ')}
+        </ol>`
+    : '<p class="muted">No sales recorded in this period.</p>'}
+      </div>
+
+      <div class="client-card">
+        <h3>Most Overdue Follow-ups</h3>
+        <p class="field-hint" style="margin-bottom:12px">Open leads past their follow-up date,
+          most overdue first.</p>
+        ${overdueByAgent.length
+    ? `<ol style="margin:0;padding-left:20px">
+          ${overdueByAgent.map((r) => `<li style="margin-bottom:8px">
+            ${esc(r.agent_name)} &mdash; ${esc(r.overdue)} overdue
+            <details style="margin-top:4px"><summary class="text-btn" style="cursor:pointer">View records</summary>
+              <ul style="margin:6px 0 0 0;padding-left:18px;font-size:.9rem">
+                ${r.records.map((x) => `<li>${esc(x.full_name)}${x.phone ? ` &middot; ${esc(x.phone)}` : ''}
+                  &middot; due ${esc(formatDate(x.follow_up_date))} &middot; ${esc(x.status)}</li>`).join('\n                ')}
+              </ul>
+            </details>
+          </li>`).join('\n          ')}
+        </ol>`
+    : '<p class="notice success" style="margin:0;font-size:1rem">No overdue follow-ups.</p>'}
+      </div>
+    </div>` : ''}
+
+<h3>Activity for ${esc(date)}</h3>
 
     ${notice ? `<p class="notice success">${esc(notice)}</p>` : ''}
     ${error ? `<p class="notice error">${esc(error)}</p>` : ''}

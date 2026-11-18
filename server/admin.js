@@ -20,7 +20,8 @@ const config = require('./config');
 const { audit, admin, enquiries, users, agents, sessions, staffSessions, leads, staffLogs,
   leadNotes, content, db, PAYMENT_STATUSES, PAYMENT_METHODS, PROPERTY_TYPES,
   STAND_STATUSES, PROJECT_STATUSES, getOverdueClients, getProjects, getProjectById,
-  addProjectCost, setProjectBudget, deleteProjectCost, findLeadByPhone } = require('./db');
+  addProjectCost, setProjectBudget, deleteProjectCost, getOverdueFollowUps,
+  findLeadByPhone } = require('./db');
 const contentSchema = require('./content');
 const auth = require('./auth');
 const views = require('./views-admin');
@@ -2753,6 +2754,32 @@ async function handleAdmin(req, res, ctx) {
 
     await audit('admin_view', 'success', { userId: user.id, detail: 'activity logs', ip });
 
+    /* The two performance cards. Admin only, and independent of the date and
+       agent filters above them — they are a standing leaderboard, not a view of
+       the selected day. */
+    const showBoards = role === 'admin';
+
+    const rawPeriod = String(url.searchParams.get('sales_period') || '').trim();
+    const salesPeriod = ['all', 'month', 'week'].includes(rawPeriod) ? rawPeriod : 'all';
+
+    const topSales = showBoards
+      ? await getTopSalesAgents(10, salesPeriod, config.PRIVATE_AGENT_ID)
+      : [];
+    const overdueRows = showBoards ? await getOverdueFollowUps(today) : [];
+
+    /* Grouped here rather than in a second query: one read, one calculation. */
+    const overdueByAgent = [];
+    for (const row of overdueRows) {
+      let entry = overdueByAgent.find((e) => e.agent_id === row.agent_id);
+      if (!entry) {
+        entry = { agent_id: row.agent_id, agent_name: row.agent_name, overdue: 0, records: [] };
+        overdueByAgent.push(entry);
+      }
+      entry.overdue += 1;
+      entry.records.push(row);
+    }
+    overdueByAgent.sort((a, b) => b.overdue - a.overdue || a.agent_name.localeCompare(b.agent_name));
+
     h.sendHtml(res, 200, await views.adminLayout({
       title: 'Activity Logs', active: '/admin/activity-logs', user, csrf,
       body: views.renderActivityLogs({
@@ -2760,6 +2787,7 @@ async function handleAdmin(req, res, ctx) {
         agents: await agents.list(),
         user, csrf,
         agentId, sortOrder, date, today,
+        showBoards, topSales, salesPeriod, overdueByAgent,
         notice: url.searchParams.get('ok') === 'commented' ? 'Comment added.' : '',
         error: url.searchParams.get('error') || ''
       })

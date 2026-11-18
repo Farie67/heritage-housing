@@ -1319,6 +1319,20 @@ const qTopSalesAgents = prepare(`
 /* Leads whose follow-up date has already passed and which are still open,
    counted per agent. Strictly `< today`, so something due today is not yet
    overdue — the dashboard's own follow-up box includes today, this does not. */
+/* The overdue follow-ups themselves, not just the counts. Same predicate as
+   qTopOverdueAgents: a due date in the past and a status that is still open. */
+const qOverdueFollowUpRows = prepare(`
+  SELECT a.id AS agent_id, a.name AS agent_name,
+         l.id AS lead_id, l.full_name, l.phone, l.follow_up_date, l.status
+    FROM leads l
+    JOIN agents a ON a.id = l.assigned_agent_id
+   WHERE l.follow_up_date IS NOT NULL
+     AND l.follow_up_date <> ''
+     AND l.follow_up_date < ?
+     AND l.status NOT IN ('Won', 'Lost')
+   ORDER BY l.follow_up_date ASC, a.name COLLATE NOCASE, l.id
+`);
+
 const qTopOverdueAgents = prepare(`
   SELECT a.id, a.name, COUNT(*) AS overdue
     FROM leads l
@@ -1669,11 +1683,25 @@ async function getOverdueClients(days = 30, branchId = null) {
  * to 'all' rather than throwing, so a hand-edited query string cannot break the
  * dashboard.
  */
-async function getTopSalesAgents(limit = 3, period = 'all') {
-  const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 20) : 3;
+async function getTopSalesAgents(limit = 3, period = 'all', excludeAgentId = null) {
+  const n = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 3;
   const safePeriod = SALES_PERIODS.includes(period) ? period : 'all';
   const since = periodStartIso(safePeriod);
-  return await qTopSalesAgents.all(since, since, n);
+  const rows = await qTopSalesAgents.all(since, since, n + 1);
+  /* Excluded by id, after the query: the leaderboard is small, and this keeps the
+     prepared statement (and its cached plan) exactly as it was. */
+  const excluded = Number.isInteger(excludeAgentId) && excludeAgentId > 0 ? excludeAgentId : null;
+  return rows.filter((r) => r.id !== excluded).slice(0, n);
+}
+
+/**
+ * Every overdue follow-up, oldest first, with the agent who owns it.
+ *
+ * Deliberately NOT filtered by branch or by any privacy rule: the office asked
+ * for the complete picture here, including the withheld agent.
+ */
+async function getOverdueFollowUps(today) {
+  return await qOverdueFollowUpRows.all(today);
 }
 
 /** The agents sitting on the most overdue follow-ups — [{ id, name, overdue }]. */
@@ -2968,6 +2996,7 @@ module.exports = {
   db, ready, driver, audit, users, sessions, agents, staffSessions,
   leads, staffLogs, leadNotes, getTopSalesAgents, getTopOverdueAgents, SALES_PERIODS,
   getOverdueClients, passwordResets,
+  getOverdueFollowUps,
   getProjects, getProjectById, addProjectCost, setProjectBudget, deleteProjectCost,
   findLeadByPhone, normalisePhone,
   portal, enquiries, admin, content, nowIso,

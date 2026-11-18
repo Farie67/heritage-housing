@@ -31,6 +31,11 @@ module.exports = {
   PRIVATE_DOCS_DIR: process.env.PRIVATE_DOCS_DIR || path.join(ROOT, 'private-docs'),
   DB_PATH: process.env.DB_PATH || path.join(ROOT, 'data', 'heritage.db'),
 
+  /* An agent whose leaderboard figures are withheld. Identified by the agents.id
+     primary key, never by display name: a name can be edited, duplicated or
+     guessed, an id cannot. NULL means no agent is withheld. */
+  PRIVATE_AGENT_ID: int('PRIVATE_AGENT_ID', 0) || null,
+
   PORT: int('PORT', 3000),
   HOST: process.env.HOST || '127.0.0.1',
 
@@ -65,6 +70,14 @@ module.exports = {
 
   /* Brute-force controls. */
   LOGIN_MAX_ATTEMPTS: int('LOGIN_MAX_ATTEMPTS', 8),
+  /* The staff portal answers a different audience and is keyed per account as
+     well as per address, so it gets its own ceiling rather than inheriting the
+     client one. */
+  STAFF_LOGIN_MAX_ATTEMPTS: int('STAFF_LOGIN_MAX_ATTEMPTS', 15),
+  /* A second, coarser ceiling for the staff portal: every attempt from one
+     address, whatever account it names, inside an hour. The per-account limit
+     above cannot see a spray across many accounts; this one can. */
+  STAFF_LOGIN_MAX_PER_IP: int('STAFF_LOGIN_MAX_PER_IP', 60),
   LOGIN_WINDOW_MS: int('LOGIN_WINDOW_MINUTES', 15) * 60 * 1000,
   ACCOUNT_LOCK_MS: int('ACCOUNT_LOCK_MINUTES', 15) * 60 * 1000,
   ENQUIRY_MAX_PER_HOUR: int('ENQUIRY_MAX_PER_HOUR', 5),
