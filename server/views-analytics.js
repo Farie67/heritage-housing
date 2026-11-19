@@ -657,6 +657,12 @@ ${reports.map(([type, label]) => `      <div class="export-row">
 ${['csv', 'xlsx', 'pdf'].map((f) => `          <a href="/admin/analytics/export/${type}.${f}${query ? `?${esc(query)}` : ''}">${f === 'xlsx' ? 'Excel' : f.toUpperCase()}</a>`).join('\n')}
         </span>
       </div>`).join('\n')}
+      <div class="export-row">
+        <span>Project Sales Statement <span class="muted" style="font-size:.85em">&mdash; 12-month trading summary</span></span>
+        <span class="export-links">
+          <a href="/admin/exports/statement${query ? `?${esc(query)}` : ''}">PDF</a>
+        </span>
+      </div>
     </div>`;
 }
 

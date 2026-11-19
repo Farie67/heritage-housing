@@ -678,7 +678,131 @@ function filenameFor(report, format, context = {}) {
   return `${parts.join('-')}.${format}`;
 }
 
+/* ── Project Sales Statement ──────────────────────────────────────────────
+   A one-page trading statement, laid out with the same PdfDoc primitives the
+   other PDF exports use. Deliberately separate from the report pipeline above:
+   that one is row/column shaped, this is a fixed layout. */
+
+/**
+ * @param {object} s  the object from analytics.projectSalesStatement()
+ * @param {object} opts  { settings }
+ * @returns {Buffer}
+ */
+function statementPdf(s, { settings = {} } = {}) {
+  const doc = new PdfDoc();
+  const LEFT = MARGIN;
+  const RIGHT = doc.width - MARGIN;
+  const usable = RIGHT - LEFT;
+  const bottom = doc.height - MARGIN - 34;
+
+  const money0 = (cents) => money(cents || 0);
+
+  let y = MARGIN;
+
+  /* ── Masthead ── */
+  doc.fillRect(LEFT, y - 6, usable, 46, { gray: 0.95 });
+  doc.text(settings.company_legal || 'Heritage Housing Projects (Pvt) Ltd', LEFT + 10, y + 4,
+    { font: 'bold', size: 14, gray: 0.08 });
+  doc.text('SALES STATEMENT', LEFT + 10, y + 22, { font: 'bold', size: 9, gray: 0.42 });
+  doc.textRight(`Generated ${formatDate(s.generatedAt || new Date())}`, RIGHT - 10, y + 22,
+    { size: 8, gray: 0.42 });
+  y += 58;
+
+  /* ── Scope ── */
+  doc.text('PROJECT', LEFT, y, { font: 'bold', size: 7, gray: 0.5 });
+  y += 11;
+  doc.text(s.projectName || 'All Projects', LEFT, y, { font: 'bold', size: 16, gray: 0.08 });
+  y += 24;
+
+  /* ── Twelve-month table ── */
+  doc.text('TWELVE-MONTH BREAKDOWN', LEFT, y, { font: 'bold', size: 7, gray: 0.5 });
+  y += 14;
+
+  const colMonth = LEFT;
+  const colSales = LEFT + usable * 0.55;
+  const colValue = RIGHT;
+
+  doc.text('MONTH', colMonth, y, { font: 'bold', size: 7, gray: 0.42 });
+  doc.textRight('SALES', colSales, y, { font: 'bold', size: 7, gray: 0.42 });
+  doc.textRight('TOTAL VALUE', colValue, y, { font: 'bold', size: 7, gray: 0.42 });
+  y += 5;
+  doc.line(LEFT, y, RIGHT, y, { width: 0.7, gray: 0.6 });
+  y += 11;
+
+  for (const m of s.months) {
+    if (y > bottom) { doc.addPage(); y = MARGIN; }
+    const isBest = s.bestMonth && m.label === s.bestMonth.label;
+    if (isBest) doc.fillRect(LEFT - 4, y - 7, usable + 8, 12, { gray: 0.93 });
+
+    doc.text(m.label, colMonth, y, { font: isBest ? 'bold' : 'regular', size: 8.5, gray: 0.12 });
+    doc.textRight(String(m.sales), colSales, y, { font: isBest ? 'bold' : 'regular', size: 8.5, gray: 0.12 });
+    doc.textRight(money0(m.valueCents), colValue, y,
+      { font: isBest ? 'bold' : 'regular', size: 8.5, gray: 0.12 });
+    y += 14;
+  }
+
+  y += 3;
+  doc.line(LEFT, y, RIGHT, y, { width: 0.7, gray: 0.6 });
+  y += 13;
+  doc.text('TOTAL', colMonth, y, { font: 'bold', size: 8.5, gray: 0.1 });
+  doc.textRight(String(s.months.reduce((n, m) => n + m.sales, 0)), colSales, y,
+    { font: 'bold', size: 8.5, gray: 0.1 });
+  doc.textRight(money0(s.months.reduce((n, m) => n + m.valueCents, 0)), colValue, y,
+    { font: 'bold', size: 8.5, gray: 0.1 });
+  y += 26;
+
+  /* ── Best month callout ── */
+  if (y > bottom) { doc.addPage(); y = MARGIN; }
+  doc.fillRect(LEFT, y - 8, usable, 30, { gray: 0.93 });
+  doc.text('MOST PERFORMED MONTH', LEFT + 10, y + 1, { font: 'bold', size: 7, gray: 0.45 });
+  doc.text(
+    s.bestMonth
+      ? `${s.bestMonth.label} with ${s.bestMonth.sales} sale${s.bestMonth.sales === 1 ? '' : 's'}`
+      : 'No sales in the last twelve months',
+    LEFT + 10, y + 12, { font: 'bold', size: 12, gray: 0.08 });
+  y += 44;
+
+  /* ── Financial summary ── */
+  if (y > bottom) { doc.addPage(); y = MARGIN; }
+  doc.text('FINANCIAL SUMMARY', LEFT, y, { font: 'bold', size: 7, gray: 0.5 });
+  y += 14;
+
+  const lineItem = (label, value, { bold = false, note = '' } = {}) => {
+    doc.text(label, LEFT, y, { font: bold ? 'bold' : 'regular', size: 9, gray: bold ? 0.1 : 0.3 });
+    doc.textRight(value, RIGHT, y, { font: 'bold', size: bold ? 11 : 9, gray: 0.1 });
+    if (note) { y += 10; doc.text(note, LEFT, y, { size: 6.5, gray: 0.55 }); }
+    y += 18;
+  };
+
+  lineItem('Total Revenue Collected', money0(s.collectedCents),
+    { bold: true, note: 'confirmed payments received, net of refunds' });
+  lineItem('Outstanding Expected Revenue', money0(s.outstandingCents),
+    { bold: true, note: 'still owed on active sales in this project' });
+
+  y += 2;
+  doc.line(LEFT, y, RIGHT, y, { width: 0.5, gray: 0.75 });
+  y += 12;
+  doc.text('Total contract value', LEFT, y, { size: 8, gray: 0.4 });
+  doc.textRight(money0(s.contractCents), RIGHT, y, { size: 8, gray: 0.4 });
+  y += 11;
+  doc.text('Sales on record', LEFT, y, { size: 8, gray: 0.4 });
+  doc.textRight(String(s.saleCount), RIGHT, y, { size: 8, gray: 0.4 });
+
+  /* ── Footer on every page ── */
+  const pages = doc.pages.length;
+  for (let p = 0; p < pages; p += 1) {
+    doc.line(LEFT, doc.height - MARGIN - 18, RIGHT, doc.height - MARGIN - 18,
+      { width: 0.4, gray: 0.8, page: p });
+    doc.text('Heritage Housing Projects (Pvt) Ltd — Sales Statement', LEFT,
+      doc.height - MARGIN - 10, { size: 6.5, gray: 0.55, page: p });
+    doc.textRight(`Page ${p + 1} of ${pages}`, RIGHT, doc.height - MARGIN - 10,
+      { size: 6.5, gray: 0.55, page: p });
+  }
+
+  return doc.build();
+}
+
 module.exports = {
   REPORTS, REPORT_TYPES, FORMATS, build, render, filenameFor, describeFilters,
-  toCsv, toXlsx, toPdf, MIME
+  toCsv, toXlsx, toPdf, statementPdf, MIME
 };

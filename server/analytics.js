@@ -8,8 +8,8 @@
 
    Two date bases, and the difference matters:
 
-     a SALE is dated by  sale_date   — when the stand was sold
-     a TRANSACTION is dated by paid_on — when the money moved
+     a SALE is dated by  sale_date   â€” when the stand was sold
+     a TRANSACTION is dated by paid_on â€” when the money moved
 
    A sale agreed in September and paid in October counts as a new sale in
    September and as cash collected in October. Moving the payment back to the
@@ -25,7 +25,7 @@ const { money, percent } = require('./format');
 
 const COLLECTION_SQL = "('DEPOSIT','INSTALLMENT','FINAL_PAYMENT')";
 
-/* ── Filters ────────────────────────────────────────────────────────────── */
+/* â”€â”€ Filters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const asInt = (v) => {
   const n = Number.parseInt(v, 10);
@@ -61,7 +61,7 @@ function hasFilters(f) {
     || f.type || f.method || f.saleStatus || f.clientId || f.standId || f.search);
 }
 
-/* ── SQL fragments ──────────────────────────────────────────────────────── */
+/* â”€â”€ SQL fragments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * WHERE clause for the transaction side.
@@ -87,7 +87,7 @@ function transactionWhere(f, opts = {}) {
   if (f.method) { w.push(`${p}.method = ?`); args.push(f.method); }
   if (f.projectId) { w.push(`${st}.project_id = ?`); args.push(f.projectId); }
 
-  /* Branch isolation for the transaction side — the ledger, the totals and the
+  /* Branch isolation for the transaction side â€” the ledger, the totals and the
      daily series all come through here.
 
      Matched through the STAND's project, not the agent's branch: an agent may
@@ -137,7 +137,7 @@ function saleWhere(f) {
   return { sql: w.length ? w.join(' AND ') : '1=1', args };
 }
 
-/* The per-sale totals. Always over ALL confirmed, non-voided transactions —
+/* The per-sale totals. Always over ALL confirmed, non-voided transactions â€”
    a sale's balance is a property of the sale, not of the reporting period. */
 const SALE_TOTALS = `
   LEFT JOIN (
@@ -216,7 +216,7 @@ async function saleTransactions(saleId) {
      ORDER BY p.paid_on, p.id`).all(saleId);
 }
 
-/* ── Aggregates ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Aggregates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 async function sumTransactions(f) {
   const w = transactionWhere(f);
@@ -265,8 +265,8 @@ async function sumSales(f) {
  *
  * `outstandingCents` follows the brief's formula (contract value less net
  * collections). `ledgerOutstandingCents` is the sale-by-sale total. They agree
- * whenever every collection belongs to a sale in scope — which is the case for
- * the unfiltered dashboard — and diverge only when a date filter splits a sale
+ * whenever every collection belongs to a sale in scope â€” which is the case for
+ * the unfiltered dashboard â€” and diverge only when a date filter splits a sale
  * from its payments. Both are returned rather than one being hidden.
  */
 async function kpis(f = {}) {
@@ -408,11 +408,11 @@ async function byType(f = {}) {
   }));
 }
 
-/* ── Period series (for the charts) ─────────────────────────────────────── */
+/* â”€â”€ Period series (for the charts) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * Daily figures between two dates, inclusive, with every day present even
- * when nothing happened — a chart with gaps misleads.
+ * when nothing happened â€” a chart with gaps misleads.
  */
 async function dailySeries(from, to, f = {}) {
   const scoped = { ...f, from, to };
@@ -492,7 +492,7 @@ async function monthlySeries(year, f = {}) {
   return out;
 }
 
-/* ── Ledger ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Ledger â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const LEDGER_SORTS = {
   date: 'p.paid_on',
@@ -543,13 +543,13 @@ async function ledger(f = {}, { page = 1, perPage = 25, sort = 'date', dir = 'de
   return { rows, total, page: current, pages, perPage: limit };
 }
 
-/* ── Balance engine ─────────────────────────────────────────────────────── */
+/* â”€â”€ Balance engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * Recomputes a sale's status from its transactions and writes it back.
  *
  * This is the "automatic balance" rule: status is never set by hand, it is
- * derived every time money moves. Cancelled sales are left alone — a
+ * derived every time money moves. Cancelled sales are left alone â€” a
  * deliberate cancellation should not be undone by a later payment.
  */
 async function recomputeSale(saleId, actorId = null) {
@@ -602,14 +602,14 @@ async function recomputeSale(saleId, actorId = null) {
   return { saleId, status, outstandingCents: outstanding, netCents: net, closedAt };
 }
 
-/** Recomputes every sale — used after an import or a bulk correction. */
+/** Recomputes every sale â€” used after an import or a bulk correction. */
 async function recomputeAllSales(actorId = null) {
   const ids = (await db.prepare('SELECT id FROM ownerships').all()).map((r) => r.id);
   /* An async map would return an array of Promises; the callers want results. */
   return Promise.all(ids.map((id) => recomputeSale(id, actorId)));
 }
 
-/* ── Financial audit trail ──────────────────────────────────────────────── */
+/* â”€â”€ Financial audit trail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 async function financeAudit({ actorUserId = null, action, entity, entityId = null,
   reference = null, oldValue = null, newValue = null, reason = null }) {
@@ -631,7 +631,7 @@ async function financeAuditLog({ limit = 100 } = {}) {
      ORDER BY f.id DESC LIMIT ?`).all(Math.min(Number(limit) || 100, 500));
 }
 
-/* ── Reference data for the filter controls ─────────────────────────────── */
+/* â”€â”€ Reference data for the filter controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 async function filterOptions() {
   return {
@@ -646,7 +646,7 @@ async function filterOptions() {
   };
 }
 
-/* ── Recording transactions ─────────────────────────────────────────────── */
+/* â”€â”€ Recording transactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const VALID_TYPES = ['DEPOSIT', 'INSTALLMENT', 'FINAL_PAYMENT', 'REFUND'];
 const VALID_METHODS = PAYMENT_METHODS;
@@ -775,7 +775,7 @@ async function voidTransaction(id, { actorId = null, reason = null } = {}) {
  *
  * Routed through here rather than straight to the table because two things
  * must happen with it: the change belongs in the audit trail, and the sale's
- * balance has to be recomputed — confirming the payment that clears a balance
+ * balance has to be recomputed â€” confirming the payment that clears a balance
  * is exactly the moment a sale becomes Completed.
  */
 async function setTransactionStatus(id, status, { actorId = null, reason = null } = {}) {
@@ -860,7 +860,7 @@ async function updateTransaction(id, { paidOn, amountCents, method, status, note
 }
 
 /* Uses the shared formatter so an error message and a page never disagree. */
-/* ── Period helpers ─────────────────────────────────────────────────────── */
+/* â”€â”€ Period helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const iso = (d) => d.toISOString().slice(0, 10);
 
@@ -897,10 +897,105 @@ function daysBetween(from, to) {
   return out;
 }
 
+/* â”€â”€ Project Sales Statement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+/**
+ * The twelve-month trading picture for one development, or all of them.
+ *
+ * Built entirely from `sales()` and `sumTransactions()` above, so the statement
+ * can never disagree with the analytics page it is printed from. No SQL of its
+ * own beyond those two calls.
+ *
+ * `projectId` narrows to one development; `projectIds` to a set (used when a
+ * branch-scoped administrator prints their whole branch). Both null means every
+ * project. Never both.
+ */
+async function projectSalesStatement({ projectId = null, projectIds = null,
+  today = new Date() } = {}) {
+  const one = priceGuard(projectId);
+  const many = Array.isArray(projectIds) && projectIds.length
+    ? projectIds.map(priceGuard).filter(Boolean)
+    : null;
+
+  const filter = one ? { projectId: one } : {};
+  let rows = await sales(filter);
+
+  /* A branch is a set of projects, so it is narrowed here rather than in SQL —
+     `sales()` has no notion of a branch and adding one would duplicate the
+     filter that already exists above. */
+  if (many) {
+    const keep = new Set(many);
+    rows = rows.filter((r) => keep.has(Number(r.project_id)));
+  }
+
+  /* Months are keyed 'YYYY-MM' in local time, the same way the rest of the app
+     thinks about dates. The window is the twelve months ending this month. */
+  const months = [];
+  const base = new Date(today.getFullYear(), today.getMonth(), 1);
+  for (let back = 11; back >= 0; back -= 1) {
+    const d = new Date(base.getFullYear(), base.getMonth() - back, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    months.push({ key, label: d.toLocaleString('en-GB', { month: 'short', year: 'numeric' }),
+      sales: 0, valueCents: 0 });
+  }
+  const byKey = new Map(months.map((m) => [m.key, m]));
+
+  /* Cancelled sales are not trade: they are excluded everywhere else, so they
+     are excluded here too. */
+  const live = rows.filter((r) => String(r.sale_status || 'Active') !== 'Cancelled');
+
+  for (const row of live) {
+    const key = String(row.sale_date || '').slice(0, 7);
+    const month = byKey.get(key);
+    if (!month) continue;              // outside the twelve-month window
+    month.sales += 1;
+    month.valueCents += row.sale_price_cents || 0;
+  }
+
+  /* Best month by COUNT, which is what "most performed" means to the office.
+     Ties go to the earlier month, so the answer is stable between runs. */
+  let best = null;
+  for (const m of months) {
+    if (m.sales > 0 && (!best || m.sales > best.sales)) best = m;
+  }
+
+  /* Collected cash. For a single project `sumTransactions` is the authority and
+     is already project-filtered. For a branch set it is not, so the figure is
+     taken from the narrowed sale rows themselves — the same per-sale
+     `net_cents` (collected minus refunds) the ledger uses, just summed here. */
+  const totals = await sumTransactions(filter);
+  const collectedCents = many
+    ? live.reduce((n, r) => n + (r.net_cents || 0), 0)
+    : totals.netCents;
+
+  /* What is still owed on every live sale in scope. Only sales that are still
+     running count â€” a cancelled sale is not a receivable. */
+  const outstandingCents = live.reduce((n, r) => n + (r.outstanding_cents || 0), 0);
+
+  return {
+    projectId: one || null,
+    projectName: one && live.length ? live[0].project_name : null,
+    months,
+    bestMonth: best ? { label: best.label, sales: best.sales, valueCents: best.valueCents } : null,
+    collectedCents,
+    grossCollectedCents: many ? collectedCents : totals.grossCents,
+    outstandingCents,
+    saleCount: live.length,
+    contractCents: live.reduce((n, r) => n + (r.sale_price_cents || 0), 0),
+    generatedAt: today
+  };
+}
+
+/** Narrow helper: a positive integer project id, or null. */
+function priceGuard(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 module.exports = {
   filtersFrom, hasFilters, kpis, collectionAnalysis, byProject, byAgent, byType,
   sales, saleById, saleTransactions, sumTransactions, sumSales,
   dailySeries, monthlySeries, ledger,
+  projectSalesStatement,
   recomputeSale, recomputeAllSales, financeAudit, financeAuditLog, filterOptions,
   decorateSale, LEDGER_SORTS,
   recordTransaction, voidTransaction, unvoidTransaction, updateTransaction, outstandingFor,

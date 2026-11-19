@@ -706,6 +706,58 @@ async function handleAdmin(req, res, ctx) {
     return true;
   }
 
+  /* ── Project Sales Statement ──
+     A fixed-layout statement, not a row/column report, so it has its own route
+     instead of going through the report pipeline.
+
+     The project filter is honoured exactly as on the page, which is why the
+     export link carries the current query string with it. */
+  if (pathname === '/admin/exports/statement') {
+    if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const asked = Number.parseInt(String(url.searchParams.get('projectId') || ''), 10);
+    const wanted = Number.isInteger(asked) && asked > 0 ? asked : null;
+
+    /* A scoped administrator prints only their own branch. No project chosen —
+       print the whole branch; one chosen — it must be theirs, or 404, the same
+       answer the property and budget pages give. */
+    let statement;
+    if (branchScope !== null) {
+      const own = (await admin.projectsWithCounts(branchScope)).map((p) => Number(p.id));
+      if (wanted !== null && !own.includes(wanted)) {
+        return h.send(res, 404, 'Not found'), true;
+      }
+      statement = wanted !== null
+        ? await analytics.projectSalesStatement({ projectId: wanted })
+        : await analytics.projectSalesStatement({ projectIds: own });
+    } else {
+      if (wanted !== null && !await getProjectById(wanted)) {
+        return h.send(res, 404, 'Not found'), true;
+      }
+      statement = await analytics.projectSalesStatement({ projectId: wanted });
+    }
+
+    const buffer = reportExports.statementPdf(statement, { settings: await content.settings() });
+    const name = statement.projectName
+      ? `sales-statement-${String(statement.projectName).replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`
+      : 'sales-statement.pdf';
+
+    await audit('analytics_export', 'success', {
+      userId: user.id, detail: `statement.pdf — ${statement.projectName || 'all projects'}`, ip
+    });
+
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Length': buffer.length,
+      'Content-Disposition': `attachment; filename="${name}"`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(buffer);
+    return true;
+  }
+
   /* ── Exports ──
      Built from the same filter object the page used, so an export always
      matches what the administrator was looking at when they pressed it. */
