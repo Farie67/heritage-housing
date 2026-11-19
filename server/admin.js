@@ -716,8 +716,13 @@ async function handleAdmin(req, res, ctx) {
     if (method !== 'GET') return h.send(res, 405, 'Method not allowed'), true;
 
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const asked = Number.parseInt(String(url.searchParams.get('projectId') || ''), 10);
-    const wanted = Number.isInteger(asked) && asked > 0 ? asked : null;
+
+    /* Read through filtersFrom, exactly as the page and the other exports do.
+       The filter form posts `project`, not `projectId`, so reading the raw
+       parameter by my own name silently produced "All Projects". Going through
+       the shared parser means the statement can never drift from the page. */
+    const filters = await analytics.filtersFrom(Object.fromEntries(url.searchParams));
+    const wanted = filters.projectId || null;
 
     /* A scoped administrator prints only their own branch. No project chosen —
        print the whole branch; one chosen — it must be theirs, or 404, the same
